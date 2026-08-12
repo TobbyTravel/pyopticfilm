@@ -1,0 +1,49 @@
+[project]
+name = "pyopticfilm"
+description = "PyUSB driver for Plustek OpticFilm USB film scanners (Genesys ASIC)."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+authors = [{ name = "jboneng" }]
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.0",
+    "pyusb>=1.2.1",
+    "libusb-package>=1.0.26 ; sys_platform == 'win32'",
+]
+dynamic = ["version"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Graphics :: Capture :: Scanners",
+]
+
+[project.urls]
+Homepage = "https://github.com/jboneng/pyopticfilm"
+Repository = "https://github.com/jboneng/pyopticfilm"
+Issues = "https://github.com/jboneng/pyopticfilm/issues"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/pyopticfilm/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyopticfilm"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
