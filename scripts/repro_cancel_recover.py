@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Cancel mid-scan, close, reopen, second scan — log GL128 recover state.
 
@@ -200,10 +199,6 @@ def main() -> int:
         print(f"PASS2 FAIL: {exc} (+{time.monotonic() - t1:.1f}s)")
         traceback.print_exc()
         return 7
-    except Exception as exc:
-        print(f"PASS2 FAIL unexpected: {exc}")
-        traceback.print_exc()
-        return 8
 
 
 if __name__ == "__main__":
