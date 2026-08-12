@@ -28,12 +28,14 @@ from pyopticfilm.logging import get_logger
 from pyopticfilm.scan.calibrate import Calibrator
 from pyopticfilm.scan.geometry import ScanGeometry
 from pyopticfilm.scan.session import DATA_TIMEOUT_S, ScanSession
+from pyopticfilm.usb.device import BULK_MAX_SIZE
 
 logger = get_logger(__name__)
 
-#: Bytes per bulk chunk while streaming an image. The captures use 1 MiB reads;
-#: this only affects progress granularity and syscall count.
-IMAGE_CHUNK_BYTES = 1 << 20
+#: Max bytes announced per ``bulk_read_begin``. SilverFast uses one preamble for
+#: the whole image; we announce at most one USB bulk ceiling so a cancel never
+#: leaves an incomplete Genesys DMA transfer (that wedges EP0 until power-cycle).
+IMAGE_CHUNK_BYTES = BULK_MAX_SIZE
 
 try:
     from pyopticfilm.asic.gl128 import MOTOR_GATED_HINT as _MOTOR_GATED_HINT
@@ -54,6 +56,8 @@ class Gl128ScanSession(ScanSession):
         self.se_regs = Gl128Registers()
         #: Set when the image pass armed ``AGOHOME`` — wait for park in ``_end_scan``.
         self._await_agohome_park = False
+        #: True after :meth:`bulk_read_begin` until :meth:`_end_scan` aborts/finishes.
+        self._bulk_stream_active = False
 
     def run(self, *args, **kwargs):  # type: ignore[no-untyped-def]
         """Refuse unless the ASIC explicitly arms motor moves."""
@@ -235,14 +239,25 @@ class Gl128ScanSession(ScanSession):
             if geometry.disable_buffer_full_move
             else r.BULK_INDEX_IMAGE
         )
-        proto.bulk_read_begin(total, index=index)
+        index = (
+            r.BULK_INDEX_RAM
+            if geometry.disable_buffer_full_move
+            else r.BULK_INDEX_IMAGE
+        )
 
         buf = bytearray()
         while len(buf) < total:
             if cancel is not None and cancel.is_set():
                 raise ScanCancelled("cancelled during bulk read")
+            # Announce only this USB-sized block and fully drain it before the
+            # next cancel check — avoids mid-DMA EP0 wedge on Stop.
             want = min(IMAGE_CHUNK_BYTES, total - len(buf))
-            chunk = proto.bulk_read_chunk(want)
+            proto.bulk_read_begin(want, index=index)
+            self._bulk_stream_active = True
+            try:
+                chunk = proto.bulk_read_exact(want)
+            finally:
+                self._bulk_stream_active = False
             if not chunk:
                 raise ScanError(
                     f"Bulk stream ended after {len(buf)} of {total} bytes"
@@ -259,7 +274,20 @@ class Gl128ScanSession(ScanSession):
         # Capture end/cancel recipe (lamp strobe + clear SCAN + AGOHOME park)
         # lives in Gl128.stop_motor — do not bare-clear 0x01 here or the strobe
         # order is lost and SCAN is cleared twice.
+        #
+        # Mid-bulk cancel must stop the ASIC first, then abort the host bulk IN
+        # pipe; otherwise the next Scanner.open()/init control transfers time out
+        # until power-cycle (Phase 2 repro).
         try:
+            # Stop ASIC DMA first (clear SCAN / AGOHOME park), then abort the
+            # host bulk IN so the pipe is not left half-open across close/reopen.
             super()._end_scan()
         finally:
+            if self._bulk_stream_active:
+                self._bulk_stream_active = False
+                try:
+                    drained = self.asic.protocol.abort_bulk_stream()
+                    logger.info("GL128 bulk abort after end_scan drained=%d", drained)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("GL128 bulk abort after end_scan: %s", exc)
             self._await_agohome_park = False
