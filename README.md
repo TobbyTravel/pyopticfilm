@@ -2,8 +2,6 @@
 
 PyUSB driver for Plustek OpticFilm USB film scanners (Genesys GL842/843/845/128 ASIC).
 
-This package is the low-level scanner driver extracted from [NegPy](https://github.com/marcinz606/NegPy). NegPy integrates it via the optional `plustek` dependency group (`pip install negpy[plustek]`).
-
 ## Install
 
 ```bash
