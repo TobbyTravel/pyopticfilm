@@ -44,7 +44,7 @@ def align_ir_to_rgb(rgb: np.ndarray, ir: np.ndarray) -> np.ndarray:
     dx, dy = dx * scale, dy * scale
     if max(abs(dx), abs(dy)) > max(16.0, _IR_ALIGN_MAX_SHIFT_FRAC * w):
         return ir
-    ix, iy = int(round(dx)), int(round(dy))
+    ix, iy = round(dx), round(dy)
     if ix == 0 and iy == 0:
         return ir
     x_idx = np.clip(np.arange(w) + ix, 0, w - 1)

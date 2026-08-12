@@ -55,9 +55,9 @@ KNOWN_MODELS: tuple[FilmModel, ...] = (
 )
 
 __all__ = [
-    "FilmModel",
     "KNOWN_MODELS",
     "MODEL_7600I_V2",
+    "FilmModel",
     "create_asic",
     "model_for_device",
     "model_for_pid",

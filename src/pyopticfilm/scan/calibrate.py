@@ -6,10 +6,10 @@ from __future__ import annotations
 import base64
 import json
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterator
 
 import numpy as np
 
@@ -509,9 +509,12 @@ class Calibrator:
                 scan_geo.pixels,
             )
             self._active = existing
-            if existing.has_asic_blob and method == "transparency":
-                if not getattr(self.asic, "asic_shading_ready", False):
-                    self.apply_colour_asic_shading(existing)
+            if (
+                existing.has_asic_blob
+                and method == "transparency"
+                and not getattr(self.asic, "asic_shading_ready", False)
+            ):
+                self.apply_colour_asic_shading(existing)
             return existing
 
         if not self.asic._initialized:
@@ -555,7 +558,7 @@ class Calibrator:
                 try:
                     if self.asic.is_at_home():
                         return
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001, S110
                     pass
                 logger.debug("SE calib: skip home (no capture-proven reverse-home)")
                 return

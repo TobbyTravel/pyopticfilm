@@ -19,8 +19,6 @@ from pyopticfilm.device.select import (
 )
 
 __all__ = [
-    "AsicDriver",
-    "FilmModel",
     "KNOWN_MODELS",
     "MODEL_7200",
     "MODEL_7200I",
@@ -34,6 +32,8 @@ __all__ = [
     "MODEL_8100",
     "MODEL_8200I",
     "MODEL_8200I_SE",
+    "AsicDriver",
+    "FilmModel",
     "Model7200",
     "Model7200i",
     "Model7300",

@@ -56,7 +56,7 @@ def main() -> None:
                 BRINGUP_BLOCK + "\n",
                 text,
                 count=1,
-                flags=re.S,
+                flags=re.DOTALL,
             )
         path.write_text(text, encoding="utf-8")
         print(f"rewrote {path.relative_to(root)}")

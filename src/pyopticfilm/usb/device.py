@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from pyopticfilm.exceptions import (
     DeviceNotFoundError,
@@ -233,7 +233,7 @@ def _pick_preferred_device(devices: list[UsbDeviceInfo]) -> UsbDeviceInfo:
     for info in devices:
         try:
             model = model_for_device(info.product_id, info.bcd_device)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S112
             continue
         if model_is_scan_ready(model):
             ready.append(info)
@@ -403,7 +403,7 @@ class UsbDeviceHandle:
             self._ep_out = None
             logger.debug("Closed %s", self.info.device_id)
 
-    def __enter__(self) -> UsbDeviceHandle:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> None:

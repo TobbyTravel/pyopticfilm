@@ -242,7 +242,7 @@ class Gl128:
         """Read the status register at ``0x101``."""
         try:
             raw = self.protocol.read_register(self.registers.REG_STATUS)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise AsicError(f"GL128 status read failed: {exc}") from exc
         return ScannerStatus.from_reg41(raw)
 

@@ -35,8 +35,8 @@ class ImagePipeline:
         frac = min(max(float(inset), 0.0), 0.2)
         if frac <= 0 or h < 8 or w < 8:
             return None
-        cut_h = max(1, int(round(h * frac)))
-        cut_w = max(1, int(round(w * frac)))
+        cut_h = max(1, round(h * frac))
+        cut_w = max(1, round(w * frac))
         if cut_h * 2 >= h or cut_w * 2 >= w:
             return None
         return slice(cut_h, h - cut_h), slice(cut_w, w - cut_w)

@@ -250,7 +250,7 @@ def test_bulk_read_data_sends_gl845_header_per_chunk():
 def test_write_ahb_header_and_bulk():
     transport = FakeTransport()
     GenesysUsbProtocol(transport).write_ahb(0x10000000, b"abcd")
-    rtype, req, value, index, payload = transport.control_log[0]
+    _rtype, _req, value, index, payload = transport.control_log[0]
     assert value == VALUE_BUFFER
     assert index == 0x01
     assert payload[0:4] == b"\x00\x00\x00\x10"

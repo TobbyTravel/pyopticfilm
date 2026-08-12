@@ -190,7 +190,7 @@ def coarse_offsets_from_wide_means(
         raise ValueError("means must be length-3 RGB")
     out: list[int] = []
     for mean in means:
-        code = int(round((65535.0 - float(mean)) / float(divisor)))
+        code = round((65535.0 - float(mean)) / float(divisor))
         out.append(max(0, min(int(offset_max), code)))
     return (out[0], out[1], out[2])
 
@@ -357,7 +357,7 @@ def shading_width_for_resolution(resolution: int) -> int:
         return SHADING_WIDTH_BY_DPI[dpi]
     if dpi < 600:
         return SHADING_WIDTH_BY_DPI[600]
-    return max(1, int(round(SHADING_WIDTH_BY_DPI[1800] * dpi / 1800)))
+    return max(1, round(SHADING_WIDTH_BY_DPI[1800] * dpi / 1800))
 
 
 def shading_acquire_width(
@@ -650,7 +650,7 @@ def equalize_ir_white_columns(
         if not vals:
             out.append((0, 0, 0))
             continue
-        mean = int(round(sum(vals) / len(vals)))
+        mean = round(sum(vals) / len(vals))
         mean = max(0, min(65535, mean))
         out.append((mean, mean, mean))
     return out
@@ -1017,7 +1017,7 @@ def average_rgb16_columns(
                 off = base + c * plane + x * 2 if planar else base + x * 6 + 2 * c
                 sums[x][c] += int.from_bytes(raw[off : off + 2], "little")
     inv = 1.0 / float(lines)
-    return [(int(round(s[0] * inv)), int(round(s[1] * inv)), int(round(s[2] * inv))) for s in sums]
+    return [(round(s[0] * inv), round(s[1] * inv), round(s[2] * inv)) for s in sums]
 
 
 def channel_means_u16(
@@ -1063,9 +1063,9 @@ def constant_dark_from_columns(
         for c in range(3):
             acc[c] += int(sample[c])
     mean: tuple[int, int, int] = (
-        int(round(acc[0] / n)),
-        int(round(acc[1] / n)),
-        int(round(acc[2] / n)),
+        round(acc[0] / n),
+        round(acc[1] / n),
+        round(acc[2] / n),
     )
     return [mean] * n
 
@@ -1082,7 +1082,7 @@ def shading_gain_for_white(
     coefficients from this to within a few LSB.
     """
     denom = max(1.0, float(white_unity))
-    gain = int(round(float(target) * SHADING_GAIN_UNITY / denom))
+    gain = round(float(target) * SHADING_GAIN_UNITY / denom)
     return max(SHADING_GAIN_MIN, min(SHADING_GAIN_MAX, gain))
 
 

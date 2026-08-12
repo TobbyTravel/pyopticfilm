@@ -501,7 +501,7 @@ class Model8200iSE:
         y1 = max(0.0, min(1.0, float(y1)))
         top = int(self.feed_to_scan_top_steps)
         end = int(self.scan_window_end_steps)
-        return int(round(top + y1 * (end - top)))
+        return round(top + y1 * (end - top))
 
     def max_lincnt_for_feed2(self, feed2: int) -> int | None:
         """Image ``LINCNT`` captured at this second-feed distance.
