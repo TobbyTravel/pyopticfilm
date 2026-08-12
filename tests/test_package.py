@@ -8,7 +8,7 @@ from pyopticfilm.usb.protocol import GenesysUsbProtocol
 
 
 def test_version():
-    assert __version__ == "0.1.1"
+    assert __version__ == "1.0"
 
 
 def test_public_api_exports():
