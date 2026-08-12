@@ -179,6 +179,30 @@ class FakeTransport:
         self.bulk_out_log.append(payload)
         return len(payload)
 
+    def abort_bulk_in(self) -> int:
+        self.aborted = getattr(self, "aborted", 0) + 1
+        return 42
+
+
+def test_abort_bulk_stream_calls_transport():
+    transport = FakeTransport()
+    assert GenesysUsbProtocol(transport).abort_bulk_stream() == 42
+    assert transport.aborted == 1
+
+
+def test_abort_bulk_stream_without_transport_method():
+    class _Bare:
+        def control_msg(self, *a, **k):
+            raise AssertionError("unused")
+
+        def bulk_read(self, size, **k):
+            return b""
+
+        def bulk_write(self, data, **k):
+            return 0
+
+    assert GenesysUsbProtocol(_Bare()).abort_bulk_stream() == 0  # type: ignore[arg-type]
+
 
 def test_read_register_gl845_framing():
     transport = FakeTransport(registers={0x6B: 0x30})

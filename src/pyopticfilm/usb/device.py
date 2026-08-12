@@ -256,6 +256,7 @@ class UsbDeviceHandle:
         self._ep_in = None
         self._ep_out = None
         self._claimed = False
+        self._needs_usb_reset = False
         self.timeout_ms = DEFAULT_TIMEOUT_MS
 
     @classmethod
@@ -357,6 +358,7 @@ class UsbDeviceHandle:
 
             self._dev = dev
             self._claimed = True
+            self._needs_usb_reset = False
             logger.info(
                 "Opened %s (iface=%s ep_in=%s ep_out=%s)",
                 self.info.device_id,
@@ -385,6 +387,16 @@ class UsbDeviceHandle:
         try:
             import usb.util
 
+            # leave EP0 wedged for the next open unless we reset the device.
+            if self._needs_usb_reset:
+                try:
+                    # Reset while still claimed — more reliable on WinUSB than
+                    # after release_interface.
+                    self._dev.reset()
+                    logger.info("USB device reset after aborted bulk stream")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("USB reset after aborted bulk failed: %s", exc)
+                self._needs_usb_reset = False
             if self._claimed:
                 try:
                     usb.util.release_interface(self._dev, self._interface)
@@ -401,6 +413,7 @@ class UsbDeviceHandle:
             self._claimed = False
             self._ep_in = None
             self._ep_out = None
+            self._needs_usb_reset = False
             logger.debug("Closed %s", self.info.device_id)
 
     def __enter__(self) -> Self:
@@ -469,6 +482,66 @@ class UsbDeviceHandle:
         except usb_core.USBError as exc:
             raise _map_usb_exception(exc) from exc
         return bytes(data)
+
+    def clear_halt(self, *, endpoint: int | None = None) -> None:
+        """Clear a stall on ``endpoint`` (default: bulk IN).
+
+        Needed after abandoning a Genesys image bulk stream mid-transfer;
+        otherwise the next open's control transfers can hang until power-cycle.
+        """
+        self._ensure_open()
+        assert self._dev is not None
+        if endpoint is None:
+            if self._ep_in is None:
+                return
+            endpoint = int(self._ep_in.bEndpointAddress)
+        usb_core, _usb_util = _require_usb()
+        try:
+            self._dev.clear_halt(endpoint)
+            logger.info("clear_halt endpoint=0x%02x", endpoint)
+        except usb_core.USBError as exc:
+            logger.warning("clear_halt endpoint=0x%02x failed: %s", endpoint, exc)
+
+    def abort_bulk_in(
+        self,
+        *,
+        max_drain_bytes: int = BULK_MAX_SIZE * 4,
+        chunk_size: int = BULK_MAX_SIZE,
+        drain_timeout_ms: int = 50,
+    ) -> int:
+        """Drain residual bulk IN then :meth:`clear_halt`.
+
+        Call after mid-scan cancel once SCAN is cleared so the ASIC stops
+        producing. Returns bytes drained (best-effort).
+        """
+        self._ensure_open()
+        if self._ep_in is None:
+            return 0
+        usb_core, _usb_util = _require_usb()
+        drained = 0
+        while drained < max_drain_bytes:
+            try:
+                data = self._dev.read(  # type: ignore[union-attr]
+                    self._ep_in.bEndpointAddress,
+                    min(chunk_size, max_drain_bytes - drained),
+                    timeout=drain_timeout_ms,
+                )
+            except usb_core.USBError as exc:
+                # Timeout / pipe errors mean the pipe is idle or stalled — halt clear next.
+                logger.debug("abort_bulk_in drain stop after %d bytes: %s", drained, exc)
+                break
+            if not data:
+                break
+            drained += len(data)
+        self.clear_halt()
+        if self._ep_out is not None:
+            try:
+                self.clear_halt(endpoint=int(self._ep_out.bEndpointAddress))
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("abort_bulk_in OUT clear_halt: %s", exc)
+        self._needs_usb_reset = True
+        logger.info("abort_bulk_in drained=%d bytes (usb reset on close)", drained)
+        return drained
 
     def bulk_write(self, data: bytes | bytearray, *, timeout_ms: int | None = None) -> int:
         """Write bytes to the bulk OUT endpoint; returns bytes written."""

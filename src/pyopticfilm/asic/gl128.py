@@ -1472,6 +1472,10 @@ class Gl128:
                 try:
                     self.wait_until_at_home(timeout_s=60.0)
                     self._park_ok = True
+                    # Captures leave ``0x02`` alone after cancel, but drop AGOHOME
+                    # from the cache so :meth:`Scanner.close`'s second
+                    # ``stop_motor`` does not re-strobe the lamp / re-wait park.
+                    self._reg_cache[r.REG_0x02] = int(reg02) & ~r.AGOHOME
                     logger.info("GL128 parked at home after the scan")
                 except MotorTimeoutError as exc:
                     self._park_ok = False

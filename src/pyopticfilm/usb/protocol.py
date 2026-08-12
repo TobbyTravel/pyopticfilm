@@ -315,6 +315,36 @@ class GenesysUsbProtocol:
             raise UsbError("bulk_read returned empty data mid-transfer")
         return data
 
+    def bulk_read_exact(self, size: int) -> bytes:
+        """Read exactly ``size`` bytes from an in-flight :meth:`bulk_read_begin`."""
+        if size <= 0:
+            return b""
+        buf = bytearray()
+        while len(buf) < size:
+            data = self._transport.bulk_read(min(size - len(buf), BULK_MAX_SIZE))
+            if not data:
+                from pyopticfilm.exceptions import UsbError
+
+                raise UsbError(
+                    f"bulk_read returned empty after {len(buf)} of {size} bytes"
+                )
+            buf.extend(data)
+        return bytes(buf)
+
+    def abort_bulk_stream(self) -> int:
+        """Abandon an in-flight :meth:`bulk_read_begin` stream (cancel / error).
+
+        Drains residual bulk IN and clears endpoint halt when the transport
+        supports it. Returns bytes drained, or 0 if unsupported.
+        """
+        abort = getattr(self._transport, "abort_bulk_in", None)
+        if not callable(abort):
+            logger.debug("abort_bulk_stream: transport has no abort_bulk_in")
+            return 0
+        drained = int(abort())
+        logger.info("abort_bulk_stream drained=%d", drained)
+        return drained
+
     def bulk_read_data(self, size: int) -> bytes:
         """Read ``size`` bytes via GL845 bulk path (header before each chunk)."""
         if size <= 0:
