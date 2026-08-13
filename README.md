@@ -135,8 +135,6 @@ for info in find_devices():
 
 `ScanImage` fields: `rgb` (uint16 H×W×3), `dpi`, `device_model`, optional `ir` plane (not populated by default).
 
-Scan modes: `"color"`, `"infrared"`. `"gray"` is not implemented.
-
 Enable debug logging:
 
 ```python
