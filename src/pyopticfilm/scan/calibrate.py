@@ -529,6 +529,11 @@ class Calibrator:
         # the calibration geometry computed it. USB calib depth stays 16-bit
         # even when the image stream is 8-bit (8200i SE).
         calib_depth = int(getattr(self.model, "usb_calib_depth", calib_geo.depth))
+        from pyopticfilm.device.sensor_lookup import (
+            dummy_pixel_for,
+            exposure_lperiod_for,
+        )
+
         calib_geo = replace(
             calib_geo,
             pixels=scan_geo.pixels,
@@ -540,6 +545,10 @@ class Calibrator:
             depth=calib_depth,
             line_bytes=scan_geo.pixels * calib_geo.channels * (calib_depth // 8),
             disable_buffer_full_move=True,
+            exposure_lperiod=exposure_lperiod_for(
+                self.model, resolution, method=method
+            ),
+            dummy_pixel=dummy_pixel_for(self.model, resolution),
         )
 
         self.asic.set_scan_method(method)
@@ -551,6 +560,14 @@ class Calibrator:
             if force:
                 return self.measure_colour_asic_shading(scan_geo)
             return self.ensure_colour_asic_shading(scan_geo)
+
+        # Genesys / non-GL128: apply frontend table defaults before strips.
+        search = getattr(self.asic, "search_afe", None)
+        if callable(search):
+            try:
+                search(method=method, resolution=resolution)
+            except TypeError:
+                search(method=method)
 
         def _safe_home() -> None:
             """GL845 repark; SE has no reverse-home — noop only when already home."""

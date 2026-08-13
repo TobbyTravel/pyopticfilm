@@ -13,6 +13,7 @@ from pyopticfilm.asic.registers import Gl845Registers
 from pyopticfilm.asic.status import ScannerStatus
 from pyopticfilm.device.model_8200i import MODEL_8200I
 from pyopticfilm.device.protocol import FilmModel, ScanMethod
+from pyopticfilm.device.sensor_lookup import frontend_regs_for
 from pyopticfilm.exceptions import AsicError, MotorTimeoutError
 from pyopticfilm.logging import get_logger
 from pyopticfilm.usb.protocol import GenesysUsbProtocol
@@ -41,6 +42,9 @@ class Gl845:
         self._initialized = False
         self._reg_cache: dict[int, int] = {}
         self._scan_method: ScanMethod = "transparency"
+        #: Last applied AFE gains/offsets (host calib may refresh these).
+        self.last_afe_gains: tuple[int, int, int] | None = None
+        self.last_afe_offsets: tuple[int, int, int] | None = None
 
     # --- status ---------------------------------------------------------
 
@@ -129,18 +133,88 @@ class Gl845:
 
     def set_frontend_init(self) -> None:
         """ADI frontend init (``gl846_set_adi_fe`` / AFE_INIT)."""
+        self.apply_frontend_for_scan(resolution=None, method=self._scan_method)
+
+    def apply_frontend_for_scan(
+        self,
+        *,
+        resolution: int | None = None,
+        method: ScanMethod | str | None = None,
+    ) -> None:
+        """Write AFE regs from model tables (+ optional dpi overlay).
+
+        Full genesys offset/gain dichotomy still needs a live strip acquire; until
+        that is ported this loads SANE ``frontend_regs`` (and
+        ``frontend_regs_by_dpi`` when present) so scan/calib sessions have a
+        defined analog path.
+        """
         feset = self._reg_cache.get(0x04, self.protocol.read_register(0x04)) & self.registers.FESET
         if feset != self.registers.FESET_ADI:
             raise AsicError(f"Unsupported frontend type FESET={feset:#x} (need ADI=0x2)")
 
+        scan_method = method or self._scan_method
+        if resolution is None:
+            fe = dict(self.model.frontend_regs)
+        else:
+            fe = dict(
+                frontend_regs_for(
+                    self.model, int(resolution), method=str(scan_method)
+                )
+            )
+        if self.last_afe_gains is not None:
+            for i, g in enumerate(self.last_afe_gains):
+                fe[0x02 + i] = int(g) & 0xFF
+        if self.last_afe_offsets is not None:
+            for i, o in enumerate(self.last_afe_offsets):
+                fe[0x05 + i] = int(o) & 0xFF
+
         self._wait_frontend_ready()
-        fe = self.model.frontend_regs
-        self.protocol.write_fe_register(0x00, fe[0x00] & 0xFF)
-        self.protocol.write_fe_register(0x01, fe[0x01] & 0xFF)
+        self.protocol.write_fe_register(0x00, fe.get(0x00, 0xF8) & 0xFF)
+        self.protocol.write_fe_register(0x01, fe.get(0x01, 0x80) & 0xFF)
         for i in range(3):
-            self.protocol.write_fe_register(0x02 + i, fe[0x02 + i] & 0xFF)
+            self.protocol.write_fe_register(0x02 + i, fe.get(0x02 + i, 0) & 0xFF)
         for i in range(3):
-            self.protocol.write_fe_register(0x05 + i, fe[0x05 + i] & 0xFF)
+            self.protocol.write_fe_register(0x05 + i, fe.get(0x05 + i, 0) & 0xFF)
+        self.last_afe_gains = (
+            int(fe.get(0x02, 0)),
+            int(fe.get(0x03, 0)),
+            int(fe.get(0x04, 0)),
+        )
+        self.last_afe_offsets = (
+            int(fe.get(0x05, 0)),
+            int(fe.get(0x06, 0)),
+            int(fe.get(0x07, 0)),
+        )
+        logger.debug(
+            "GL845 AFE applied gains=%s offsets=%s method=%s dpi=%s",
+            self.last_afe_gains,
+            self.last_afe_offsets,
+            scan_method,
+            resolution,
+        )
+
+    def search_afe(
+        self,
+        *,
+        method: ScanMethod | str = "transparency",
+        resolution: int | None = None,
+    ) -> None:
+        """Apply SANE frontend table defaults (host-side calib path).
+
+        Genesys runs a live offset/gain dichotomy against a shading strip.
+        Without validated strip plumbing on GL845 OpticFilm yet, this reloads
+        model frontend codes so ``Calibrator.run`` has a deterministic AFE.
+        """
+        self.last_afe_gains = None
+        self.last_afe_offsets = None
+        self.apply_frontend_for_scan(resolution=resolution, method=method)
+        logger.info(
+            "GL845 AFE search (table defaults) method=%s dpi=%s gains=%s offsets=%s",
+            method,
+            resolution,
+            self.last_afe_gains,
+            self.last_afe_offsets,
+        )
 
     def init(self, *, force: bool = False) -> None:
         """Full init: USB speed probe, asic_boot, frontend (SANE ``asic_init`` core)."""

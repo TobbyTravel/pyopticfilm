@@ -17,6 +17,13 @@ from pyopticfilm.device.select import (
     model_for_pid,
     model_is_scan_ready,
 )
+from pyopticfilm.device.sensor_lookup import (
+    dummy_pixel_for,
+    exposure_lperiod_for,
+    frontend_regs_for,
+    maxwd_register_value,
+    sensor_regs_for,
+)
 
 __all__ = [
     "KNOWN_MODELS",
@@ -43,7 +50,12 @@ __all__ = [
     "Model8200iSE",
     "MotorProfile",
     "create_asic",
+    "dummy_pixel_for",
+    "exposure_lperiod_for",
+    "frontend_regs_for",
+    "maxwd_register_value",
     "model_for_device",
     "model_for_pid",
     "model_is_scan_ready",
+    "sensor_regs_for",
 ]

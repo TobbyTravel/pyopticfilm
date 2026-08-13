@@ -17,6 +17,11 @@ from pyopticfilm.asic.motor import (
 from pyopticfilm.asic.registers import Gl845Registers
 from pyopticfilm.device.model_8200i import MODEL_8200I
 from pyopticfilm.device.protocol import AsicDriver, FilmModel
+from pyopticfilm.device.sensor_lookup import (
+    exposure_lperiod_for,
+    maxwd_register_value,
+    sensor_regs_for,
+)
 from pyopticfilm.exceptions import MotorTimeoutError, ScanCancelled, ScanError
 from pyopticfilm.image import ScanImage
 from pyopticfilm.logging import get_logger
@@ -32,7 +37,14 @@ BULK_CHUNK_LINES = 8
 
 
 class ScanSession:
-    """Owns one color/IR transparency scan from configure → TIFF-ready buffer."""
+    """Owns one color/IR transparency scan from configure → TIFF-ready buffer.
+
+    This class implements the SANE ``CommandSetGl846`` (GL845) OpticFilm path.
+    GL843 / GL842 subclasses override optical register quirks (MAXWD, LPERIOD).
+    """
+
+    #: When True, divide exposure by ``tgtime`` before writing LPERIOD (GL843/GL842).
+    _lperiod_divide_tgtime: bool = False
 
     def __init__(
         self,
@@ -68,9 +80,19 @@ class ScanSession:
         if not self.asic._initialized:
             self.asic.init()
 
+        method = "infrared" if mode == "infrared" else "transparency"
         if geometry is None:
             geometry = compute_geometry(resolution, model=self.model, area=area)
-        method = "infrared" if mode == "infrared" else "transparency"
+            # Re-bind exposure for IR when the model has method-keyed LPERIOD.
+            from dataclasses import replace as dc_replace
+
+            from pyopticfilm.device.sensor_lookup import exposure_lperiod_for
+
+            lperiod = exposure_lperiod_for(
+                self.model, geometry.resolution, method=method
+            )
+            if lperiod != geometry.exposure_lperiod:
+                geometry = dc_replace(geometry, exposure_lperiod=lperiod)
         logger.info(
             "scan %sdpi %s pixels=%d lines=%d starty=%d bytes=%d stagger=%d",
             geometry.resolution,
@@ -175,44 +197,61 @@ class ScanSession:
         else:
             cache = self.model.boot_register_map()
 
-        for addr, value in self.model.sensor_custom_regs.items():
+        method = getattr(self.asic, "_scan_method", "transparency")
+        for addr, value in sensor_regs_for(self.model, geometry.resolution).items():
             cache[addr] = value
 
-        self.asic.set_frontend_init()
+        apply_fe = getattr(self.asic, "apply_frontend_for_scan", None)
+        if callable(apply_fe):
+            apply_fe(resolution=geometry.resolution, method=method)
+        else:
+            self.asic.set_frontend_init()
 
         # Optical: SHDAREA on, DVDSET off (host-side calib), SCAN off
         cache[0x01] = (cache.get(0x01, 0x22) | r.SHDAREA) & ~r.DVDSET & ~r.SCAN
 
-        if self.asic._scan_method == "infrared":
+        if method == "infrared":
             cache[0x03] = cache.get(0x03, 0xBF) & ~r.LAMPPWR
         else:
             cache[0x03] = cache.get(0x03, 0xBF) | r.LAMPPWR
         cache[0x03] = cache[0x03] & ~0x40  # clear AVEENB
 
-        # 0x04: 16-bit color — BITSET, AFEMOD=2, FESET=2
+        # 0x04: 16-bit color — BITSET, AFEMOD=2, FESET=2 (ADI)
         cache[0x04] = (cache.get(0x04, 0x22) & ~0x8C) | 0x40 | 0x20
 
-        # dpihw 1200, clear gamma
-        cache[0x05] = (cache.get(0x05, 0x48) & ~0xC0 & ~0x08) | 0x40
+        # dpihw 1200, clear gamma (GMMENB)
+        dpihw = int(getattr(self.model, "register_dpihw", 1200))
+        dpihw_bits = {600: 0x00, 1200: 0x40, 2400: 0x80, 4800: 0xC0}.get(dpihw, 0x40)
+        cache[0x05] = (cache.get(0x05, 0x48) & ~0xC0 & ~0x08) | dpihw_bits
 
         cache[0x2E] = 0x7F
         cache[0x2F] = 0x7F
 
+        lperiod = int(geometry.exposure_lperiod)
+        if lperiod <= 0:
+            lperiod = exposure_lperiod_for(
+                self.model, geometry.resolution, method=str(method)
+            )
+        tgtime = 1 << (cache.get(0x1C, 0) & 0x07)
+        if self._lperiod_divide_tgtime and tgtime > 1:
+            lperiod = max(1, lperiod // tgtime)
+
         self._set16(cache, 0x2C, geometry.register_dpiset)
         self._set16(cache, 0x30, geometry.pixel_startx)
         self._set16(cache, 0x32, geometry.pixel_endx)
-        self._set16(cache, 0x38, geometry.exposure_lperiod)
+        self._set16(cache, 0x38, lperiod)
         cache[0x34] = geometry.dummy_pixel
-        # SANE MAXWD quirk: (line_bytes * channels) >> 2
-        maxwd = (geometry.line_bytes * geometry.channels) >> 2
+        maxwd = maxwd_register_value(
+            self.model, line_bytes=geometry.line_bytes, channels=geometry.channels
+        )
         self._set24(cache, 0x35, maxwd)
-        self._set24(cache, 0x25, geometry.optical_line_count)
+        self._set24(cache, 0x25, geometry.lincnt_register)
 
         step_mult = 1
         mp = self.model.motor_profile
         scan_slope = create_scan_slope_table(
             ydpi=geometry.resolution,
-            exposure=geometry.exposure_lperiod,
+            exposure=int(geometry.exposure_lperiod),
             base_ydpi=self.model.motor_base_ydpi,
             step_multiplier=step_mult,
             profile=mp,
@@ -242,8 +281,7 @@ class ScanSession:
         cache[0x23] = min_restep & 0xFF
 
         ccdlmt = (cache.get(0x0C, 0) & 0x0F) + 1
-        tgtime = 1 << (cache.get(0x1C, 0) & 0x07)
-        exposure_mod = geometry.exposure_lperiod * ccdlmt * tgtime
+        exposure_mod = int(geometry.exposure_lperiod) * ccdlmt * tgtime
         z1, z2 = calculate_zmod(
             exposure_time=exposure_mod,
             slope_table=scan_slope.table,
@@ -281,12 +319,15 @@ class ScanSession:
 
         self._feedl = feedl
         logger.info(
-            "configured dpiset=%d str=%d end=%d lperiod=%d lincnt=%d feedl=%d slopes=%d",
+            "configured asic=%s dpiset=%d str=%d end=%d lperiod=%d maxwd=%d "
+            "lincnt=%d feedl=%d slopes=%d",
+            getattr(self.model, "asic", "?"),
             geometry.register_dpiset,
             geometry.pixel_startx,
             geometry.pixel_endx,
-            geometry.exposure_lperiod,
-            geometry.optical_line_count,
+            lperiod,
+            maxwd,
+            geometry.lincnt_register,
             feedl,
             len(scan_slope.table),
         )
@@ -402,14 +443,24 @@ def create_session(
 ) -> ScanSession:
     """Build the scan session matching ``model``'s ASIC.
 
-    GL845/GL843/GL842 share :class:`ScanSession`; the 8200i SE's GL128 needs a
-    different register block, bulk framing and feed model, so it gets its own
-    subclass.
+    * GL128 → :class:`~pyopticfilm.scan.session_gl128.Gl128ScanSession` (captures)
+    * GL843 → :class:`~pyopticfilm.scan.session_gl843.Gl843ScanSession` (SANE)
+    * GL842 → :class:`~pyopticfilm.scan.session_gl842.Gl842ScanSession` (SANE)
+    * GL845 → :class:`ScanSession` (SANE ``CommandSetGl846``)
     """
-    if getattr(model, "asic", "") == "GL128":
+    asic_name = getattr(model, "asic", "")
+    if asic_name == "GL128":
         from pyopticfilm.scan.session_gl128 import Gl128ScanSession
 
         return Gl128ScanSession(asic, model, calibrator)
+    if asic_name == "GL843":
+        from pyopticfilm.scan.session_gl843 import Gl843ScanSession
+
+        return Gl843ScanSession(asic, model, calibrator)
+    if asic_name == "GL842":
+        from pyopticfilm.scan.session_gl842 import Gl842ScanSession
+
+        return Gl842ScanSession(asic, model, calibrator)
     return ScanSession(asic, model, calibrator)
 
 

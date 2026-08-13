@@ -182,4 +182,4 @@ GPL-3.0-or-later — see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-Register and motor tables for GL845-family models are derived from the SANE `genesys` backend. The 8200i SE (GL128) protocol was reconstructed from USB traffic captures of the Windows driver and SilverFast; it is not present in SANE.
+Register and motor tables for GL845-family models are derived from the SANE `genesys` backend (see [NOTICE](NOTICE) and [docs/sane-opticfilm.md](docs/sane-opticfilm.md)). The 8200i SE (GL128) protocol was reconstructed from USB traffic captures of the Windows driver and SilverFast; it is not present in SANE.

@@ -1,0 +1,29 @@
+# Notices
+
+## SANE genesys
+
+Register tables, motor profiles, and scan command-set logic for OpticFilm
+models other than the 8200i SE are derived from the SANE `genesys` backend:
+
+  https://gitlab.com/sane-project/backends
+  path: backend/genesys/
+
+That code is licensed under the GNU General Public License version 2 or later.
+pyopticfilm is GPL-3.0-or-later; combining the derived tables and command-set
+ports is compatible with GPL-3.0-or-later.
+
+Primary SANE sources referenced by this project:
+
+- `tables_sensor.cpp` — per-model CCD sensor / DPISET / stagger / exposure
+- `tables_devices.cpp` / `tables_gpo.cpp` / `tables_motor.cpp` — device identity, GPIO, motor
+- `gl846.cpp` — GL845 OpticFilm scan setup (8200i, 8100, 7400 v2, 7600i v2)
+- `gl843.cpp` — GL843 OpticFilm scan setup (7200i, 7300, 7400 v1, 7500i, 7600i v1)
+- `gl842.cpp` — GL842 OpticFilm scan setup (7200)
+- `low.h` / `scanner_interface_usb.cpp` — USB vendor requests and bulk framing
+
+## OpticFilm 8200i SE (GL128)
+
+The 8200i SE protocol is **not** from SANE (genesys has no GL128 command set).
+It was reconstructed from USB captures of the Windows / SilverFast driver; see
+`docs/sane-opticfilm.md` and the capture notes under `captures/8200i-se/` when
+present.

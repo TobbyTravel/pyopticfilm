@@ -8,6 +8,7 @@ from math import lcm
 
 from pyopticfilm.device.model_8200i import MODEL_8200I
 from pyopticfilm.device.protocol import FilmModel
+from pyopticfilm.device.sensor_lookup import dummy_pixel_for, exposure_lperiod_for
 
 MM_PER_INCH = 25.4
 
@@ -275,6 +276,13 @@ def _geometry_from_mm(
     if disable_buffer_full_move and getattr(model, "calib_uses_native_dpiset", False):
         register_dpiset_out = int(model.optical_resolution) // 6
 
+    # Prefer SE helper when present; else SANE dpi/method lookup.
+    lperiod_fn = getattr(model, "line_period_for", None)
+    if callable(lperiod_fn):
+        exposure_lperiod = int(lperiod_fn(resolution))
+    else:
+        exposure_lperiod = exposure_lperiod_for(model, resolution)
+
     return ScanGeometry(
         resolution=resolution,
         pixels=pixels,
@@ -295,7 +303,8 @@ def _geometry_from_mm(
         num_staggered_lines=num_staggered,
         channels=channels,
         depth=depth,
-        exposure_lperiod=model.exposure_lperiod,
+        exposure_lperiod=exposure_lperiod,
+        dummy_pixel=dummy_pixel_for(model, resolution),
         disable_buffer_full_move=disable_buffer_full_move,
         register_lincnt=register_lincnt,
         lincnt_per_line=lincnt_per_line,

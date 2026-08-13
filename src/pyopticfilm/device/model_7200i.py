@@ -104,6 +104,26 @@ class Model7200i:
     )
     register_dpihw: int = 1200
     exposure_lperiod: int = 0x2538
+    #: SANE: colour 0x2538 below 7200, 0x19c8 at 7200; IR 0x1f54 all dpi.
+    lperiod_by_dpi: Mapping[tuple[str, int], int] = field(
+        default_factory=lambda: {
+            ("transparency", 900): 0x2538,
+            ("transparency", 1800): 0x2538,
+            ("transparency", 3600): 0x2538,
+            ("transparency", 7200): 0x19C8,
+            ("infrared", 900): 0x1F54,
+            ("infrared", 1800): 0x1F54,
+            ("infrared", 3600): 0x1F54,
+            ("infrared", 7200): 0x1F54,
+        }
+    )
+    dummy_pixel: int = 20
+    #: SANE custom_fe_regs at 7200 colour only.
+    frontend_regs_by_dpi: Mapping[tuple[str, int], Mapping[int, int]] = field(
+        default_factory=lambda: {
+            ("transparency", 7200): {0x02: 0x1B, 0x03: 0x14, 0x04: 0x20},
+        }
+    )
     motor_base_ydpi: int = 3600
     optical_resolution: int = 7200
     motor_profile: MotorProfile = _MOTOR

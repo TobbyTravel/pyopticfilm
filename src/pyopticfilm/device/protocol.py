@@ -86,6 +86,10 @@ class FilmModel(Protocol):
     gpo_regs: Mapping[int, int]
     memory_layout_regs: Mapping[int, int]
 
+    # Optional SANE dpi-keyed overlays (see device.sensor_lookup):
+    # lperiod_by_dpi, dummy_pixel / dummy_pixel_by_dpi, sensor_regs_by_dpi,
+    # frontend_regs_by_dpi — structural Protocol cannot require them.
+
     @property
     def max_area_mm(self) -> tuple[float, float]: ...
 
