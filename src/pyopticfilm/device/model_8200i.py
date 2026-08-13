@@ -261,6 +261,20 @@ class Model8200i:
 
     register_dpihw: int = 1200
     exposure_lperiod: int = 14000
+    #: SANE tables_sensor: constant 14000 for colour and IR.
+    lperiod_by_dpi: Mapping[tuple[str, int] | int, int] = field(
+        default_factory=lambda: {
+            ("transparency", 900): 14000,
+            ("transparency", 1800): 14000,
+            ("transparency", 3600): 14000,
+            ("transparency", 7200): 14000,
+            ("infrared", 900): 14000,
+            ("infrared", 1800): 14000,
+            ("infrared", 3600): 14000,
+            ("infrared", 7200): 14000,
+        }
+    )
+    dummy_pixel: int = 20
     motor_base_ydpi: int = 3600
     optical_resolution: int = 7200
     motor_profile: MotorProfile = DEFAULT_GL845_MOTOR

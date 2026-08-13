@@ -104,6 +104,20 @@ class Model7500i:
     )
     register_dpihw: int = 1200
     exposure_lperiod: int = 0x2F44
+    #: Colour 0x2f44; IR 0x2af8 (SANE CCD_PLUSTEK_OPTICFILM_7500I).
+    lperiod_by_dpi: Mapping[tuple[str, int], int] = field(
+        default_factory=lambda: {
+            ("transparency", 900): 0x2F44,
+            ("transparency", 1800): 0x2F44,
+            ("transparency", 3600): 0x2F44,
+            ("transparency", 7200): 0x2F44,
+            ("infrared", 900): 0x2AF8,
+            ("infrared", 1800): 0x2AF8,
+            ("infrared", 3600): 0x2AF8,
+            ("infrared", 7200): 0x2AF8,
+        }
+    )
+    dummy_pixel: int = 20
     motor_base_ydpi: int = 3600
     optical_resolution: int = 7200
     motor_profile: MotorProfile = _MOTOR

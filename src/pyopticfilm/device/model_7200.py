@@ -100,6 +100,10 @@ class Model7200:
     )
     register_dpihw: int = 1200
     exposure_lperiod: int = 0x694E
+    lperiod_by_dpi: Mapping[int, int] = field(
+        default_factory=lambda: {900: 0x694E, 1800: 0x694E, 3600: 0x694E, 7200: 0x694E}
+    )
+    dummy_pixel: int = 19
     motor_base_ydpi: int = 3600
     optical_resolution: int = 7200
     motor_profile: MotorProfile = _MOTOR
