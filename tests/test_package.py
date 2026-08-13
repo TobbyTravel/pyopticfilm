@@ -1,14 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Package import and version smoke tests."""
+"""Package import smoke tests."""
 
-from pyopticfilm import Scanner, __version__
+from pyopticfilm import Scanner
 from pyopticfilm.device import MODEL_8200I
 from pyopticfilm.usb.device import UsbDeviceHandle, UsbDeviceInfo
 from pyopticfilm.usb.protocol import GenesysUsbProtocol
-
-
-def test_version():
-    assert __version__ == "1.1"
 
 
 def test_public_api_exports():
