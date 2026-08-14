@@ -284,7 +284,8 @@ class ScanLabWindow(QMainWindow):
         self.scan_view.set_rgb(colour.rgb)
         self.tabs.setCurrentWidget(self.scan_view)
         if ir is not None:
-            self.ir_view.set_rgb(ir.rgb)
+            plane = ir.ir if ir.ir is not None else ir.rgb[:, :, 1]
+            self.ir_view.set_gray(plane)
         else:
             self.ir_view.set_rgb(None)
         msg = f"Scan {colour.rgb.shape[1]}×{colour.rgb.shape[0]} @ {colour.dpi} dpi"

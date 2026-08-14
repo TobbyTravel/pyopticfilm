@@ -146,14 +146,39 @@ class ScanSession:
             raw, geometry, dark=dark, white=white, planar=bool(planar)
         )
 
-        # Infrared: still RGB-framed CCD data in ``rgb``. Host iSRD enhance /
-        # flatten is left to applications — pyopticfilm does not populate ``ir``.
+        ir_plane = None
+        if mode == "infrared":
+            # CCD still delivers RGB under the IR LED; NegPy / iSRD use G.
+            ir_plane = self._infrared_plane(rgb)
+
         return ScanImage(
             rgb=rgb,
             dpi=geometry.resolution,
             device_model=f"{self.model.vendor} {self.model.model}",
-            ir=None,
+            ir=ir_plane,
         )
+
+    def _infrared_plane(self, rgb):
+        """Build the HxW IR sidecar: green CCD plane + optional host flatten."""
+        import numpy as np
+
+        from pyopticfilm.scan.calib_gl128 import (
+            flatten_ir_columns,
+            flatten_ir_image_columns,
+        )
+
+        plane = np.ascontiguousarray(rgb[:, :, 1])
+        white = getattr(self.asic, "last_ir_host_white", None)
+        if getattr(self.asic, "ir_host_flatten_ready", False) and white:
+            try:
+                plane = flatten_ir_columns(plane, white)
+            except ValueError as exc:
+                logger.warning("IR host-white flatten skipped: %s", exc)
+        # Per-image column flatten lifts residual L/R falloff toward the
+        # SilverFast IR page level so dust sits in a dark hole on a bright field.
+        if getattr(self.model, "asic", "") == "GL128":
+            plane = flatten_ir_image_columns(plane)
+        return plane
 
     def acquire_raw(
         self,

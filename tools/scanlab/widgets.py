@@ -20,6 +20,17 @@ def rgb16_to_qimage(rgb: np.ndarray) -> QImage:
     return image.copy()
 
 
+def gray16_to_qimage(gray: np.ndarray) -> QImage:
+    """Convert HxW uint16 to an 8-bit grayscale QImage (owned copy)."""
+    arr = np.asarray(gray)
+    if arr.ndim != 2:
+        raise ValueError(f"expected HxW, got {arr.shape}")
+    u8 = np.ascontiguousarray((arr.astype(np.uint32) >> 8).clip(0, 255).astype(np.uint8))
+    h, w = u8.shape
+    image = QImage(u8.data, w, h, w, QImage.Format.Format_Grayscale8)
+    return image.copy()
+
+
 class CropImageView(QWidget):
     """Scales a scan preview and lets the user drag a crop rectangle (0..1)."""
 
@@ -56,6 +67,14 @@ class CropImageView(QWidget):
             return
         self._label.setText("")
         self._pixmap = QPixmap.fromImage(rgb16_to_qimage(rgb))
+        self._refresh()
+
+    def set_gray(self, gray: np.ndarray | None) -> None:
+        if gray is None:
+            self.set_rgb(None)
+            return
+        self._label.setText("")
+        self._pixmap = QPixmap.fromImage(gray16_to_qimage(gray))
         self._refresh()
 
     def resizeEvent(self, event) -> None:

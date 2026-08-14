@@ -133,7 +133,7 @@ class ScanWorker(QObject):
                         mode="infrared",
                         progress=self._progress,
                         cancel=self._cancel,
-                        apply_calib=False,
+                        apply_calib=apply_calib,
                         **scan_kw,
                     )
                 self.scan_ready.emit(colour, ir_image)

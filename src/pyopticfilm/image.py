@@ -16,9 +16,9 @@ class ScanImage:
     """Host-side scan result.
 
     ``rgb`` is HxWx3 uint16 linear data (colour or infrared-illuminated CCD
-    frame). ``ir`` is an optional HxW uint16 plane for callers that extract
-    one; this driver does not populate or enhance it — iSRD post-process
-    belongs in the application. ``save_tiff`` writes only ``rgb``.
+    frame). For ``mode="infrared"``, ``ir`` is also filled with an HxW uint16
+    plane (green CCD channel, host-flattened on GL128) for dust/iSRD use.
+    ``save_tiff`` writes only ``rgb``.
     """
 
     rgb: np.ndarray

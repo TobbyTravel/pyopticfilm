@@ -960,6 +960,66 @@ def test_infrared_cache_miss_does_not_force_colour_calib(tmp_path: Path, monkeyp
     assert order == ["acquire"]
 
 
+def test_infrared_clears_dvdset_even_when_colour_shading_ready():
+    from dataclasses import replace
+
+    from pyopticfilm.asic.registers import Gl128Registers
+    from pyopticfilm.scan.session_gl128 import Gl128ScanSession
+
+    asic = _asic()
+    asic.asic_shading_ready = True
+    asic._scan_method = "infrared"
+    asic._motor_moves_enabled = False
+    asic._reg_cache = {}
+    asic.last_afe = None
+    wrote: dict[int, int] = {}
+
+    def write_registers_batched(items):
+        for addr, val in items:
+            wrote[int(addr)] = int(val)
+            asic._reg_cache[int(addr)] = int(val)
+
+    asic.protocol.write_registers_batched.side_effect = write_registers_batched
+    asic.upload_tables = MagicMock()
+    asic.apply_frontend = MagicMock()
+    asic.lamp_on = MagicMock()
+    asic.lamp_off = MagicMock()
+    geometry = replace(_geometry(1800), disable_buffer_full_move=False)
+    session = Gl128ScanSession(asic, MODEL_8200I_SE)
+    session._configure(geometry)
+    r = Gl128Registers()
+    assert r.REG_0x01 in wrote
+    assert wrote[r.REG_0x01] & r.DVDSET == 0
+    assert wrote[r.REG_0x01] & r.SHDAREA
+
+
+def test_infrared_session_populates_flattened_ir_plane(tmp_path: Path, monkeypatch):
+    asic = _asic()
+    asic.ir_host_flatten_ready = False
+    cal = Calibrator(asic, cache_path=tmp_path / "calib.json", model=MODEL_8200I_SE)
+    geometry = _geometry()
+    session = ScanSession(asic, MODEL_8200I_SE, cal)
+    monkeypatch.setattr(session, "acquire_raw", lambda *_a, **_k: b"\x00" * 64)
+
+    def fake_assemble(*_a, **_k):
+        w = min(64, geometry.pixels)
+        rgb = np.zeros((8, w, 3), dtype=np.uint16)
+        # Uneven green column levels + a dark dust hole.
+        for x in range(w):
+            rgb[:, x, 1] = 20000 + x * 400
+        rgb[3:5, w // 2, 1] = 2000
+        return rgb
+
+    monkeypatch.setattr(session.pipeline, "assemble", fake_assemble)
+    image = session.run(resolution=geometry.resolution, mode="infrared", geometry=geometry)
+    assert image.ir is not None
+    assert image.ir.ndim == 2
+    assert image.ir.shape[0] == 8
+    # Flatten lifts the bright field; dust stays relatively darker.
+    assert float(np.median(image.ir)) > 30000
+    assert float(image.ir[4, image.ir.shape[1] // 2]) < float(np.median(image.ir)) * 0.5
+
+
 def test_host_calib_exposure_makeup_lifts_dim_film_window():
     """Home-chrome stretch leaves film-window peaks low — makeup to near white."""
     from pyopticfilm.scan.pipeline import (

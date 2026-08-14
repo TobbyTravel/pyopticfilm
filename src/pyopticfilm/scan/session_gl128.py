@@ -96,11 +96,15 @@ class Gl128ScanSession(ScanSession):
             cache[r.REG_DEPTH_A] = r.DEPTH8_A
             cache[r.REG_DEPTH_B] = r.DEPTH8_B
 
-        # Host shading: clear DVDSET on calib. Image keeps DVDSET only when a
-        # measured ASIC shading table is ready — otherwise boot DVDSET + unity
-        # or stale coefficients produce rainbow / clipped garbage.
+        # Host shading: clear DVDSET on calib. Colour image keeps DVDSET only
+        # when a measured ASIC shading table is ready — otherwise boot DVDSET +
+        # unity or stale coefficients produce rainbow / clipped garbage.
+        # Infrared must never keep colour DVDSET: live HW clips IR to full scale
+        # with an IR table, and a colour table after a colour+IR pair makes the
+        # IR frame magenta, uneven, and low-contrast for dust.
         reg01 = (cache.get(r.REG_0x01, 0x22) | r.SHDAREA) & ~r.SCAN & ~r.STAGGER
-        if shading or not getattr(self.asic, "asic_shading_ready", False):
+        infrared = getattr(self.asic, "_scan_method", None) == "infrared"
+        if shading or infrared or not getattr(self.asic, "asic_shading_ready", False):
             reg01 &= ~r.DVDSET
         cache[r.REG_0x01] = reg01
 
