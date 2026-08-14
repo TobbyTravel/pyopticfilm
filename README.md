@@ -6,20 +6,26 @@ The library talks directly to the scanner’s Genesys ASIC (GL842, GL843, GL845,
 
 ## Supported hardware
 
-**Only the OpticFilm 8200i SE is validated for scanning in this release.**
+**Only the OpticFilm 8200i SE is hardware-tested for scanning in this release.**
 
-| Model | USB ID | ASIC | Scan |
-|-------|--------|------|------|
-| OpticFilm 8200i SE | `07b3:1825` | GL128 | **Yes** |
-| OpticFilm 8200i | `07b3:130d` | GL845 | Probe only |
-| OpticFilm 8100 | `07b3:130c` | GL845 | Probe only |
-| OpticFilm 7600i (v1 / v2) | `07b3:0c3b` | GL845 | Probe only |
-| OpticFilm 7500i | `07b3:0c13` | GL845 | Probe only |
-| OpticFilm 7400 (v1 / v2) | `07b3:0c3a` | GL845 | Probe only |
-| OpticFilm 7300 | `07b3:0c12` | GL845 | Probe only |
-| OpticFilm 7200i / 7200 | `07b3:0c04`, `07b3:0807`, `07b3:0c07` | GL843 / GL842 | Probe only |
+Support is one of:
 
-Other OpticFilm models **enumerate and open**: you can read status, turn the lamp on/off (where implemented), and dump registers for bring-up. **`scan()`, `calibrate()`, `home()`, and `park()` are intentionally gated** on probe-only models until the protocol is verified on real hardware—calling them raises `AsicError` with a clear message rather than risking carriage or lamp damage on untested tables.
+- **Hardware tested** — live scan + park on physical hardware
+- **Protocol validated** — USB/register traces match a golden setup without hardware; motors stay locked
+- **Experimental** — tables and session code exist; scan/home/park/calibrate stay locked
+
+| Model | USB ID | ASIC | Support |
+|-------|--------|------|---------|
+| OpticFilm 8200i SE | `07b3:1825` | GL128 | **Hardware tested** |
+| OpticFilm 8200i | `07b3:130d` | GL845 | Protocol validated (setup traces; scan locked) |
+| OpticFilm 8100 | `07b3:130c` | GL845 | Experimental |
+| OpticFilm 7600i (v1 / v2) | `07b3:0c3b` | GL845 / GL843 | Experimental |
+| OpticFilm 7500i | `07b3:0c13` | GL843 | Experimental |
+| OpticFilm 7400 (v1 / v2) | `07b3:0c3a` | GL845 / GL843 | Experimental |
+| OpticFilm 7300 | `07b3:0c12` | GL843 | Experimental |
+| OpticFilm 7200i / 7200 | `07b3:0c04`, `07b3:0807`, `07b3:0c07` | GL843 / GL842 | Experimental |
+
+Other OpticFilm models **enumerate and open**: you can read status, turn the lamp on/off (where implemented), and dump registers for bring-up. **`scan()`, `calibrate()`, `home()`, and `park()` stay gated** until a model is hardware-tested—calling them raises `AsicError` rather than risking carriage or lamp damage. Protocol validation does **not** flip that gate. See [docs/scanner-validation.md](docs/scanner-validation.md).
 
 `Scanner.open()` prefers a scan-ready 8200i SE when several Plustek film scanners are connected.
 
@@ -129,11 +135,13 @@ for info in find_devices():
 | `scanner.calibrate(...)` | Run shading; updates cache |
 | `scanner.status()` | Read scanner status flags |
 | `scanner.home()` / `scanner.park()` | Motor positioning |
-| `scanner.lamp_on()` / `scanner.lamp_off()` | Lamp control (allowed on probe-only models) |
+| `scanner.lamp_on()` / `scanner.lamp_off()` | Lamp control (allowed on experimental models) |
 | `scanner.advanced` | Low-level register read/write (bring-up) |
 | `scanner.calibrator` | Direct access to calibration cache |
 
 `ScanImage` fields: `rgb` (uint16 H×W×3), `dpi`, `device_model`, optional `ir` plane (not populated by default).
+
+Scan modes: `"color"`, `"infrared"`. `"gray"` is not implemented.
 
 Enable debug logging:
 
@@ -149,15 +157,16 @@ Shading runs automatically before scan when a matching cache entry exists. Force
 
 The cache key includes resolution, crop geometry, and scan method (transparency vs infrared). GL128 colour shading uses ASIC-internal measurements at home; IR uses a white-only path suitable for stationary shading.
 
-## Probe-only models
+## Experimental / protocol-validated models
 
-Code for additional OpticFilm variants is included so enumeration, model selection, and SANE-derived geometry tables can be exercised without hardware. These paths are **deliberately locked** for motor moves and image acquisition:
+Code for additional OpticFilm variants is included so enumeration, model selection, SANE-derived geometry tables, and hardwareless USB traces can be exercised without hardware. These paths are **deliberately locked** for motor moves and image acquisition:
 
 - `model.scan_ready` is `False` for every model except the 8200i SE
 - `Scanner._ensure_scan_ready()` blocks scan, calibrate, home, and park
 - GL128 motor moves stay disabled unless the model is scan-ready
+- Protocol-validated (currently OpticFilm 8200i setup traces) is not hardware support
 
-If you have a non-SE OpticFilm and want to help validate scanning, open an issue with your exact USB IDs (`bcdDevice` matters for some models) and we can work through capture-based bring-up.
+If you have a non-SE OpticFilm and want to help validate scanning, open an issue with your exact USB IDs (`bcdDevice` matters for some models) and we can work through capture-based bring-up. How traces are recorded and compared is in [docs/scanner-validation.md](docs/scanner-validation.md).
 
 ## Development
 
@@ -167,14 +176,24 @@ uv run ruff check .
 uv run pytest -q
 ```
 
+Optional PyQt6 scan lab (real hardware or mock USB for any model).
+**Run against MOCK** is on by default; uncheck it to use a plugged-in scanner:
+
+```bash
+uv sync --all-groups --extra lab
+uv run python -m tools.scanlab
+```
+
 CI runs on Python 3.11–3.13 (lint + tests; no hardware in CI).
 
 Project layout:
 
-- `src/pyopticfilm/usb/` — enumeration, claim, Genesys USB protocol
+- `src/pyopticfilm/usb/` — enumeration, claim, Genesys USB protocol, mock/recording transports
 - `src/pyopticfilm/asic/` — per-ASIC drivers (GL128, GL845, …)
 - `src/pyopticfilm/device/` — per-model register/geometry tables
 - `src/pyopticfilm/scan/` — geometry, calibration, scan session pipeline
+- `tests/scanners/` — golden USB traces, SANE log parser
+- `tools/scanlab/` — PyQt6 bring-up lab (optional extra `lab`)
 
 ## License
 

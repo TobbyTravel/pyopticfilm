@@ -3,9 +3,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 import pytest
+from scanners.fake_usb import FakeUsbTransport as FakeTransport
 
 from pyopticfilm.exceptions import UsbError
 from pyopticfilm.usb.device import (
@@ -115,73 +114,6 @@ def test_link_status_check():
     GenesysUsbProtocol.check_link_status(0x55)
     with pytest.raises(UsbError, match="0x00"):
         GenesysUsbProtocol.check_link_status(0x00)
-
-
-@dataclass
-class FakeTransport:
-    """Records control/bulk traffic and serves scripted register values."""
-
-    registers: dict[int, int] = field(default_factory=dict)
-    control_log: list[tuple] = field(default_factory=list)
-    bulk_in_queue: list[bytes] = field(default_factory=list)
-    bulk_out_log: list[bytes] = field(default_factory=list)
-
-    def control_msg(
-        self,
-        request_type: int,
-        request: int,
-        value: int,
-        index: int,
-        data_or_length: int | bytes | bytearray,
-        *,
-        timeout_ms: int | None = None,
-    ) -> bytes:
-        del timeout_ms
-        self.control_log.append((request_type, request, value, index, data_or_length))
-
-        if request_type == REQUEST_TYPE_IN and request == REQUEST_BUFFER:
-            # GL845 register read
-            assert value == VALUE_GET_REGISTER or value == (VALUE_GET_REGISTER | 0x100)
-            addr = (index >> 8) & 0xFF
-            reg_val = self.registers.get(addr, 0x00)
-            return bytes((reg_val, 0x55))
-
-        if request_type == REQUEST_TYPE_OUT and request == REQUEST_BUFFER:
-            if value == VALUE_SET_REGISTER or value == (VALUE_SET_REGISTER | 0x100):
-                payload = bytes(data_or_length)
-                assert len(payload) == 2
-                self.registers[payload[0]] = payload[1]
-                return b""
-            if value == VALUE_BUFFER:
-                return b""
-
-        if (
-            request_type == REQUEST_TYPE_OUT
-            and request == 0x0C
-            and value == VALUE_BUF_ENDACCESS
-        ):
-            return b""
-
-        raise AssertionError(
-            f"unexpected control_msg {request_type:#x}/{request:#x}/{value:#x}"
-        )
-
-    def bulk_read(self, size: int, *, timeout_ms: int | None = None) -> bytes:
-        del timeout_ms
-        if not self.bulk_in_queue:
-            return b"\x00" * size
-        chunk = self.bulk_in_queue.pop(0)
-        return chunk[:size]
-
-    def bulk_write(self, data: bytes | bytearray, *, timeout_ms: int | None = None) -> int:
-        del timeout_ms
-        payload = bytes(data)
-        self.bulk_out_log.append(payload)
-        return len(payload)
-
-    def abort_bulk_in(self) -> int:
-        self.aborted = getattr(self, "aborted", 0) + 1
-        return 42
 
 
 def test_abort_bulk_stream_calls_transport():
