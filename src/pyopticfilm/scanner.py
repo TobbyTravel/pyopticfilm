@@ -22,7 +22,8 @@ from pyopticfilm.image import ScanImage
 from pyopticfilm.logging import get_logger
 from pyopticfilm.scan.calibrate import CalibEntry, Calibrator, default_cache_path
 from pyopticfilm.usb.device import UsbDeviceHandle
-from pyopticfilm.usb.protocol import GenesysUsbProtocol
+from pyopticfilm.usb.fake import FakeDeviceHandle, MockScannerTransport
+from pyopticfilm.usb.protocol import GenesysUsbProtocol, UsbTransport
 
 logger = get_logger(__name__)
 
@@ -57,6 +58,9 @@ class Scanner:
         self._closed = False
         #: Lab / session may disarm GL128 briefly for stationary shading.
         self._bringup_motor_armed = bool(model_is_scan_ready(self._model))
+        #: When True, scan/home/park are allowed even if ``scan_ready`` is False.
+        #: Set only by :meth:`open_fake` (mock USB). Real hardware stays gated.
+        self._allow_unvalidated_scan = False
 
     @classmethod
     def open(
@@ -74,6 +78,33 @@ class Scanner:
             scanner._model.name,
             scanner._model.asic,
             model_is_scan_ready(scanner._model),
+        )
+        return scanner
+
+    @classmethod
+    def open_fake(
+        cls,
+        model: FilmModel,
+        transport: UsbTransport | None = None,
+        *,
+        calib_cache: Path | None = None,
+    ) -> Self:
+        """Open ``model`` against a mock USB device (no hardware, no ``scan_ready``).
+
+        Does not change ``model.scan_ready``. Real :meth:`open` stays gated.
+        """
+        inner = transport if transport is not None else MockScannerTransport()
+        handle = FakeDeviceHandle.for_model(model)
+        protocol = GenesysUsbProtocol(inner)
+        scanner = cls(handle, protocol, model=model, calib_cache=calib_cache)
+        scanner._allow_unvalidated_scan = True
+        scanner._bringup_motor_armed = True
+        if hasattr(scanner._asic, "_motor_moves_enabled"):
+            scanner._asic._motor_moves_enabled = True
+        logger.info(
+            "Scanner open_fake: model=%s asic=%s (mock USB)",
+            scanner._model.name,
+            scanner._model.asic,
         )
         return scanner
 
@@ -241,6 +272,8 @@ class Scanner:
             self._asic._motor_moves_enabled = False
 
     def _ensure_scan_ready(self) -> None:
+        if getattr(self, "_allow_unvalidated_scan", False):
+            return
         if self._bringup_motor_armed and getattr(self._model, "asic", "") == "GL128":
             return
         if not model_is_scan_ready(self._model):

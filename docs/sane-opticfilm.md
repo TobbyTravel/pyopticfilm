@@ -2,8 +2,9 @@
 
 This document maps every OpticFilm model in pyopticfilm to the SANE `genesys`
 backend. Scan / home / park / calibrate remain **gated** (`scan_ready=False`)
-until a model is live-validated. The 8200i SE is capture-derived and is not
-completed from SANE.
+until a model is **hardware-tested**. Protocol-validated traces (see
+[scanner-validation.md](scanner-validation.md)) do not flip that gate. The
+8200i SE is capture-derived and is not completed from SANE.
 
 ## Model → ASIC → SANE sources
 
@@ -55,5 +56,6 @@ These matter when sizing the ASIC line buffer:
 ## Bring-up policy
 
 1. Keep `scan_ready=False` (enforced by `tests/test_multi_model.py::test_scan_ready_se_only`).
-2. On hardware: capture home + one 1800 dpi colour strip; compare register block to the ported session.
-3. Flip **that** model’s `scan_ready` only after a successful image + park.
+2. Hardwareless protocol traces may be added per [scanner-validation.md](scanner-validation.md); they change the documented support level, not `scan_ready`.
+3. On hardware: capture home + one 1800 dpi colour strip; compare register block to the ported session.
+4. Flip **that** model’s `scan_ready` only after a successful image + park.

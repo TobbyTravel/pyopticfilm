@@ -1,0 +1,13 @@
+[sanei_usb] sanei_usb_control_msg: rtype = 0x40, req = 4, value = 131, index = 0, len = 2
+[sanei_usb] 0000: 2c 01
+[genesys_gl846] reg[0x2c] = 0x01
+[sanei_usb] sanei_usb_control_msg: rtype = 0x40, req = 4, value = 131, index = 0, len = 2
+[sanei_usb] 0000: 2d 2c
+[genesys_gl846] reg[0x2d] = 0x2c
+[genesys] write_register (0x30, 0x00) completed
+[genesys] virtual void genesys::ScannerInterfaceUsb::write_register(uint16_t, uint8_t):
+[genesys] address: 0x0032, value: 0x0a
+[sanei_usb] sanei_usb_write_bulk: len = 4
+[sanei_usb] 0000: 00 11 22 33
+[sanei_usb] sanei_usb_read_bulk: len = 8
+[sanei_usb] sanei_usb_control_msg: rtype = 0xc0, req = 4, value = 142, index = 16674, len = 2

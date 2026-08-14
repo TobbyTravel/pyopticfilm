@@ -35,6 +35,9 @@ path = "src/pyopticfilm/_version.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyopticfilm"]
 
+[project.optional-dependencies]
+lab = ["PyQt6>=6.6"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
