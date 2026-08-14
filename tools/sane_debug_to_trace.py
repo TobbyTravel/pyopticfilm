@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Convert a SANE genesys / sanei_usb debug log into a scanner trace JSON.
 

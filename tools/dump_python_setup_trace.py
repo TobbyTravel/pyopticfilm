@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Dump a pyopticfilm USB/register trace for OpticFilm 8200i 1800 dpi RGB16 setup.
 
