@@ -25,10 +25,13 @@ from pyopticfilm.image import ScanImage
 from tools.scanlab.backend import (
     LabTarget,
     device_banner,
+    lab_scan_needs_motor_warning,
     list_lab_targets,
+    nonse_safe_y_fraction,
     usb_log_section_key,
     with_hw_override,
     with_mock_mode,
+    with_usb_planar,
 )
 from tools.scanlab.widgets import CropImageView
 from tools.scanlab.worker import ScanWorker
@@ -68,6 +71,15 @@ class ScanLabWindow(QMainWindow):
         self.override_hw_gate.setChecked(False)
         self.override_hw_gate.toggled.connect(self._on_override_hw_gate)
         form.addWidget(self.override_hw_gate)
+
+        self.apply_calib = QCheckBox("Apply calib")
+        self.apply_calib.setChecked(False)
+        form.addWidget(self.apply_calib)
+
+        self.usb_planar = QCheckBox("USB planar RGB")
+        self.usb_planar.setChecked(False)
+        self.usb_planar.toggled.connect(self._on_usb_planar)
+        form.addWidget(self.usb_planar)
 
         refresh = QPushButton("Refresh devices")
         refresh.clicked.connect(self.reload_devices)
@@ -212,8 +224,14 @@ class ScanLabWindow(QMainWindow):
                 self.override_hw_gate.setChecked(False)
                 self.override_hw_gate.blockSignals(False)
                 return
+            # Extra calib motor moves are risky on first bring-up.
+            self.apply_calib.setChecked(False)
         else:
             self._worker.close_scanner()
+        self._refresh_banner()
+
+    def _on_usb_planar(self, _checked: bool) -> None:
+        self._worker.close_scanner()
         self._refresh_banner()
 
     def _refresh_banner(self) -> None:
@@ -228,9 +246,12 @@ class ScanLabWindow(QMainWindow):
                 "Plug it in or keep MOCK enabled."
             )
             return
-        resolved = with_hw_override(
-            with_mock_mode(target, mock),
-            self.override_hw_gate.isChecked(),
+        resolved = with_usb_planar(
+            with_hw_override(
+                with_mock_mode(target, mock),
+                self.override_hw_gate.isChecked(),
+            ),
+            self.usb_planar.isChecked(),
         )
         self.banner.setText(device_banner(resolved))
 
@@ -247,9 +268,12 @@ class ScanLabWindow(QMainWindow):
                     "No matching scanner is connected. Plug in the device or keep MOCK enabled.",
                 )
             return None
-        return with_hw_override(
-            with_mock_mode(target, mock),
-            self.override_hw_gate.isChecked(),
+        return with_usb_planar(
+            with_hw_override(
+                with_mock_mode(target, mock),
+                self.override_hw_gate.isChecked(),
+            ),
+            self.usb_planar.isChecked(),
         )
 
     def _on_prescan(self) -> None:
@@ -257,18 +281,40 @@ class ScanLabWindow(QMainWindow):
         if target is None:
             return
         self._clear_usb_log()
-        self._worker.request_prescan.emit(target)
+        self._worker.request_prescan.emit(target, self.apply_calib.isChecked())
 
     def _on_scan(self) -> None:
         target = self._resolved_target()
         if target is None:
             return
         dpi = int(self.ppi.currentData())
+        crop = self.prescan_view.crop_norm
+        if (
+            self.override_hw_gate.isChecked()
+            and not target.mock
+            and lab_scan_needs_motor_warning(target.model, dpi=dpi, crop_norm=crop)
+        ):
+            frac = nonse_safe_y_fraction(target.model)
+            reply = QMessageBox.warning(
+                self,
+                "High-PPI Scan",
+                f"{dpi} dpi without a short crop can grind the motor on "
+                f"unverified models.\n\n"
+                f"Scan Lab will clamp travel to about {frac:.0%} of the TA "
+                f"height (~{frac * float(getattr(target.model, 'y_size_ta_mm', 25)):.1f} mm). "
+                "Prefer a small rubber-band crop and lower PPI for bring-up.\n\n"
+                "Continue with the clamped short window?",
+                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if reply != QMessageBox.StandardButton.Ok:
+                return
         self._worker.request_scan.emit(
             target,
             dpi,
             self.ir_pass.isChecked(),
-            self.prescan_view.crop_norm,
+            crop,
+            self.apply_calib.isChecked(),
         )
 
     def _on_progress(self, value: float) -> None:
@@ -340,6 +386,9 @@ class ScanLabWindow(QMainWindow):
         self.device.setEnabled(not busy)
         self.ppi.setEnabled(not busy)
         self.run_mock.setEnabled(not busy)
+        self.override_hw_gate.setEnabled(not busy)
+        self.apply_calib.setEnabled(not busy)
+        self.usb_planar.setEnabled(not busy)
 
 
 def run() -> int:

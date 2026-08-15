@@ -30,8 +30,10 @@ class ScanWorker(QObject):
     scan_ready = pyqtSignal(object, object)
     failed = pyqtSignal(str)
     busy_changed = pyqtSignal(bool)
-    request_prescan = pyqtSignal(object)
-    request_scan = pyqtSignal(object, int, bool, object)
+    #: target, apply_calib
+    request_prescan = pyqtSignal(object, bool)
+    #: target, dpi, ir_pass, crop_norm, apply_calib
+    request_scan = pyqtSignal(object, int, bool, object, bool)
 
     def __init__(self) -> None:
         super().__init__()
@@ -56,6 +58,7 @@ class ScanWorker(QObject):
         with self._lock:
             scanner = self._scanner
             self._scanner = None
+            self._target = None
         if scanner is not None:
             try:
                 scanner.close()
@@ -77,8 +80,15 @@ class ScanWorker(QObject):
     def cancel(self) -> None:
         self._cancel.set()
 
-    def run_prescan(self, target: LabTarget) -> None:
-        self._run(target, kind="prescan", dpi=prescan_resolution(target.model), ir=False, crop=None)
+    def run_prescan(self, target: LabTarget, apply_calib: bool = False) -> None:
+        self._run(
+            target,
+            kind="prescan",
+            dpi=prescan_resolution(target.model),
+            ir=False,
+            crop=None,
+            apply_calib=bool(apply_calib),
+        )
 
     def run_scan(
         self,
@@ -86,9 +96,17 @@ class ScanWorker(QObject):
         dpi: int,
         ir_pass: bool,
         crop_norm: tuple[float, float, float, float] | None,
+        apply_calib: bool = False,
     ) -> None:
         # PyQt queued signals pass every argument positionally (not as keywords).
-        self._run(target, kind="scan", dpi=dpi, ir=ir_pass, crop=crop_norm)
+        self._run(
+            target,
+            kind="scan",
+            dpi=dpi,
+            ir=ir_pass,
+            crop=crop_norm,
+            apply_calib=bool(apply_calib),
+        )
 
     def _run(
         self,
@@ -98,6 +116,7 @@ class ScanWorker(QObject):
         dpi: int,
         ir: bool,
         crop: tuple[float, float, float, float] | None,
+        apply_calib: bool,
     ) -> None:
         self.busy_changed.emit(True)
         self._cancel.clear()
@@ -105,7 +124,6 @@ class ScanWorker(QObject):
         try:
             scanner = self.ensure_open(target)
             scan_kw = lab_scan_kwargs(target.model, dpi=dpi, kind=kind, crop_norm=crop)
-            apply_calib = not target.mock
             if kind == "prescan":
                 self._usb_divider(f"PRESCAN {dpi} dpi")
                 image = scanner.scan(

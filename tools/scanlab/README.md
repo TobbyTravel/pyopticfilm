@@ -59,6 +59,22 @@ Real non-SE OpticFilms can appear as connected, but the library will refuse to
 scan them until that model is hardware-validated (`scan_ready`) — unless you
 check **Override safety HW gate** (warning dialog; motors/lamp can run).
 
+## Quick start (real non-SE bring-up, e.g. 8100)
+
+Lesson from early 8100 HW: override unlocks the gate; it does **not** make
+full-TA high-PPI Scan safe.
+
+1. Uncheck **Run against MOCK**, check **Override safety HW gate** (accept warning).
+2. Leave **Apply calib** unchecked until a short image looks sane (avoids extra motor moves).
+3. **Prescan** (uses the model’s lowest PPI, e.g. 600 on 8100) — Lab clamps to a
+   short Y strip, not full TA.
+4. If the image is rainbow-striped with a recognizable scene, toggle **USB planar RGB**
+   and Prescan again (chunky vs planar decode).
+5. Drag a **small** crop, pick a low/mid PPI, then **Scan**. At ≥2400 dpi without a
+   short crop, Lab warns and still clamps travel.
+6. Do **not** expect full-frame 3600 until decode is correct and short Scans park cleanly.
+   `scan_ready` stays False until that is proven.
+
 ## Controls
 
 | Control | Purpose |
@@ -66,15 +82,17 @@ check **Override safety HW gate** (warning dialog; motors/lamp can run).
 | **Device** | Connected Plustek scanners first, then every known model. |
 | **Run against MOCK** | On (default): fake USB. Off: open the selected connected device. |
 | **Override safety HW gate** | Off (default). On: after a warning, unlock scan/home/park on real USB for models with `scan_ready=False`. Does not flip `scan_ready`. |
+| **Apply calib** | Off (default). Host/ASIC shading before the image. Forced off when enabling HW override. |
+| **USB planar RGB** | Off = chunky `RGBRGB…` (default). On = planar planes — try this if Prescan is rainbow-striped. |
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
-| **PPI** | Resolutions from the selected model’s `resolutions_dpi`. |
+| **PPI** | Resolutions from the selected model’s `resolutions_dpi` (Scan only; Prescan uses a fixed low dpi). |
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
-| **Prescan** | Low-res full-window preview (SE: 1200 dpi; others: lowest listed dpi). |
-| **Scan** | Colour scan at the chosen PPI; optional IR second pass. Uses the prescan crop when one is set. |
+| **Prescan** | Low-res preview (SE: 1200 dpi safe window; non-SE: lowest dpi + short Y strip). |
+| **Scan** | Colour scan at the chosen PPI; optional IR second pass. Uses the prescan crop when one is set (clamped on non-SE). |
 | **Cancel** | Sets the scan cancel event (busy scans only). |
 
-The yellow banner states MOCK vs REAL for the current selection (and whether
-the HW gate is overridden).
+The yellow banner states MOCK vs REAL for the current selection (HW gate override
+and USB RGB layout when relevant).
 
 ## Tabs
 
@@ -106,21 +124,31 @@ USB wrapper.
 
 Progress for the active pass is shown in the status bar.
 
-## Geometry notes (8200i SE)
+## Geometry notes
+
+### 8200i SE
 
 - Prescan / uncropped Scan use the capture-safe **preview** window (feed2 at
   the top of the TA window), not a raw full-TA `area=None` request that can
   overrun the motor window.
 - Rubber-band crops are clamped so image `LINCNT` cannot past the scan-window
   end (see `captures/8200i-se/MOTOR.md` in the repo if present).
-- Mock scans run with `apply_calib=False` so shading does not hang. Real scans
-  use normal calibration (`apply_calib=True`).
+
+### Unvalidated non-SE (8100 / GL845 aliases, …)
+
+- Prescan and uncropped Scan use a **short Y strip** (~5 mm / ≤18% of TA), never
+  full TA — full-frame high PPI was observed to grind the motor on an 8100.
+- Tall rubber-band crops are clamped to that same height budget.
+- High-PPI Scan (≥2400) with override on prompts a warning before the clamped move.
+- Prefer **Apply calib** off and **USB planar RGB** experiments before long travels.
+
+Calibration is controlled by the **Apply calib** checkbox (default off).
 
 ## What Scan Lab is not
 
 - Not part of the PyPI package or wheel/sdist.
 - Not a NegPy replacement (no TIFF export, no iSRD retouch UI, no roll workflow).
-- Not a way to unlock non-SE scanning on real hardware.
+- Not a substitute for flipping `scan_ready` — override is lab-only unlock.
 
 For protocol / support levels, see
 [docs/scanner-validation.md](../../docs/scanner-validation.md).
