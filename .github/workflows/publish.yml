@@ -6,6 +6,7 @@ on:
 
 permissions:
   id-token: write
+  contents: write
 
 jobs:
   pypi:
@@ -16,4 +17,8 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv build
+      # Library-only wheel + sdist (tools/scanlab excluded by hatch sdist config).
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
       - uses: pypa/gh-action-pypi-publish@release/v1

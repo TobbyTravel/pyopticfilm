@@ -35,14 +35,22 @@ path = "src/pyopticfilm/_version.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyopticfilm"]
 
-[project.optional-dependencies]
-lab = ["PyQt6>=6.6"]
+# Library-only source distribution (no tools/, tests/, docs/, scripts/).
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "src/pyopticfilm",
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
     "ruff>=0.9",
 ]
+# Repo-only Scan Lab GUI — not published as a PyPI extra.
+lab = ["PyQt6>=6.6"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

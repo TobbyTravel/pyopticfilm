@@ -176,11 +176,11 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-Optional PyQt6 scan lab (real hardware or mock USB for any model).
+Optional PyQt6 scan lab (git checkout only — not on PyPI). From the repo root,
 **Run against MOCK** is on by default; uncheck it to use a plugged-in scanner:
 
 ```bash
-uv sync --all-groups --extra lab
+uv sync --group lab
 uv run python -m tools.scanlab
 ```
 
@@ -193,7 +193,7 @@ Project layout:
 - `src/pyopticfilm/device/` — per-model register/geometry tables
 - `src/pyopticfilm/scan/` — geometry, calibration, scan session pipeline
 - `tests/scanners/` — golden USB traces, SANE log parser
-- `tools/scanlab/` — PyQt6 bring-up lab (optional extra `lab`)
+- `tools/scanlab/` — PyQt6 bring-up lab (repo only; not in the PyPI package)
 
 ## License
 

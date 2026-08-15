@@ -22,7 +22,7 @@ def main() -> int:
         if missing:
             print(
                 "Scan lab needs PyQt6. From the repo root:\n"
-                "  uv sync --all-groups --extra lab\n"
+                "  uv sync --group lab\n"
                 "  uv run python -m tools.scanlab",
                 file=sys.stderr,
             )
