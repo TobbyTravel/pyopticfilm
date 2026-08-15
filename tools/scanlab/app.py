@@ -27,6 +27,7 @@ from tools.scanlab.backend import (
     device_banner,
     list_lab_targets,
     usb_log_section_key,
+    with_hw_override,
     with_mock_mode,
 )
 from tools.scanlab.widgets import CropImageView
@@ -62,6 +63,11 @@ class ScanLabWindow(QMainWindow):
         self.run_mock.setChecked(True)
         self.run_mock.toggled.connect(self._refresh_banner)
         form.addWidget(self.run_mock)
+
+        self.override_hw_gate = QCheckBox("Override safety HW gate")
+        self.override_hw_gate.setChecked(False)
+        self.override_hw_gate.toggled.connect(self._on_override_hw_gate)
+        form.addWidget(self.override_hw_gate)
 
         refresh = QPushButton("Refresh devices")
         refresh.clicked.connect(self.reload_devices)
@@ -188,6 +194,28 @@ class ScanLabWindow(QMainWindow):
         self._refresh_banner()
         self.prescan_view.clear_crop()
 
+    def _on_override_hw_gate(self, checked: bool) -> None:
+        if checked:
+            reply = QMessageBox.warning(
+                self,
+                "Override safety HW gate",
+                "This unlocks unverified scan/home/park pipelines against real "
+                "hardware. Motors and the lamp can move on models that are not "
+                "hardware-validated (scan_ready stays False).\n\n"
+                "Keep a hand near the power switch. Continue only if you intend "
+                "to run bring-up on a connected OpticFilm.",
+                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if reply != QMessageBox.StandardButton.Ok:
+                self.override_hw_gate.blockSignals(True)
+                self.override_hw_gate.setChecked(False)
+                self.override_hw_gate.blockSignals(False)
+                return
+        else:
+            self._worker.close_scanner()
+        self._refresh_banner()
+
     def _refresh_banner(self) -> None:
         target = self._current_target()
         if target is None:
@@ -200,7 +228,11 @@ class ScanLabWindow(QMainWindow):
                 "Plug it in or keep MOCK enabled."
             )
             return
-        self.banner.setText(device_banner(with_mock_mode(target, mock)))
+        resolved = with_hw_override(
+            with_mock_mode(target, mock),
+            self.override_hw_gate.isChecked(),
+        )
+        self.banner.setText(device_banner(resolved))
 
     def _resolved_target(self, *, warn_if_missing: bool = True) -> LabTarget | None:
         target = self._current_target()
@@ -215,7 +247,10 @@ class ScanLabWindow(QMainWindow):
                     "No matching scanner is connected. Plug in the device or keep MOCK enabled.",
                 )
             return None
-        return with_mock_mode(target, mock)
+        return with_hw_override(
+            with_mock_mode(target, mock),
+            self.override_hw_gate.isChecked(),
+        )
 
     def _on_prescan(self) -> None:
         target = self._resolved_target()

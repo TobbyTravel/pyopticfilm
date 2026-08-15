@@ -5,8 +5,9 @@ PyQt6 bring-up GUI for exercising `pyopticfilm` without NegPy.
 Scan Lab is **repo-only** (not shipped on PyPI). Use it to try mock USB for any
 known OpticFilm model, or a real OpticFilm 8200i SE when one is plugged in.
 
-It does **not** flip `scan_ready`. Non-SE models stay scan-locked on real USB;
-the mock path is the way to drive those pipelines without hardware.
+It does **not** flip `scan_ready`. Non-SE models stay scan-locked on real USB
+unless you explicitly enable **Override safety HW gate** (lab bring-up only).
+The mock path is the usual way to drive those pipelines without hardware.
 
 ## Requirements
 
@@ -55,7 +56,8 @@ a scanner.
    preview.
 
 Real non-SE OpticFilms can appear as connected, but the library will refuse to
-scan them until that model is hardware-validated (`scan_ready`).
+scan them until that model is hardware-validated (`scan_ready`) — unless you
+check **Override safety HW gate** (warning dialog; motors/lamp can run).
 
 ## Controls
 
@@ -63,6 +65,7 @@ scan them until that model is hardware-validated (`scan_ready`).
 |---------|---------|
 | **Device** | Connected Plustek scanners first, then every known model. |
 | **Run against MOCK** | On (default): fake USB. Off: open the selected connected device. |
+| **Override safety HW gate** | Off (default). On: after a warning, unlock scan/home/park on real USB for models with `scan_ready=False`. Does not flip `scan_ready`. |
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
 | **PPI** | Resolutions from the selected model’s `resolutions_dpi`. |
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
@@ -70,7 +73,8 @@ scan them until that model is hardware-validated (`scan_ready`).
 | **Scan** | Colour scan at the chosen PPI; optional IR second pass. Uses the prescan crop when one is set. |
 | **Cancel** | Sets the scan cancel event (busy scans only). |
 
-The yellow banner states MOCK vs REAL for the current selection.
+The yellow banner states MOCK vs REAL for the current selection (and whether
+the HW gate is overridden).
 
 ## Tabs
 

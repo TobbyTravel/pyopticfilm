@@ -31,11 +31,29 @@ class LabTarget:
     model: FilmModel
     mock: bool = True
     device_id: str | None = None
+    #: When True on a real open, set ``Scanner._allow_unvalidated_scan``.
+    allow_unvalidated: bool = False
 
 
 def with_mock_mode(target: LabTarget, mock: bool) -> LabTarget:
     """Copy ``target`` with mock/real selected from the UI checkbox."""
     return replace(target, mock=mock)
+
+
+def with_hw_override(target: LabTarget, allow_unvalidated: bool) -> LabTarget:
+    """Copy ``target`` with the lab HW-gate override from the UI checkbox."""
+    return replace(target, allow_unvalidated=bool(allow_unvalidated))
+
+
+def apply_lab_hw_override(scanner: Scanner, target: LabTarget) -> None:
+    """Unlock scan/home/park for real USB when the lab override is on.
+
+    Does not flip ``model.scan_ready``. No-op for mock opens (``open_fake``
+    already sets ``_allow_unvalidated_scan``).
+    """
+    if target.mock or not target.allow_unvalidated:
+        return
+    scanner._allow_unvalidated_scan = True
 
 
 def prescan_resolution(model: FilmModel) -> int:
@@ -122,6 +140,7 @@ def open_lab_scanner(
     handle = UsbDeviceHandle.open(target.device_id)
     rec = RecordingTransport(handle, listener=listener)
     scanner = Scanner(handle, GenesysUsbProtocol(rec), model=target.model)
+    apply_lab_hw_override(scanner, target)
     return scanner, rec
 
 
@@ -152,6 +171,12 @@ def device_banner(target: LabTarget, info: UsbDeviceInfo | None = None) -> str:
         )
     extra = f" {info.device_id}" if info is not None else ""
     if not model_is_scan_ready(target.model):
+        if target.allow_unvalidated:
+            return (
+                f"REAL hardware — {target.model.model}{extra}. "
+                "HW gate OVERRIDDEN — unverified pipeline; motors/lamp can run. "
+                "scan_ready stays False."
+            )
         return (
             f"REAL hardware — {target.model.model}{extra}. "
             "scan_ready is False; the library will refuse to scan."

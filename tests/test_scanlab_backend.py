@@ -11,11 +11,14 @@ from pyopticfilm.device.select import KNOWN_MODELS
 from pyopticfilm.exceptions import DeviceNotFoundError
 from tools.scanlab.backend import (
     LabTarget,
+    apply_lab_hw_override,
+    device_banner,
     lab_scan_kwargs,
     list_lab_targets,
     open_lab_scanner,
     usb_log_divider,
     usb_log_section_key,
+    with_hw_override,
     with_mock_mode,
 )
 
@@ -37,6 +40,51 @@ def test_with_mock_mode_selects_real():
     assert real.mock is False
     assert real.device_id == target.device_id
     assert with_mock_mode(real, True).mock is True
+
+
+def test_with_hw_override_sets_flag():
+    target = LabTarget(label="x", model=MODEL_8200I, device_id="id")
+    assert target.allow_unvalidated is False
+    unlocked = with_hw_override(with_mock_mode(target, False), True)
+    assert unlocked.mock is False
+    assert unlocked.allow_unvalidated is True
+    assert with_hw_override(unlocked, False).allow_unvalidated is False
+
+
+def test_device_banner_override_vs_locked():
+    locked = with_mock_mode(
+        LabTarget(label="x", model=MODEL_8200I, device_id="id"),
+        False,
+    )
+    text = device_banner(locked)
+    assert "refuse to scan" in text
+    assert "OVERRIDDEN" not in text
+
+    unlocked = with_hw_override(locked, True)
+    text = device_banner(unlocked)
+    assert "OVERRIDDEN" in text
+    assert "refuse to scan" not in text
+
+
+def test_apply_lab_hw_override_real_only():
+    from unittest.mock import MagicMock
+
+    scanner = MagicMock()
+    scanner._allow_unvalidated_scan = False
+    mock_target = LabTarget(label="m", model=MODEL_8200I, allow_unvalidated=True)
+    apply_lab_hw_override(scanner, mock_target)
+    assert scanner._allow_unvalidated_scan is False
+
+    real_locked = with_mock_mode(
+        LabTarget(label="r", model=MODEL_8200I, device_id="id"),
+        False,
+    )
+    apply_lab_hw_override(scanner, real_locked)
+    assert scanner._allow_unvalidated_scan is False
+
+    real_unlocked = with_hw_override(real_locked, True)
+    apply_lab_hw_override(scanner, real_unlocked)
+    assert scanner._allow_unvalidated_scan is True
 
 
 def test_open_real_without_connected_device_raises():
