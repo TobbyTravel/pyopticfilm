@@ -184,6 +184,8 @@ uv sync --group lab
 uv run python -m tools.scanlab
 ```
 
+Full UI walkthrough: [tools/scanlab/README.md](tools/scanlab/README.md).
+
 CI runs on Python 3.11–3.13 (lint + tests; no hardware in CI).
 
 Project layout:
@@ -193,7 +195,7 @@ Project layout:
 - `src/pyopticfilm/device/` — per-model register/geometry tables
 - `src/pyopticfilm/scan/` — geometry, calibration, scan session pipeline
 - `tests/scanners/` — golden USB traces, SANE log parser
-- `tools/scanlab/` — PyQt6 bring-up lab (repo only; not in the PyPI package)
+- `tools/scanlab/` — PyQt6 bring-up lab (repo only; not in the PyPI package); see [tools/scanlab/README.md](tools/scanlab/README.md)
 
 ## License
 

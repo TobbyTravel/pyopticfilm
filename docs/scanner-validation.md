@@ -49,6 +49,7 @@ Helpers:
 | `tools/dump_python_setup_trace.py` | Regenerate a Python golden trace |
 | `tools/compare_scanner_trace.py` | Compare two JSON traces |
 | `tools/sane_debug_to_trace.py` | Convert a SANE debug log to JSON |
+| `tools/scanlab/` | PyQt6 bring-up GUI (mock or real SE); [user guide](../tools/scanlab/README.md) |
 
 ## Current golden: OpticFilm 8200i, 1800 dpi, RGB16
 
