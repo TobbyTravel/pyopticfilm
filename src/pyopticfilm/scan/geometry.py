@@ -133,7 +133,15 @@ def compute_calib_geometry(
     *,
     model: FilmModel = MODEL_8200I,
 ) -> ScanGeometry:
-    """Geometry for dark/white shading strip (genesys ``init_regs_for_shading``)."""
+    """Geometry for dark/white shading strip (genesys ``init_regs_for_shading``).
+
+    Y feed matches SANE ``y_offset_ta`` + ``y_offset_calib_white_ta`` (mm → motor
+    steps). For OpticFilm 8200i both ``y_offset_calib_white_ta`` and
+    ``y_offset_sensor_to_ta`` are 0 — white strip is at the TA home field after
+    the TA feed (``tables_model.cpp``). Host stretch in
+    :meth:`ImagePipeline.apply_host_calib` replaces ASIC ``send_shading_data``
+    for the first genesys pass; DVDSET shading remains a follow-up if needed.
+    """
     if resolution not in model.resolutions_dpi:
         raise ValueError(f"Unsupported resolution {resolution}")
 

@@ -23,6 +23,20 @@ until a model is **hardware-tested**. Protocol-validated traces (see
 | OpticFilm 7200 v2 | `07b3:0c07` | GL843 | 7200i tables, no IR | `gl843.cpp` |
 | OpticFilm 7200 | `07b3:0807` | GL842 | `CCD_PLUSTEK_OPTICFILM_7200` | `gl842.cpp` |
 
+## SANE file anchors (calib / optical)
+
+| Topic | SANE location | pyopticfilm |
+|-------|---------------|-------------|
+| Optical init / scan session (GL845) | `gl846.cpp` `init_regs_for_scan_session`, `CommandSetGl846` | `scan/session.py`, `asic/gl845.py` |
+| Optical init (GL843) | `gl843.cpp` (MAXWD / `tgtime`) | `scan/session_gl843.py` |
+| Optical init (GL842) | `gl842.cpp` | `scan/session_gl842.py` |
+| Offset then coarse gain AFE | `genesys.cpp` `scanner_offset_calibration` / `scanner_coarse_gain_calibration` (~1386+) | `Gl845.search_afe` → `run_afe_dichotomy` |
+| ADI FESET skip | `genesys.cpp` ~1403–1410 (GL845/846 when `FESET==0x02`) | `Gl845.afe_dichotomy_applicable` |
+| Dark/white host shading | `genesys.cpp` `genesys_dark_white_shading_calibration`; white Y via `y_offset_calib_white_ta` | `Calibrator.run` + `compute_calib_geometry` |
+| ASIC shading upload | `gl846.cpp` `send_shading_data` | **Not ported** for GL845 first pass — host stretch only; follow-up if HW needs DVDSET |
+| Model geometry tables | `tables_model.cpp` OpticFilm 8200i block | `device/model_8200i.py` |
+| 16-bit sample swap | sensor `swap_16bit_data` (7200i) | `ImagePipeline.decode_rgb` when `model.swap_16bit_data` |
+
 ## pyopticfilm landing sites
 
 | Concern | Module |
@@ -52,10 +66,28 @@ These matter when sizing the ASIC line buffer:
 - Sheet-fed document detect
 - Non-Plustek genesys scanners
 - Any GL128 / 8200i SE behaviour (use captures instead)
+- GL845 `send_shading_data` DVDSET shading (host stretch first; revisit after 8200i HW)
 
 ## Bring-up policy
 
 1. Keep `scan_ready=False` (enforced by `tests/test_multi_model.py::test_scan_ready_se_only`).
 2. Hardwareless protocol traces may be added per [scanner-validation.md](scanner-validation.md); they change the documented support level, not `scan_ready`.
-3. On hardware: capture home + one 1800 dpi colour strip; compare register block to the ported session.
-4. Flip **that** model’s `scan_ready` only after a successful image + park.
+3. Lab sequence for GL845 8200i: `tools/bringup_gl845_8200i.py` (open → status → lamp → home → tiny scan → park → host calib → IR). Requires `--allow-unvalidated`; does **not** flip the gate.
+4. Flip **that** model’s `scan_ready` only after a successful image + park on real hardware.
+5. Sibling order after 8200i: GL845 aliases (8100, 7400 v2, 7600i v2) → GL843 (incl. `swap_16bit_data` decode for 7200i) → GL842.
+
+## Experimental models (honest status)
+
+| Model | Protocol golden | Host calib path | `scan_ready` |
+|-------|-----------------|-----------------|--------------|
+| 8200i SE | capture-derived | ASIC shading | **True** |
+| 8200i (GL845) | setup USB golden | wired | False until HW image+park |
+| Other GL845 aliases | share 8200i session | wired | False |
+| GL843 / GL842 | tables only | wired | False |
+
+## SANE register fixture workflow
+
+See [scanner-validation.md](scanner-validation.md). Drop converted JSON under
+`tests/traces/sane/8200i/`; CI compares optical regs when
+`1800_rgb16_setup.registers.json` is present (`test_sane_register_fixture_if_present`).
+Home/feed goldens stay separate — do not overwrite the setup golden.

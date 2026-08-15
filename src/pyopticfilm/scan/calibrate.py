@@ -463,6 +463,63 @@ class Calibrator:
             return hit
         return self.measure_colour_asic_shading(geometry)
 
+    def _apply_host_afe(self, entry: CalibEntry) -> None:
+        """Re-apply cached FE codes so image configure matches the calib strips."""
+        if self.asic is None:
+            return
+        if entry.afe_offsets is None or entry.afe_gains is None:
+            return
+        apply = getattr(self.asic, "apply_afe_frontend", None)
+        if callable(apply):
+            from pyopticfilm.scan.calib_gl128 import AfeFrontend
+
+            apply(
+                AfeFrontend(offsets=entry.afe_offsets, gains=entry.afe_gains),
+                method=entry.method,
+                resolution=entry.resolution,
+            )
+            return
+        # GL845 also accepts last_* + apply_frontend_for_scan.
+        if hasattr(self.asic, "last_afe_gains"):
+            self.asic.last_afe_gains = entry.afe_gains  # type: ignore[attr-defined]
+            self.asic.last_afe_offsets = entry.afe_offsets  # type: ignore[attr-defined]
+            apply_fe = getattr(self.asic, "apply_frontend_for_scan", None)
+            if callable(apply_fe):
+                apply_fe(resolution=entry.resolution, method=entry.method)
+
+    def ensure_host_calib(
+        self,
+        geometry: ScanGeometry,
+        *,
+        method: str = "transparency",
+        mode: str = "color",
+    ) -> CalibEntry:
+        """Genesys path: cached host dark/white, or measure via :meth:`run`.
+
+        Never calls :meth:`ensure_colour_asic_shading` (SE / GL128 only).
+        """
+        if method not in {"transparency", "infrared"}:
+            raise ValueError(f"Unsupported method {method!r}")
+        if mode not in {"color", "infrared"}:
+            raise ValueError(f"Unsupported mode {mode!r}")
+        hit = self.find_for_scan(method=method, geometry=geometry)
+        if hit is not None and not hit.asic_shading:
+            self.prefer_asic_shading = False
+            self._active = hit
+            self._apply_host_afe(hit)
+            logger.info(
+                "Using cached host calib method=%s dpi=%d pixels=%d",
+                method,
+                geometry.resolution,
+                geometry.pixels,
+            )
+            return hit
+        return self.run(
+            resolution=geometry.resolution,
+            mode=mode,
+            geometry=geometry,
+        )
+
     def upload_asic_shading(
         self,
         geometry: ScanGeometry,
@@ -561,11 +618,33 @@ class Calibrator:
                 return self.measure_colour_asic_shading(scan_geo)
             return self.ensure_colour_asic_shading(scan_geo)
 
-        # Genesys / non-GL128: apply frontend table defaults before strips.
+        # Genesys / non-GL128: AFE search before dark/white strips.
+        # OpticFilm ADI FESET uses table defaults (SANE skip). When dichotomy
+        # applies, measure strip means via a stationary capture.
         search = getattr(self.asic, "search_afe", None)
         if callable(search):
+            measure = None
+            applicable = getattr(self.asic, "afe_dichotomy_applicable", None)
+            if callable(applicable) and applicable():
+
+                def measure(fe: object) -> tuple[float, float, float]:
+                    avg = self._capture_average(
+                        session,
+                        calib_geo,
+                        method=method,
+                        lamp_on=True,
+                        start_motor=False,
+                        settle_s=0.05,
+                        label="afe",
+                    )
+                    return (
+                        float(avg[:, 0].mean()),
+                        float(avg[:, 1].mean()),
+                        float(avg[:, 2].mean()),
+                    )
+
             try:
-                search(method=method, resolution=resolution)
+                search(method=method, resolution=resolution, measure=measure)
             except TypeError:
                 search(method=method)
 
@@ -608,6 +687,14 @@ class Calibrator:
         )
         _safe_home()
 
+        afe_offsets = getattr(self.asic, "last_afe_offsets", None)
+        afe_gains = getattr(self.asic, "last_afe_gains", None)
+        if afe_offsets is None:
+            last = getattr(self.asic, "last_afe", None)
+            if last is not None:
+                afe_offsets = tuple(int(v) for v in last.offsets)
+                afe_gains = tuple(int(v) for v in last.gains)
+
         entry = CalibEntry(
             method=method,
             resolution=resolution,
@@ -616,16 +703,21 @@ class Calibrator:
             dark=dark,
             white=white,
             calibrated_at=time.time(),
+            asic_shading=False,
+            afe_offsets=tuple(int(v) for v in afe_offsets) if afe_offsets else None,
+            afe_gains=tuple(int(v) for v in afe_gains) if afe_gains else None,
         )
         self.cache.upsert(entry)
         self.cache.save()
         self._active = entry
+        self.prefer_asic_shading = False
         logger.info(
-            "Calib done method=%s dpi=%d dark_mean=%.0f white_mean=%.0f",
+            "Calib done method=%s dpi=%d dark_mean=%.0f white_mean=%.0f afe_gains=%s",
             method,
             resolution,
             float(dark.mean()),
             float(white.mean()),
+            entry.afe_gains,
         )
         return entry
 

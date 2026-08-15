@@ -12,8 +12,13 @@ python tools/sane_debug_to_trace.py sane.log \
     --model "OpticFilm 8200i" --dpi 1800 --revision <sane-backends-sha>
 ```
 
-For register-only compare (recommended), a file named
-`1800_rgb16_setup.registers.json` with a `registers` map is enough; see
-`docs/scanner-validation.md`.
+For register-only compare (recommended), also write
+`1800_rgb16_setup.registers.json` with a `registers` map; see
+`docs/scanner-validation.md`. CI runs
+`test_sane_register_fixture_if_present` when that file exists.
 
-CI skips the SANE differential test until that file is present.
+Do not overwrite `tests/traces/python/8200i/1800_rgb16_setup.json`. Home/feed
+sequences should be separate fixtures once those paths are stable.
+
+SANE anchors: `gl846.cpp` optical init, `genesys.cpp` offset/gain then
+dark/white shading order — see `docs/sane-opticfilm.md`.

@@ -8,6 +8,7 @@ Sequences ported from SANE genesys ``gl846.cpp`` / ``low.cpp`` /
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 
 from pyopticfilm.asic.registers import Gl845Registers
 from pyopticfilm.asic.status import ScannerStatus
@@ -16,6 +17,11 @@ from pyopticfilm.device.protocol import FilmModel, ScanMethod
 from pyopticfilm.device.sensor_lookup import frontend_regs_for
 from pyopticfilm.exceptions import AsicError, MotorTimeoutError
 from pyopticfilm.logging import get_logger
+from pyopticfilm.scan.calib_gl128 import (
+    AfeFrontend,
+    AfeSearchConfig,
+    run_afe_dichotomy,
+)
 from pyopticfilm.usb.protocol import GenesysUsbProtocol
 
 logger = get_logger(__name__)
@@ -135,20 +141,31 @@ class Gl845:
         """ADI frontend init (``gl846_set_adi_fe`` / AFE_INIT)."""
         self.apply_frontend_for_scan(resolution=None, method=self._scan_method)
 
+    def _frontend_feset(self) -> int:
+        return self._reg_cache.get(0x04, self.protocol.read_register(0x04)) & self.registers.FESET
+
+    def afe_dichotomy_applicable(self) -> bool:
+        """True when SANE ``scanner_offset_calibration`` / gain search run.
+
+        Genesys ``genesys.cpp`` skips offset+gain for GL845/GL846 when
+        ``(reg04 & FESET) == 0x02`` (ADI / AKM AFE). OpticFilm 8200i uses that
+        FESET, so live dichotomy is off by default; host dark/white stretch
+        covers shading. Wolfson-style frontends (other FESET) keep dichotomy.
+        """
+        return self._frontend_feset() != self.registers.FESET_ADI
+
     def apply_frontend_for_scan(
         self,
         *,
         resolution: int | None = None,
         method: ScanMethod | str | None = None,
     ) -> None:
-        """Write AFE regs from model tables (+ optional dpi overlay).
+        """Write AFE regs from model tables (+ optional dpi overlay / last search).
 
-        Full genesys offset/gain dichotomy still needs a live strip acquire; until
-        that is ported this loads SANE ``frontend_regs`` (and
-        ``frontend_regs_by_dpi`` when present) so scan/calib sessions have a
-        defined analog path.
+        Re-applies ``last_afe_gains`` / ``last_afe_offsets`` when set (genesys
+        keeps FE codes from offset/gain calibration into the image scan).
         """
-        feset = self._reg_cache.get(0x04, self.protocol.read_register(0x04)) & self.registers.FESET
+        feset = self._frontend_feset()
         if feset != self.registers.FESET_ADI:
             raise AsicError(f"Unsupported frontend type FESET={feset:#x} (need ADI=0x2)")
 
@@ -193,28 +210,68 @@ class Gl845:
             resolution,
         )
 
+    def apply_afe_frontend(
+        self,
+        frontend: AfeFrontend,
+        *,
+        method: ScanMethod | str | None = None,
+        resolution: int | None = None,
+    ) -> None:
+        """Program FE gain/offset codes and remember them for later configure."""
+        self.last_afe_gains = tuple(int(v) & 0xFF for v in frontend.gains)  # type: ignore[assignment]
+        self.last_afe_offsets = tuple(int(v) & 0xFF for v in frontend.offsets)  # type: ignore[assignment]
+        self.apply_frontend_for_scan(resolution=resolution, method=method)
+
     def search_afe(
         self,
         *,
         method: ScanMethod | str = "transparency",
         resolution: int | None = None,
-    ) -> None:
-        """Apply SANE frontend table defaults (host-side calib path).
+        measure: Callable[[AfeFrontend], tuple[float, float, float]] | None = None,
+        config: AfeSearchConfig | None = None,
+        force_dichotomy: bool = False,
+    ) -> AfeFrontend:
+        """Offset then gain search (SANE ``scanner_*_calibration``) or table seed.
 
-        Genesys runs a live offset/gain dichotomy against a shading strip.
-        Without validated strip plumbing on GL845 OpticFilm yet, this reloads
-        model frontend codes so ``Calibrator.run`` has a deterministic AFE.
+        When ``measure`` is provided and dichotomy applies (or
+        ``force_dichotomy``), runs :func:`run_afe_dichotomy` against stationary
+        strip means — same order as genesys offset then coarse gain. OpticFilm
+        ADI FESET skips dichotomy unless forced (SANE ``genesys.cpp`` ~1403).
         """
         self.last_afe_gains = None
         self.last_afe_offsets = None
         self.apply_frontend_for_scan(resolution=resolution, method=method)
+        assert self.last_afe_gains is not None and self.last_afe_offsets is not None
+        seed = AfeFrontend(offsets=self.last_afe_offsets, gains=self.last_afe_gains)
+
+        run_search = force_dichotomy or self.afe_dichotomy_applicable()
+        if not run_search or measure is None:
+            logger.info(
+                "GL845 AFE search (table defaults%s) method=%s dpi=%s gains=%s offsets=%s",
+                "" if measure is None else "; dichotomy skipped for ADI FESET",
+                method,
+                resolution,
+                self.last_afe_gains,
+                self.last_afe_offsets,
+            )
+            return seed
+
+        cfg = config or AfeSearchConfig()
+
+        def _measure(fe: AfeFrontend) -> tuple[float, float, float]:
+            self.apply_afe_frontend(fe, method=method, resolution=resolution)
+            return measure(fe)
+
+        result = run_afe_dichotomy(_measure, config=cfg, start=seed)
+        self.apply_afe_frontend(result, method=method, resolution=resolution)
         logger.info(
-            "GL845 AFE search (table defaults) method=%s dpi=%s gains=%s offsets=%s",
+            "GL845 AFE dichotomy method=%s dpi=%s gains=%s offsets=%s",
             method,
             resolution,
             self.last_afe_gains,
             self.last_afe_offsets,
         )
+        return result
 
     def init(self, *, force: bool = False) -> None:
         """Full init: USB speed probe, asic_boot, frontend (SANE ``asic_init`` core)."""

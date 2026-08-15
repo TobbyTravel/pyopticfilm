@@ -71,8 +71,15 @@ class ImagePipeline:
             return (arr.astype(np.uint16) * np.uint16(257)).copy()
         if geometry.depth != 16:
             raise ValueError(f"Unsupported geometry depth {geometry.depth}")
-        flat = np.frombuffer(raw[:expected], dtype="<u2")
-        arr = flat.reshape(h, c, w).transpose(0, 2, 1) if planar else flat.reshape(h, w, c)
+        words = np.frombuffer(raw[:expected], dtype="<u2").copy()
+        if bool(getattr(self.model, "swap_16bit_data", False)):
+            # SANE genesys sensor flag: byteswap each 16-bit sample (GL843 7200i).
+            words.byteswap(inplace=True)
+        arr = (
+            words.reshape(h, c, w).transpose(0, 2, 1)
+            if planar
+            else words.reshape(h, w, c)
+        )
         return np.array(arr, dtype=np.uint16, copy=True)
 
     def decode_rgb16(

@@ -106,10 +106,11 @@ class ScanSession:
 
         calib = None
         if apply_calib and self.calibrator is not None:
-            if method == "transparency":
-                # SilverFast order: home measure/apply before any image feed.
+            is_gl128 = getattr(self.model, "asic", "") == "GL128"
+            if is_gl128 and method == "transparency":
+                # SilverFast / SE: ASIC shading before any image feed.
                 calib = self.calibrator.ensure_colour_asic_shading(geometry)
-            else:
+            elif is_gl128:
                 calib = self.calibrator.find_for_scan(method=method, geometry=geometry)
                 if calib is None:
                     logger.warning(
@@ -117,6 +118,14 @@ class ScanSession:
                         method,
                         geometry.resolution,
                     )
+            else:
+                # Genesys (GL845/843/842): host dark/white stretch — never the
+                # SE ``run_asic_shading`` path (those ASICs do not implement it).
+                calib = self.calibrator.ensure_host_calib(
+                    geometry,
+                    method=method,
+                    mode="infrared" if method == "infrared" else "color",
+                )
 
         raw = self.acquire_raw(
             geometry,

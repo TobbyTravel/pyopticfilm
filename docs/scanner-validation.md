@@ -115,16 +115,35 @@ python tools/sane_debug_to_trace.py sane-8200i-1800.log \
     --out tests/traces/sane/8200i/1800_rgb16_setup.json \
     --model "OpticFilm 8200i" --dpi 1800 --revision "$(git -C sane-backends rev-parse HEAD)"
 
+# Register-only file is enough for CI (see test_sane_register_fixture_if_present):
+python tools/sane_debug_to_trace.py sane-8200i-1800.log \
+    --out tests/traces/sane/8200i/1800_rgb16_setup.registers.json \
+    --model "OpticFilm 8200i" --dpi 1800 --revision "$(git -C sane-backends rev-parse HEAD)"
+
 python tools/compare_scanner_trace.py --registers-only \
     tests/traces/sane/8200i/1800_rgb16_setup.json \
     tests/traces/python/8200i/1800_rgb16_setup.json
 ```
+
+SANE file anchors for optical init and calib order are listed in
+[sane-opticfilm.md](sane-opticfilm.md). Keep the Python setup golden intact;
+add home/feed sequences as separate fixtures once those paths are stable.
 
 Record the SANE backends git revision in the JSON `meta.revision` field so
 fixture drift is explainable.
 
 Parser coverage is exercised in CI against
 `tests/data/sane_debug_sample.log` (a canned snippet, not a full scan).
+
+### Lab bring-up (GL845 8200i, does not flip `scan_ready`)
+
+```bash
+uv run python tools/bringup_gl845_8200i.py --dry-run
+uv run python tools/bringup_gl845_8200i.py --allow-unvalidated \
+    --steps open,status,lamp,home,tiny,park,calib,ir
+```
+
+Flip `MODEL_8200I.scan_ready` only after a successful image + park on hardware.
 
 ## What protocol validation can establish
 
