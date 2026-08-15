@@ -23,13 +23,14 @@ def _method_args(name: str) -> tuple[list[str], list[str]]:
 
 
 def test_run_scan_accepts_positional_signal_args():
-    # request_scan = pyqtSignal(object, int, bool, object) — queued slots are positional.
+    # request_scan = pyqtSignal(object, int, bool, object, bool) — queued slots are positional.
     positional, keyword_only = _method_args("run_scan")
-    assert positional == ["target", "dpi", "ir_pass", "crop_norm"]
+    assert positional == ["target", "dpi", "ir_pass", "crop_norm", "apply_calib"]
     assert keyword_only == []
 
 
 def test_run_prescan_accepts_positional_signal_args():
+    # request_prescan = pyqtSignal(object, bool)
     positional, keyword_only = _method_args("run_prescan")
-    assert positional == ["target"]
+    assert positional == ["target", "apply_calib"]
     assert keyword_only == []
