@@ -144,6 +144,21 @@ Progress for the active pass is shown in the status bar.
 
 Calibration is controlled by the **Apply calib** checkbox (default off).
 
+## Motor grind recovery
+
+If the carriage grinds, chatters against a stop, or stops mid-travel during Lab
+bring-up:
+
+1. **Power off** the scanner (front/power switch).
+2. **Unplug the power cord** from the scanner (or wall), wait a few seconds.
+3. **Reconnect** power and turn the scanner back on.
+4. **Home** the head with a known-good tool (for example **VueScan** or
+   **SilverFast**) before using Scan Lab or pyopticfilm again.
+
+This recovery sequence has only been **tested on the OpticFilm 8200i SE**. Treat
+it as a starting point on other models (8100, etc.); keep a hand near power and
+do not force the carriage by hand.
+
 ## What Scan Lab is not
 
 - Not part of the PyPI package or wheel/sdist.
