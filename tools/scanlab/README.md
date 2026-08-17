@@ -118,11 +118,6 @@ host flatten on GL128.
 
 Passive analysis of a USBPcap recording (VueScan / SilverFast / SANE / Lab):
 
-Development `.pcapng` / `.pcap` fixtures (8200i SE sessions, PPI ladder, bit-depth
-pairs, etc.) live in the separate
-[pyopticfilm_captures](https://github.com/jboneng/pyopticfilm_captures) dataset
-on GitHub — clone or download a file and use **Open capture…** below.
-
 1. Select the model that matches the capture (e.g. OpticFilm 8100).
 2. **Open capture…** and choose a `.pcapng` / `.pcap` from USBPcap/Wireshark.
 3. The **Scan** tab shows the decoded image. Lab finds the SilverFast

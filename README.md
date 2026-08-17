@@ -186,6 +186,11 @@ uv run python -m tools.scanlab
 
 Full UI walkthrough: [tools/scanlab/README.md](tools/scanlab/README.md).
 
+USBPcap / Wireshark `.pcapng` recordings used during reverse-engineering (8200i SE
+sessions, PPI ladder, bit-depth pairs, etc.) are published separately in
+[pyopticfilm_captures](https://github.com/jboneng/pyopticfilm_captures). Use Scan
+Lab **Open capture…** to decode them offline.
+
 CI runs on Python 3.11–3.13 (lint + tests; no hardware in CI).
 
 Project layout:
