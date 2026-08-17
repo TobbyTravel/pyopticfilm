@@ -89,6 +89,7 @@ full-TA high-PPI Scan safe.
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
 | **Prescan** | Low-res preview (SE: 1200 dpi safe window; non-SE: lowest dpi + short Y strip). |
 | **Scan** | Colour scan at the chosen PPI; optional IR second pass. Uses the prescan crop when one is set (clamped on non-SE). |
+| **Open capture…** | Open a USBPcap ``.pcap`` / ``.pcapng``. Decodes the largest bulk IN through the selected model’s image pipeline and diffs FEEDL / LINCNT / DPISET vs Lab geometry (Capture tab). |
 | **Cancel** | Sets the scan cancel event (busy scans only). |
 
 The yellow banner states MOCK vs REAL for the current selection (HW gate override
@@ -113,12 +114,37 @@ Infrared result when **IR pass** was enabled. Displayed as **grayscale** from
 the driver’s IR plane (`ScanImage.ir`), which is the green CCD channel after
 host flatten on GL128.
 
+### Capture
+
+Passive analysis of a USBPcap recording (VueScan / SilverFast / SANE / Lab):
+
+Development `.pcapng` / `.pcap` fixtures (8200i SE sessions, PPI ladder, bit-depth
+pairs, etc.) live in the separate
+[pyopticfilm_captures](https://github.com/jboneng/pyopticfilm_captures) dataset
+on GitHub — clone or download a file and use **Open capture…** below.
+
+1. Select the model that matches the capture (e.g. OpticFilm 8100).
+2. **Open capture…** and choose a `.pcapng` / `.pcap` from USBPcap/Wireshark.
+3. The **Scan** tab shows the decoded image. Lab finds the SilverFast
+   ``VALUE_BUFFER`` preamble (``wIndex=0x08``), carves that many bulk-IN bytes,
+   and for **8200i SE** decodes as 16-bit chunky RGB using capture
+   STRPIXEL/ENDPIXEL/LINCNT/DPISET (Lab PPI is ignored for decode — a mismatch
+   shears the image). Use **USB planar RGB** only if rainbow-striped. Select
+   **8200i SE** for SE captures. The **Capture** tab reports preamble size and
+   register diffs.
+4. The **Capture** tab lists FEEDL / LINCNT / DPISET from the capture versus what
+   Lab would program at the current PPI / crop — useful for motor-grind diagnosis.
+
+This does **not** replay the foreign driver’s full USB conversation through
+`Scanner.scan()`; it only decodes image data and compares key registers.
+
 ### USB log
 
 Live truncated log of every control and bulk transfer through the recording
-USB wrapper.
+USB wrapper. **Open capture…** also fills this tab from the pcap (identical
+line format; repeated bulk-IN lengths are collapsed as ``×N``).
 
-- Dividers mark `PRESCAN`, `SCAN`, and `IR` sections.
+- Dividers mark `PRESCAN`, `SCAN`, `IR`, and `CAPTURE` sections.
 - **Jump** buttons scroll to those dividers when present.
 - **Clear USB log** empties the buffer (Prescan also clears the log).
 
@@ -175,6 +201,7 @@ tools/scanlab/
   __main__.py   # uv run python -m tools.scanlab
   app.py        # main window
   backend.py    # device list, open real/mock, SE geometry helpers
+  capture_pcap.py  # USBPcap parse + bulk decode / register diff
   worker.py     # QThread scan worker + USB log dividers
   widgets.py    # crop view + RGB/gray preview
   README.md     # this guide

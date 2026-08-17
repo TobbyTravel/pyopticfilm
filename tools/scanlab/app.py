@@ -8,6 +8,7 @@ from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -33,6 +34,14 @@ from tools.scanlab.backend import (
     with_mock_mode,
     with_usb_planar,
 )
+from tools.scanlab.capture_pcap import (
+    CaptureAnalysis,
+    analyze_usbpcap,
+    decode_capture_bulk,
+    format_capture_usb_log_lines,
+    model_for_capture_decode,
+    motor_register_diff,
+)
 from tools.scanlab.widgets import CropImageView
 from tools.scanlab.worker import ScanWorker
 
@@ -45,6 +54,7 @@ class ScanLabWindow(QMainWindow):
 
         self._targets: list[LabTarget] = []
         self._usb_sections: dict[str, int] = {}
+        self._capture: CaptureAnalysis | None = None
         self._thread = QThread(self)
         self._worker = ScanWorker()
         self._worker.moveToThread(self._thread)
@@ -100,19 +110,28 @@ class ScanLabWindow(QMainWindow):
         self.btn_prescan = QPushButton("Prescan")
         self.btn_scan = QPushButton("Scan")
         self.btn_cancel = QPushButton("Cancel")
+        self.btn_open_capture = QPushButton("Open capture…")
         self.btn_cancel.setEnabled(False)
         self.btn_prescan.clicked.connect(self._on_prescan)
         self.btn_scan.clicked.connect(self._on_scan)
         self.btn_cancel.clicked.connect(self._worker.cancel)
+        self.btn_open_capture.clicked.connect(self._on_open_capture)
         form.addWidget(self.btn_prescan)
         form.addWidget(self.btn_scan)
         form.addWidget(self.btn_cancel)
+        form.addWidget(self.btn_open_capture)
         form.addStretch(1)
 
         tabs = QTabWidget()
         self.prescan_view = CropImageView()
         self.scan_view = CropImageView()
         self.ir_view = CropImageView()
+        self.capture_diff = QPlainTextEdit()
+        self.capture_diff.setReadOnly(True)
+        self.capture_diff.setPlaceholderText(
+            "Open a USBPcap .pcap / .pcapng to decode the image bulk and compare "
+            "FEEDL / LINCNT / DPISET to Lab geometry…"
+        )
         self.usb_log = QPlainTextEdit()
         self.usb_log.setReadOnly(True)
         self.usb_log.setPlaceholderText("USB transactions appear here…")
@@ -121,12 +140,15 @@ class ScanLabWindow(QMainWindow):
         self.btn_jump_prescan = QPushButton("Prescan")
         self.btn_jump_scan = QPushButton("Scan")
         self.btn_jump_ir = QPushButton("IR")
+        self.btn_jump_capture = QPushButton("Capture")
         self.btn_jump_prescan.clicked.connect(lambda: self._jump_usb_section("PRESCAN"))
         self.btn_jump_scan.clicked.connect(lambda: self._jump_usb_section("SCAN"))
         self.btn_jump_ir.clicked.connect(lambda: self._jump_usb_section("IR"))
+        self.btn_jump_capture.clicked.connect(lambda: self._jump_usb_section("CAPTURE"))
         jump_row.addWidget(self.btn_jump_prescan)
         jump_row.addWidget(self.btn_jump_scan)
         jump_row.addWidget(self.btn_jump_ir)
+        jump_row.addWidget(self.btn_jump_capture)
         jump_row.addStretch(1)
         clear_log = QPushButton("Clear USB log")
         clear_log.clicked.connect(self._clear_usb_log)
@@ -140,6 +162,7 @@ class ScanLabWindow(QMainWindow):
         tabs.addTab(self.prescan_view, "Prescan")
         tabs.addTab(self.scan_view, "Scan")
         tabs.addTab(self.ir_view, "IR")
+        tabs.addTab(self.capture_diff, "Capture")
         tabs.addTab(log_page, "USB log")
         self.tabs = tabs
 
@@ -155,6 +178,7 @@ class ScanLabWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.progress, 1)
 
         self.device.currentIndexChanged.connect(self._on_device_changed)
+        self.ppi.currentIndexChanged.connect(self._on_ppi_changed)
 
         self._worker.progress.connect(self._on_progress)
         self._worker.usb_line.connect(self._append_usb)
@@ -205,6 +229,12 @@ class ScanLabWindow(QMainWindow):
             self.ir_pass.setChecked(False)
         self._refresh_banner()
         self.prescan_view.clear_crop()
+        if self._capture is not None:
+            self._decode_loaded_capture()
+
+    def _on_ppi_changed(self, _index: int) -> None:
+        if self._capture is not None:
+            self._decode_loaded_capture()
 
     def _on_override_hw_gate(self, checked: bool) -> None:
         if checked:
@@ -233,6 +263,103 @@ class ScanLabWindow(QMainWindow):
     def _on_usb_planar(self, _checked: bool) -> None:
         self._worker.close_scanner()
         self._refresh_banner()
+        if self._capture is not None:
+            self._decode_loaded_capture()
+
+    def _on_open_capture(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open USB capture",
+            "",
+            "USBPcap (*.pcapng *.pcap);;All files (*.*)",
+        )
+        if not path:
+            return
+        try:
+            self._capture = analyze_usbpcap(path)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Scan lab", f"Failed to parse capture:\n{exc}")
+            return
+        self._populate_usb_log_from_capture(self._capture)
+        self._decode_loaded_capture()
+
+    def _populate_usb_log_from_capture(self, analysis: CaptureAnalysis) -> None:
+        """Replace the USB log with a collapsed transcript of the capture."""
+        self._clear_usb_log()
+        log_lines = format_capture_usb_log_lines(analysis)
+        # One setPlainText is much faster than thousands of appendPlainText calls.
+        self.usb_log.setPlainText("\n".join(log_lines))
+        self._usb_sections.clear()
+        # Re-scan for section dividers (CAPTURE / any others).
+        doc = self.usb_log.document()
+        block = doc.begin()
+        while block.isValid():
+            key = usb_log_section_key(block.text())
+            if key is not None:
+                self._usb_sections[key] = block.position()
+            block = block.next()
+        self._update_usb_jump_buttons()
+
+    def _decode_loaded_capture(self) -> None:
+        analysis = self._capture
+        target = self._current_target()
+        if analysis is None or target is None:
+            return
+        dpi = int(self.ppi.currentData() or target.model.resolutions_dpi[0])
+        planar = self.usb_planar.isChecked()
+        decode_model = model_for_capture_decode(analysis, target.model)
+        lines = [
+            f"Capture: {analysis.path.name}",
+            f"Lab target: {target.model.model} ({target.model.asic})",
+            f"Decode model: {decode_model.model} ({decode_model.asic})",
+            (
+                f"Packets: {len(analysis.packets)}  bulk INs: {len(analysis.bulk_ins)}  "
+                f"register writes: {len(analysis.register_writes)}"
+            ),
+            "",
+            *motor_register_diff(
+                decode_model,
+                analysis,
+                dpi=dpi,
+                crop_norm=self.prescan_view.crop_norm,
+            ),
+            "",
+        ]
+        decoded_ok = False
+        try:
+            # Decode uses capture DPISET for width; Lab PPI is only for the diff above.
+            rgb, geo = decode_capture_bulk(
+                decode_model,
+                analysis,
+                dpi=None,
+                planar=planar,
+            )
+            self.scan_view.set_rgb(rgb, auto_level=True)
+            lines.append(
+                f"Decoded {rgb.shape[1]}×{rgb.shape[0]} @ capture dpi={geo.resolution} "
+                f"planar={planar} ld_shift=({geo.shift_r},{geo.shift_g},{geo.shift_b}) "
+                f"(line_bytes={geo.line_bytes}, optical_lines={geo.optical_line_count})"
+            )
+            lines.append(
+                "Decode ignores the Lab PPI spinner (uses capture DPISET). "
+                "Toggle USB planar RGB to re-decode without reopening the file."
+            )
+            if decode_model.asic != target.model.asic:
+                lines.append(
+                    f"Note: capture looks like {decode_model.asic}; "
+                    f"used {decode_model.model} tables instead of {target.model.model}."
+                )
+            decoded_ok = True
+            self.statusBar().showMessage(
+                f"Capture decode {rgb.shape[1]}×{rgb.shape[0]} planar={planar}"
+            )
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"Decode failed: {exc}")
+            lines.append("Register diff above may still help with FEEDL/LINCNT.")
+            self.statusBar().showMessage(f"Capture decode failed: {exc}")
+            QMessageBox.warning(self, "Scan lab", f"Could not decode image bulk:\n{exc}")
+        self.capture_diff.setPlainText("\n".join(lines))
+        self.tabs.setCurrentWidget(self.scan_view if decoded_ok else self.capture_diff)
 
     def _refresh_banner(self) -> None:
         target = self._current_target()
@@ -340,6 +467,7 @@ class ScanLabWindow(QMainWindow):
         self.btn_jump_prescan.setEnabled("PRESCAN" in self._usb_sections)
         self.btn_jump_scan.setEnabled("SCAN" in self._usb_sections)
         self.btn_jump_ir.setEnabled("IR" in self._usb_sections)
+        self.btn_jump_capture.setEnabled("CAPTURE" in self._usb_sections)
 
     def _jump_usb_section(self, key: str) -> None:
         pos = self._usb_sections.get(key)
@@ -389,6 +517,7 @@ class ScanLabWindow(QMainWindow):
         self.override_hw_gate.setEnabled(not busy)
         self.apply_calib.setEnabled(not busy)
         self.usb_planar.setEnabled(not busy)
+        self.btn_open_capture.setEnabled(not busy)
 
 
 def run() -> int:

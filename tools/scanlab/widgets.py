@@ -9,12 +9,28 @@ from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 
-def rgb16_to_qimage(rgb: np.ndarray) -> QImage:
-    """Convert HxWx3 uint16 to an 8-bit RGB QImage (owned copy)."""
+def rgb16_to_qimage(rgb: np.ndarray, *, auto_level: bool = False) -> QImage:
+    """Convert HxWx3 uint16 to an 8-bit RGB QImage (owned copy).
+
+    ``auto_level`` uses a 1–99% percentile stretch (useful for raw capture
+    decode where ``>> 8`` alone looks crushed).
+    """
     arr = np.asarray(rgb)
     if arr.ndim != 3 or arr.shape[2] != 3:
         raise ValueError(f"expected HxWx3, got {arr.shape}")
-    u8 = np.ascontiguousarray((arr.astype(np.uint32) >> 8).clip(0, 255).astype(np.uint8))
+    if auto_level:
+        u8 = np.empty(arr.shape[:2] + (3,), dtype=np.uint8)
+        for c in range(3):
+            plane = arr[:, :, c].astype(np.float64)
+            lo, hi = np.percentile(plane, (1.0, 99.0))
+            if hi <= lo:
+                u8[:, :, c] = 0
+            else:
+                scaled = (plane - lo) * (255.0 / (hi - lo))
+                u8[:, :, c] = np.clip(scaled, 0, 255).astype(np.uint8)
+        u8 = np.ascontiguousarray(u8)
+    else:
+        u8 = np.ascontiguousarray((arr.astype(np.uint32) >> 8).clip(0, 255).astype(np.uint8))
     h, w, _ = u8.shape
     image = QImage(u8.data, w, h, 3 * w, QImage.Format.Format_RGB888)
     return image.copy()
@@ -59,14 +75,14 @@ class CropImageView(QWidget):
         self._crop = None
         self._refresh()
 
-    def set_rgb(self, rgb: np.ndarray | None) -> None:
+    def set_rgb(self, rgb: np.ndarray | None, *, auto_level: bool = False) -> None:
         if rgb is None:
             self._pixmap = QPixmap()
             self._label.setPixmap(QPixmap())
             self._label.setText("No image")
             return
         self._label.setText("")
-        self._pixmap = QPixmap.fromImage(rgb16_to_qimage(rgb))
+        self._pixmap = QPixmap.fromImage(rgb16_to_qimage(rgb, auto_level=auto_level))
         self._refresh()
 
     def set_gray(self, gray: np.ndarray | None) -> None:
