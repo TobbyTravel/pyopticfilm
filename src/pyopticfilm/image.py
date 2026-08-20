@@ -149,6 +149,6 @@ def _tiff_dpi_from_page(page) -> int | None:
             x *= 2.54
         if x <= 0:
             return None
-        return int(round(x))
+        return round(x)
     except (TypeError, ValueError, ZeroDivisionError):
         return None

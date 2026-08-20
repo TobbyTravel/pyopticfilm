@@ -863,9 +863,9 @@ class ScanLabWindow(QMainWindow):
         else:
             self.ir_view.set_rgb(None)
         self._update_me_tabs_visible()
-        if image.merge_method and image.merge_method != "none":
-            self.tabs.setCurrentWidget(self.merged_view)
-        elif image.rgb_long is not None and self._me_merge_mode() != "none":
+        if (
+            image.merge_method and image.merge_method != "none"
+        ) or (image.rgb_long is not None and self._me_merge_mode() != "none"):
             self.tabs.setCurrentWidget(self.merged_view)
         else:
             self.tabs.setCurrentWidget(self.scan_view)
