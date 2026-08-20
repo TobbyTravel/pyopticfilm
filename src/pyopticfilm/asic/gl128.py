@@ -213,6 +213,11 @@ class Gl128:
         self.last_host_calib_white: list[tuple[int, int, int]] | None = None
         #: True when colour shading failed ASIC arm but host dark/white is usable.
         self.last_color_shading_host_ok: bool = False
+        #: Lab acoustic A/B: use ``SLOPE_TABLE_SLOW`` for non-shading table uploads.
+        self.image_slope_slow: bool = False
+        #: Seconds to sleep between image bulk chunk announces. Softens high-PPI
+        #: helicopter creep (Scan Lab confirmed); set ``0`` to drain flat-out.
+        self.image_usb_pace_s: float = 0.003
 
     def _require_motor_enabled(self) -> None:
         if not self._motor_moves_enabled:
@@ -1055,10 +1060,15 @@ class Gl128:
         ``shading=True`` loads the slow ramp (session 03 feeds); otherwise the
         fast ramp used for feeds and image. Pass ``slope=False`` for the
         unity→white window (session 03/04: exposure AHB only).
+
+        When ``image_slope_slow`` is set (Scan Lab acoustic probe), non-shading
+        uploads also use the slow ramp. Fast feeds still call
+        :meth:`_upload_fast_slopes` directly.
         """
         r = self.registers
         if slope:
-            slope_bytes = _u16_table_bytes(SLOPE_TABLE_SLOW if shading else SLOPE_TABLE_FAST)
+            use_slow = bool(shading or getattr(self, "image_slope_slow", False))
+            slope_bytes = _u16_table_bytes(SLOPE_TABLE_SLOW if use_slow else SLOPE_TABLE_FAST)
             self.protocol.write_ahb(r.AHB_SLOPE_SCAN, slope_bytes)
             self.protocol.write_ahb(r.AHB_SLOPE_FAST, slope_bytes)
 
@@ -1069,7 +1079,15 @@ class Gl128:
             self.protocol.write_ahb(addr, exposure)
         logger.debug(
             "GL128 uploaded %s for %d dpi",
-            ("exposure only" if not slope else ("slow slope + exposure" if shading else "fast slope + exposure")),
+            (
+                "exposure only"
+                if not slope
+                else (
+                    "slow slope + exposure"
+                    if (shading or getattr(self, "image_slope_slow", False))
+                    else "fast slope + exposure"
+                )
+            ),
             resolution,
         )
 

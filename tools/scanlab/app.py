@@ -34,6 +34,7 @@ from tools.scanlab.backend import (
     usb_log_section_key,
     with_hw_override,
     with_mock_mode,
+    with_motor_acoustic,
     with_usb_planar,
 )
 from tools.scanlab.capture_pcap import (
@@ -94,6 +95,23 @@ class ScanLabWindow(QMainWindow):
         self.usb_planar.setChecked(False)
         self.usb_planar.toggled.connect(self._on_usb_planar)
         form.addWidget(self.usb_planar)
+
+        self.quiet_usb_pace = QCheckBox("Quiet USB pace (~3 ms/chunk)")
+        self.quiet_usb_pace.setChecked(True)
+        self.quiet_usb_pace.setToolTip(
+            "Sleep between image bulk announces so the ASIC buffer can refill "
+            "(motor buffer-full gate). Default on — quieter high-PPI creep; "
+            "adds ~3 ms per 60 KiB chunk."
+        )
+        form.addWidget(self.quiet_usb_pace)
+
+        self.slow_image_slope = QCheckBox("Slow image slope")
+        self.slow_image_slope.setChecked(False)
+        self.slow_image_slope.setToolTip(
+            "Upload the shading/slow motor ramp for the image pass (acoustic probe). "
+            "Feeds still use the fast ramp."
+        )
+        form.addWidget(self.slow_image_slope)
 
         refresh = QPushButton("Refresh devices")
         refresh.clicked.connect(self.reload_devices)
@@ -689,12 +707,16 @@ class ScanLabWindow(QMainWindow):
                 "Plug it in or keep MOCK enabled."
             )
             return
-        resolved = with_usb_planar(
-            with_hw_override(
-                with_mock_mode(target, mock),
-                self.override_hw_gate.isChecked(),
+        resolved = with_motor_acoustic(
+            with_usb_planar(
+                with_hw_override(
+                    with_mock_mode(target, mock),
+                    self.override_hw_gate.isChecked(),
+                ),
+                self.usb_planar.isChecked(),
             ),
-            self.usb_planar.isChecked(),
+            quiet_usb_pace=self.quiet_usb_pace.isChecked(),
+            slow_image_slope=self.slow_image_slope.isChecked(),
         )
         self.banner.setText(device_banner(resolved))
 
@@ -711,12 +733,16 @@ class ScanLabWindow(QMainWindow):
                     "No matching scanner is connected. Plug in the device or keep MOCK enabled.",
                 )
             return None
-        return with_usb_planar(
-            with_hw_override(
-                with_mock_mode(target, mock),
-                self.override_hw_gate.isChecked(),
+        return with_motor_acoustic(
+            with_usb_planar(
+                with_hw_override(
+                    with_mock_mode(target, mock),
+                    self.override_hw_gate.isChecked(),
+                ),
+                self.usb_planar.isChecked(),
             ),
-            self.usb_planar.isChecked(),
+            quiet_usb_pace=self.quiet_usb_pace.isChecked(),
+            slow_image_slope=self.slow_image_slope.isChecked(),
         )
 
     def _on_prescan(self) -> None:
@@ -880,6 +906,8 @@ class ScanLabWindow(QMainWindow):
         self.override_hw_gate.setEnabled(not busy)
         self.apply_calib.setEnabled(not busy)
         self.usb_planar.setEnabled(not busy)
+        self.quiet_usb_pace.setEnabled(not busy)
+        self.slow_image_slope.setEnabled(not busy)
         self.btn_open_capture.setEnabled(not busy)
 
 

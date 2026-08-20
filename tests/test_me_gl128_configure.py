@@ -40,3 +40,82 @@ def test_gl128_configure_long_exposure_registers():
     )
     assert exp_short == 14000
     assert usb.registers.get(0xA5) == 0x02
+
+
+def test_gl128_acquire_reannounces_usb_sized_blocks():
+    """Chunked VALUE_BUFFER — full-image preamble was louder on real SE HW."""
+    from unittest.mock import MagicMock
+
+    from pyopticfilm.asic.registers import Gl128Registers
+    from pyopticfilm.usb.device import BULK_MAX_SIZE
+
+    total = BULK_MAX_SIZE * 2 + 100
+    geometry = MagicMock()
+    geometry.total_bytes = total
+    geometry.disable_buffer_full_move = False
+
+    proto = MagicMock()
+    begins: list[int] = []
+
+    def begin(size, *, index=0, addr=0x10000000):
+        begins.append(int(size))
+
+    remaining = {"n": total}
+
+    def exact(size):
+        n = min(int(size), remaining["n"])
+        remaining["n"] -= n
+        return b"\x00" * n
+
+    proto.bulk_read_begin.side_effect = begin
+    proto.bulk_read_exact.side_effect = exact
+
+    asic = MagicMock()
+    asic.protocol = proto
+    asic.read_status.return_value = MagicMock(is_buffer_empty=False)
+    asic.image_usb_pace_s = 0.0
+
+    session = Gl128ScanSession(asic, MODEL_8200I_SE)
+    session.se_regs = Gl128Registers()
+    raw = session._acquire(geometry, progress=None, cancel=None)
+    assert len(raw) == total
+    assert begins == [BULK_MAX_SIZE, BULK_MAX_SIZE, 100]
+    assert proto.bulk_read_exact.call_count == 3
+
+
+def test_gl128_acquire_paces_between_chunks(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from pyopticfilm.asic.registers import Gl128Registers
+    from pyopticfilm.usb.device import BULK_MAX_SIZE
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(
+        "pyopticfilm.scan.session_gl128.time.sleep",
+        lambda s: sleeps.append(float(s)),
+    )
+
+    total = BULK_MAX_SIZE * 2
+    geometry = MagicMock()
+    geometry.total_bytes = total
+    geometry.disable_buffer_full_move = False
+
+    proto = MagicMock()
+    remaining = {"n": total}
+
+    def exact(size):
+        n = min(int(size), remaining["n"])
+        remaining["n"] -= n
+        return b"\x00" * n
+
+    proto.bulk_read_exact.side_effect = exact
+
+    asic = MagicMock()
+    asic.protocol = proto
+    asic.read_status.return_value = MagicMock(is_buffer_empty=False)
+    asic.image_usb_pace_s = 0.003
+
+    session = Gl128ScanSession(asic, MODEL_8200I_SE)
+    session.se_regs = Gl128Registers()
+    session._acquire(geometry, progress=None, cancel=None)
+    assert sleeps == [0.003]

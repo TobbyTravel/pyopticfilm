@@ -13,6 +13,7 @@ from pyopticfilm.image import ScanImage
 from pyopticfilm.usb.trace import UsbTransaction
 from tools.scanlab.backend import (
     LabTarget,
+    apply_lab_motor_acoustic,
     device_banner,
     lab_scan_kwargs,
     open_lab_scanner,
@@ -130,6 +131,7 @@ class ScanWorker(QObject):
         self.progress.emit(0.0)
         try:
             scanner = self.ensure_open(target)
+            apply_lab_motor_acoustic(scanner, target)
             scan_kw = lab_scan_kwargs(target.model, dpi=dpi, kind=kind, crop_norm=crop)
             if kind == "prescan":
                 self._usb_divider(f"PRESCAN {dpi} dpi")
