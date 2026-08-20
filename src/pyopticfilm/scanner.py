@@ -28,7 +28,7 @@ from pyopticfilm.usb.protocol import GenesysUsbProtocol, UsbTransport
 logger = get_logger(__name__)
 
 ScanMode = Literal["color", "infrared", "gray"]
-MergeMode = Literal["none", "linear", "fusion"]
+MergeMode = Literal["none", "linear", "fusion", "snr"]
 
 
 class Scanner:

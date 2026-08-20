@@ -272,7 +272,7 @@ class Gl128ScanSession(ScanSession):
 
         if mode == "infrared":
             raise ValueError("Use mode='color' with infrared=True for colour+IR scans")
-        if merge not in {"none", "linear", "fusion"}:
+        if merge not in {"none", "linear", "fusion", "snr"}:
             raise ValueError(f"Unsupported merge {merge!r}")
         if merge != "none" and not multi_exposure:
             raise ValueError("merge requires multi_exposure=True")

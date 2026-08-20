@@ -114,6 +114,7 @@ class ScanLabWindow(QMainWindow):
         self.me_merge.addItem("None (raw planes)", "none")
         self.me_merge.addItem("Linear", "linear")
         self.me_merge.addItem("Fusion", "fusion")
+        self.me_merge.addItem("SNR / IVW", "snr")
         self.me_merge.setEnabled(False)
         form.addWidget(self.me_merge)
 
@@ -295,8 +296,10 @@ class ScanLabWindow(QMainWindow):
                 align_shift=image.align_shift_long,
             )
             self.merged_view.set_rgb(result.rgb, dpi=image.dpi, auto_level=True)
-            if mode == "fusion" and result.fusion_stats is not None:
-                self.merged_view.set_caption(self._format_fusion_caption(result.fusion_stats))
+            if result.fusion_stats is not None:
+                self.merged_view.set_caption(
+                    self._format_fusion_caption(result.fusion_stats, method=mode)
+                )
             else:
                 self.merged_view.set_caption(f"Merge: {mode}")
         except Exception:  # noqa: BLE001
@@ -304,19 +307,28 @@ class ScanLabWindow(QMainWindow):
             self.merged_view.set_caption("")
 
     @staticmethod
-    def _format_fusion_caption(stats) -> str:
+    def _format_fusion_caption(stats, *, method: str = "fusion") -> str:
+        label = "SNR / IVW" if method == "snr" else "Fusion"
         msg = (
-            f"Fusion weights — short {stats.mean_short_weight:.2f}, "
-            f"long {stats.mean_long_weight:.2f}"
+            f"{label} weights — short {stats.mean_short_weight:.4g}, "
+            f"long {stats.mean_long_weight:.4g}"
         )
         if stats.zero_weight_fraction > 0:
             msg += f"; {stats.zero_weight_fraction:.2%} both-zero (black)"
+        mean_res = getattr(stats, "mean_residual_confidence", None)
+        if mean_res is not None and method == "snr":
+            msg += f"; residual conf {mean_res:.2f}"
+        ratio = getattr(stats, "exposure_ratio_used", None)
+        if ratio is not None and method == "snr":
+            msg += f"; r={ratio:.3f}"
         return msg
 
     def _format_fusion_caption_from_image(self, image: ScanImage) -> str:
+        method = image.merge_method or "fusion"
+        label = "SNR / IVW" if method == "snr" else "Fusion"
         msg = (
-            f"Fusion weights — short {image.merge_fusion_mean_short_weight:.2f}, "
-            f"long {image.merge_fusion_mean_long_weight:.2f}"
+            f"{label} weights — short {image.merge_fusion_mean_short_weight:.4g}, "
+            f"long {image.merge_fusion_mean_long_weight:.4g}"
         )
         zf = image.merge_fusion_zero_weight_fraction or 0.0
         if zf > 0:
@@ -324,13 +336,14 @@ class ScanLabWindow(QMainWindow):
         return msg
 
     def _fusion_stats_message(self, image: ScanImage) -> str:
-        if image.merge_method != "fusion":
+        if image.merge_method not in ("fusion", "snr"):
             return ""
         if image.merge_fusion_mean_short_weight is None:
             return ""
+        label = "snr" if image.merge_method == "snr" else "fusion"
         msg = (
-            f"; fusion w_short={image.merge_fusion_mean_short_weight:.2f} "
-            f"w_long={image.merge_fusion_mean_long_weight:.2f}"
+            f"; {label} w_short={image.merge_fusion_mean_short_weight:.4g} "
+            f"w_long={image.merge_fusion_mean_long_weight:.4g}"
         )
         zf = image.merge_fusion_zero_weight_fraction
         if zf:
@@ -591,7 +604,7 @@ class ScanLabWindow(QMainWindow):
                     self.merged_view.set_rgb(merged.rgb, dpi=geo.resolution, auto_level=True)
                     if merged.fusion_stats is not None:
                         self.merged_view.set_caption(
-                            self._format_fusion_caption(merged.fusion_stats)
+                            self._format_fusion_caption(merged.fusion_stats, method="fusion")
                         )
                     self.me_merge.setCurrentIndex(2)
                     self._update_me_tabs_visible()
@@ -806,7 +819,7 @@ class ScanLabWindow(QMainWindow):
         if image.merge_method and image.merge_method != "none":
             self.merged_view.set_rgb(image.rgb, dpi=image.dpi, auto_level=True)
             if (
-                image.merge_method == "fusion"
+                image.merge_method in ("fusion", "snr")
                 and image.merge_fusion_mean_short_weight is not None
             ):
                 self.merged_view.set_caption(
