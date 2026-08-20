@@ -27,13 +27,13 @@ class ScanWorker(QObject):
     usb_line = pyqtSignal(str)
     banner = pyqtSignal(str)
     prescan_ready = pyqtSignal(object)
-    scan_ready = pyqtSignal(object, object)
+    scan_ready = pyqtSignal(object)
     failed = pyqtSignal(str)
     busy_changed = pyqtSignal(bool)
     #: target, apply_calib
     request_prescan = pyqtSignal(object, bool)
-    #: target, dpi, ir_pass, crop_norm, apply_calib
-    request_scan = pyqtSignal(object, int, bool, object, bool)
+    #: target, dpi, ir_pass, me_pass, merge, crop_norm, apply_calib
+    request_scan = pyqtSignal(object, int, bool, bool, str, object, bool)
 
     def __init__(self) -> None:
         super().__init__()
@@ -86,6 +86,8 @@ class ScanWorker(QObject):
             kind="prescan",
             dpi=prescan_resolution(target.model),
             ir=False,
+            me=False,
+            merge="none",
             crop=None,
             apply_calib=bool(apply_calib),
         )
@@ -95,15 +97,18 @@ class ScanWorker(QObject):
         target: LabTarget,
         dpi: int,
         ir_pass: bool,
+        me_pass: bool,
+        merge: str,
         crop_norm: tuple[float, float, float, float] | None,
         apply_calib: bool = False,
     ) -> None:
-        # PyQt queued signals pass every argument positionally (not as keywords).
         self._run(
             target,
             kind="scan",
             dpi=dpi,
             ir=ir_pass,
+            me=me_pass,
+            merge=str(merge or "none"),
             crop=crop_norm,
             apply_calib=bool(apply_calib),
         )
@@ -115,6 +120,8 @@ class ScanWorker(QObject):
         kind: str,
         dpi: int,
         ir: bool,
+        me: bool,
+        merge: str,
         crop: tuple[float, float, float, float] | None,
         apply_calib: bool,
     ) -> None:
@@ -131,30 +138,28 @@ class ScanWorker(QObject):
                     progress=self._progress,
                     cancel=self._cancel,
                     apply_calib=apply_calib,
+                    multi_exposure=me,
+                    merge=merge if me else "none",
                     **scan_kw,
                 )
                 self.prescan_ready.emit(image)
             else:
                 self._usb_divider(f"SCAN {dpi} dpi")
-                colour = scanner.scan(
+                if me:
+                    self._usb_divider("ME multi-pass")
+                if ir:
+                    self._usb_divider("IR pass")
+                image: ScanImage = scanner.scan(
                     mode="color",
                     progress=self._progress,
                     cancel=self._cancel,
                     apply_calib=apply_calib,
+                    multi_exposure=me,
+                    infrared=ir,
+                    merge=merge if me else "none",
                     **scan_kw,
                 )
-                ir_image: ScanImage | None = None
-                if ir and getattr(target.model, "supports_infrared", False):
-                    self.progress.emit(0.0)
-                    self._usb_divider(f"IR {dpi} dpi")
-                    ir_image = scanner.scan(
-                        mode="infrared",
-                        progress=self._progress,
-                        cancel=self._cancel,
-                        apply_calib=apply_calib,
-                        **scan_kw,
-                    )
-                self.scan_ready.emit(colour, ir_image)
+                self.scan_ready.emit(image)
         except ScanCancelled:
             self.busy_changed.emit(False)
             self.failed.emit("Scan cancelled")

@@ -198,6 +198,20 @@ _PIXEL_CLOCK_BY_DPI: dict[int, int] = {
     3600: 0x01,
     7200: 0x01,
 }
+#: Long ME image pass ``0xA5``/``0xAB`` (session 14: slower clock at 1440/1800).
+_PIXEL_CLOCK_LONG_BY_DPI: dict[int, int] = {
+    150: 0x01,
+    300: 0x01,
+    600: 0x01,
+    720: 0x01,
+    900: 0x01,
+    1200: 0x01,
+    1440: 0x01,
+    1800: 0x01,
+    2400: 0x01,
+    3600: 0x01,
+    7200: 0x01,
+}
 _DUMMY_BY_DPI: dict[int, int] = {
     150: 0x01,
     300: 0x01,
@@ -344,6 +358,9 @@ class Model8200iSE:
     pixel_clock_by_dpi: Mapping[int, int] = field(
         default_factory=lambda: dict(_PIXEL_CLOCK_BY_DPI)
     )
+    pixel_clock_long_by_dpi: Mapping[int, int] = field(
+        default_factory=lambda: dict(_PIXEL_CLOCK_LONG_BY_DPI)
+    )
     dummy_by_dpi: Mapping[int, int] = field(default_factory=lambda: dict(_DUMMY_BY_DPI))
     shading_dark_dummy_by_dpi: Mapping[int, int] = field(
         default_factory=lambda: dict(_SHADING_DARK_DUMMY_BY_DPI)
@@ -357,6 +374,11 @@ class Model8200iSE:
 
     register_dpihw: int = 1200
     exposure_lperiod: int = 14000
+    #: Short (normal) image exposure — session 14 ME bracket.
+    exposure_short: int = 14000
+    #: Long ME image exposure (exactly 3× short in SilverFast session 14).
+    exposure_long: int = 42000
+    multi_exposure_factor: int = 3
     #: GL845-shaped ``starty`` base only. The SE never feeds ``geometry.starty``;
     #: FEEDL steps use :attr:`feed_steps_per_inch` instead.
     motor_base_ydpi: int = 7200
@@ -478,9 +500,23 @@ class Model8200iSE:
         clk = int(self.pixel_clock_by_dpi.get(key, 0x02))
         return dummy, clk, clk
 
-    def channel_exposure_for(self, resolution: int) -> int:
-        """Per-channel RAM exposure, ``14000 / oversample`` in the captures."""
-        return self.exposure_lperiod // self.oversample_for(resolution)
+    def channel_exposure_for(self, resolution: int, *, exposure: int | None = None) -> int:
+        """Per-channel RAM exposure, ``exposure // oversample`` in the captures."""
+        base = int(exposure if exposure is not None else self.exposure_lperiod)
+        return base // self.oversample_for(resolution)
+
+    def pixel_clock_for_image(self, resolution: int, *, long_exposure: bool = False) -> int:
+        """``0xA5``/``0xAB`` for an image pass at ``resolution``."""
+        key = self.asic_dpi_for(resolution)
+        if long_exposure:
+            clk_map = self.pixel_clock_long_by_dpi
+        else:
+            clk_map = self.pixel_clock_by_dpi
+        return int(clk_map.get(key, 0x02))
+
+    def image_exposure(self, *, long_exposure: bool = False) -> int:
+        """``REG_EXPOSURE`` for short or long ME bracket."""
+        return int(self.exposure_long if long_exposure else self.exposure_short)
 
     def feed_to_scan_steps_for_area(
         self,

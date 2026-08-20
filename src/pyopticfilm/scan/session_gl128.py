@@ -58,11 +58,30 @@ class Gl128ScanSession(ScanSession):
         self._await_agohome_park = False
         #: True after :meth:`bulk_read_begin` until :meth:`_end_scan` aborts/finishes.
         self._bulk_stream_active = False
+        #: Image ``REG_EXPOSURE`` for the current pass (``None`` → short / 14000).
+        self._pass_exposure: int | None = None
 
-    def run(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    def run(
+        self,
+        *args,
+        multi_exposure: bool = False,
+        infrared: bool = False,
+        merge: str = "none",
+        align_passes: bool = True,
+        **kwargs,
+    ):  # type: ignore[no-untyped-def]
         """Refuse unless the ASIC explicitly arms motor moves."""
         if not getattr(self.asic, "_motor_moves_enabled", False):
             raise AsicError(_MOTOR_GATED_HINT)
+        if multi_exposure or (infrared and kwargs.get("mode", "color") == "color"):
+            return self._run_multi_pass(
+                *args,
+                multi_exposure=multi_exposure,
+                infrared=infrared,
+                merge=merge,
+                align_passes=align_passes,
+                **kwargs,
+            )
         return super().run(*args, **kwargs)
 
     # --- configure ------------------------------------------------------
@@ -78,9 +97,23 @@ class Gl128ScanSession(ScanSession):
         cache.update(model.sensor_custom_regs)
 
         try:
-            cache[0x2B] = model.dummy_by_dpi[dpi]
-            cache[0xA5] = model.pixel_clock_by_dpi[dpi]
-            cache[0xAB] = model.pixel_clock_by_dpi[dpi]
+            asic_dpi = model.asic_dpi_for(dpi)
+            cache[0x2B] = model.dummy_by_dpi[asic_dpi]
+            exp_fn = getattr(model, "image_exposure", None)
+            if self._pass_exposure is not None:
+                exposure = int(self._pass_exposure)
+            elif callable(exp_fn):
+                exposure = int(exp_fn(long_exposure=False))
+            else:
+                exposure = int(model.exposure_lperiod)
+            long_pass = exposure >= int(getattr(model, "exposure_long", exposure * 2))
+            clk_fn = getattr(model, "pixel_clock_for_image", None)
+            if callable(clk_fn):
+                clk = int(clk_fn(dpi, long_exposure=long_pass))
+            else:
+                clk = int(model.pixel_clock_by_dpi[asic_dpi])
+            cache[0xA5] = clk
+            cache[0xAB] = clk
         except KeyError as exc:
             raise ScanError(
                 f"No capture-derived register values for {dpi} dpi on "
@@ -129,7 +162,16 @@ class Gl128ScanSession(ScanSession):
         self._set16(cache, r.REG_DPISET, dpiset)
         self._set24(cache, r.REG_STRPIXEL, geometry.pixel_startx)
         self._set24(cache, r.REG_ENDPIXEL, geometry.pixel_endx)
-        self._set24(cache, r.REG_EXPOSURE, model.exposure_lperiod)
+        if self._pass_exposure is not None:
+            exposure_reg = int(self._pass_exposure)
+        else:
+            exp_fn = getattr(model, "image_exposure", None)
+            exposure_reg = (
+                int(exp_fn(long_exposure=False))
+                if callable(exp_fn)
+                else int(model.exposure_lperiod)
+            )
+        self._set24(cache, r.REG_EXPOSURE, exposure_reg)
         # Image/calib acquire with FEEDL=1; positioning is a separate feed pair.
         self._set24(cache, r.REG_FEEDL, 1)
         cache.pop(r.REG_CLRCNT, None)
@@ -163,7 +205,17 @@ class Gl128ScanSession(ScanSession):
                 )
             self.asic.position_for_full_frame_scan(scan_steps=scan_steps)
 
-        self.asic.upload_tables(resolution=dpi, shading=shading)
+        ch_exp_fn = getattr(model, "channel_exposure_for", None)
+        if callable(ch_exp_fn):
+            try:
+                channel_exp = int(ch_exp_fn(dpi, exposure=exposure_reg))
+            except TypeError:
+                channel_exp = int(ch_exp_fn(dpi))
+        else:
+            channel_exp = None
+        self.asic.upload_tables(
+            resolution=dpi, shading=shading, channel_exposure=channel_exp
+        )
         # Do NOT call set_frontend_init() here — boot zeroes FE gains, and
         # replaying that after search_afe undoes calibration. Captures keep the
         # post-calib FE for the image pass. Re-apply the last search result if
@@ -185,7 +237,7 @@ class Gl128ScanSession(ScanSession):
 
         logger.info(
             "GL128 configured %ddpi dpiset=%d lincnt=%d str=%d end=%d lperiod=%d "
-            "shading=%s",
+            "shading=%s exposure=%d",
             dpi,
             dpiset,
             geometry.lincnt_register,
@@ -193,6 +245,173 @@ class Gl128ScanSession(ScanSession):
             geometry.pixel_endx,
             model.line_period_for(dpi),
             shading,
+            exposure_reg,
+        )
+
+    # --- multi-pass (ME / IR) -------------------------------------------
+
+    def _run_multi_pass(
+        self,
+        *,
+        resolution: int = 1800,
+        mode: str = "color",
+        area: tuple[float, float, float, float] | None = None,
+        geometry: ScanGeometry | None = None,
+        progress: Callable[[float], None] | None = None,
+        cancel: threading.Event | None = None,
+        apply_calib: bool = True,
+        multi_exposure: bool = False,
+        infrared: bool = False,
+        merge: str = "none",
+        align_passes: bool = True,
+    ):
+        from pyopticfilm.image import ScanImage
+        from pyopticfilm.pass_align import align_pass_to_reference
+        from pyopticfilm.scan.exposure_merge import merge_exposures_result
+        from pyopticfilm.scan.geometry import compute_geometry
+
+        if mode == "infrared":
+            raise ValueError("Use mode='color' with infrared=True for colour+IR scans")
+        if merge not in {"none", "linear", "fusion"}:
+            raise ValueError(f"Unsupported merge {merge!r}")
+        if merge != "none" and not multi_exposure:
+            raise ValueError("merge requires multi_exposure=True")
+
+        model = self.model
+        exp_short = int(getattr(model, "exposure_short", model.exposure_lperiod))
+        exp_long = int(getattr(model, "exposure_long", exp_short * 3))
+
+        if not self.asic._initialized:
+            self.asic.init()
+
+        if geometry is None:
+            geometry = compute_geometry(resolution, model=model, area=area)
+
+        passes: list[tuple[str, str, int, bool]] = [
+            ("color_short", "transparency", exp_short, False),
+        ]
+        if infrared:
+            passes.append(("ir", "infrared", exp_short, False))
+        if multi_exposure:
+            passes.append(("color_long", "transparency", exp_long, True))
+
+        logger.info(
+            "GL128 multi-pass %ddpi passes=%d me=%s ir=%s merge=%s",
+            geometry.resolution,
+            len(passes),
+            multi_exposure,
+            infrared,
+            merge,
+        )
+
+        rgb_short = None
+        rgb_long = None
+        ir_plane = None
+        n_pass = len(passes)
+
+        for idx, (key, method, exposure, remeasure) in enumerate(passes):
+
+            def _prog(p: float, _i: int = idx) -> None:
+                if progress is not None:
+                    progress(min(1.0, (_i + p) / n_pass))
+
+            calib = None
+            if apply_calib and self.calibrator is not None:
+                if method == "transparency":
+                    if remeasure:
+                        self.asic.asic_shading_ready = False  # type: ignore[attr-defined]
+                        calib = self.calibrator.measure_colour_asic_shading(geometry)
+                    else:
+                        calib = self.calibrator.ensure_colour_asic_shading(geometry)
+                else:
+                    calib = self.calibrator.find_for_scan(
+                        method=method, geometry=geometry
+                    )
+                    if calib is None:
+                        logger.warning(
+                            "No calib cache for method=%s dpi=%d — scanning uncalibrated.",
+                            method,
+                            geometry.resolution,
+                        )
+
+            self._pass_exposure = exposure
+            raw = self.acquire_raw(
+                geometry,
+                method=method,
+                lamp_on=True,
+                start_motor=True,
+                progress=_prog,
+                cancel=cancel,
+            )
+            self._pass_exposure = None
+
+            use_host = (
+                calib is not None
+                and self.calibrator is not None
+                and self.calibrator.should_apply_host_calib()
+            )
+            dark = calib.dark if use_host else None
+            white = calib.white if use_host else None
+            planar = getattr(self.asic, "usb_planar_rgb", None)
+            if planar is None:
+                planar = bool(getattr(self.model, "usb_planar_rgb", False))
+            rgb = self.pipeline.assemble(
+                raw, geometry, dark=dark, white=white, planar=bool(planar)
+            )
+
+            if key == "color_short":
+                rgb_short = rgb
+            elif key == "color_long":
+                rgb_long = rgb
+            elif key == "ir":
+                ir_plane = self._infrared_plane(rgb)
+
+        assert rgb_short is not None
+        align_shift_long: tuple[int, int] | None = None
+        align_shift_ir: tuple[int, int] | None = None
+
+        if align_passes and rgb_long is not None:
+            _, align_shift_long = align_pass_to_reference(rgb_short, rgb_long)
+        if align_passes and ir_plane is not None:
+            ir_plane, align_shift_ir = align_pass_to_reference(rgb_short, ir_plane)
+
+        primary = rgb_short
+        merge_method: str | None = None
+        merge_fusion_mean_short_weight: float | None = None
+        merge_fusion_mean_long_weight: float | None = None
+        merge_fusion_zero_weight_fraction: float | None = None
+        if multi_exposure and merge != "none" and rgb_long is not None:
+            merge_method = merge
+            shift = align_shift_long if align_passes else (0, 0)
+            merged = merge_exposures_result(
+                rgb_short,
+                rgb_long,
+                method=merge,  # type: ignore[arg-type]
+                exposure_short=exp_short,
+                exposure_long=exp_long,
+                align_shift=shift,
+            )
+            primary = merged.rgb
+            if merged.fusion_stats is not None:
+                merge_fusion_mean_short_weight = merged.fusion_stats.mean_short_weight
+                merge_fusion_mean_long_weight = merged.fusion_stats.mean_long_weight
+                merge_fusion_zero_weight_fraction = merged.fusion_stats.zero_weight_fraction
+
+        return ScanImage(
+            rgb=primary,
+            dpi=geometry.resolution,
+            device_model=f"{self.model.vendor} {self.model.model}",
+            ir=ir_plane,
+            rgb_short=rgb_short,
+            rgb_long=rgb_long,
+            exposure_short=exp_short if multi_exposure else None,
+            exposure_long=exp_long if multi_exposure else None,
+            merge_method=merge_method,
+            merge_fusion_mean_short_weight=merge_fusion_mean_short_weight,
+            merge_fusion_mean_long_weight=merge_fusion_mean_long_weight,
+            merge_fusion_zero_weight_fraction=merge_fusion_zero_weight_fraction,
+            align_shift_long=align_shift_long,
+            align_shift_ir=align_shift_ir,
         )
 
     # --- acquire --------------------------------------------------------

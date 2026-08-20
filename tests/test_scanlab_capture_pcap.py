@@ -15,14 +15,21 @@ from pyopticfilm.usb.protocol import (
     VALUE_SET_REGISTER,
 )
 from tools.scanlab.capture_pcap import (
+    ME_EXPOSURE_LONG,
+    ME_EXPOSURE_SHORT,
     USBPCAP_CONTROL_STAGE_SETUP,
     USBPCAP_INFO_PDO_TO_FDO,
     USBPCAP_TRANSFER_BULK,
     USBPCAP_TRANSFER_CONTROL,
+    _keep_bulk_in_payload,
     analyze_usbpcap,
     build_usbpcap_packet,
+    classify_capture_pass_kind,
+    classify_capture_pass_label,
     decode_capture_bulk,
     format_capture_usb_log_lines,
+    is_ir_capture_pass,
+    is_me_long_pass,
     motor_register_diff,
     optical_snapshot,
     wrap_pcap_classic,
@@ -137,3 +144,64 @@ def test_analyze_usbpcap_registers_and_bulk(tmp_path: Path):
     assert "control_write" in log
     assert "bulk_read" in log
     assert "register writes" in log
+
+
+def test_capture_pass_classification():
+    assert is_ir_capture_pass({0x03: 0x20, 0x37: 0xc0})
+    assert not is_ir_capture_pass({0x03: 0x30, 0x37: 0xc0})
+    preview_regs = {0x03: 0x30, 0x2C: 0x00, 0x2D: 0xC8, 0x25: 0, 0x26: 0x12, 0x27: 0xE4}
+    assert (
+        classify_capture_pass_kind(preview_regs, capture_has_ir=False, asic="GL128")
+        == "prescan"
+    )
+    colour_regs = {0x03: 0x30, 0x2C: 0x01, 0x2D: 0x2C, 0x25: 0, 0x26: 0x19, 0x27: 0xF4}
+    assert (
+        classify_capture_pass_kind(colour_regs, capture_has_ir=False, asic="GL128")
+        == "color"
+    )
+    assert (
+        classify_capture_pass_kind({0x03: 0x20, 0x2C: 300}, capture_has_ir=True)
+        == "ir"
+    )
+
+
+def _exposure_regs(exp: int, *, r03: int = 0x30) -> dict[int, int]:
+    return {
+        0x03: r03,
+        0x7D: (exp >> 16) & 0xFF,
+        0x7E: (exp >> 8) & 0xFF,
+        0x7F: exp & 0xFF,
+        0x2C: 0x01,
+        0x2D: 0x2C,
+    }
+
+
+def test_me_exposure_pass_labels():
+    short = _exposure_regs(ME_EXPOSURE_SHORT)
+    long = _exposure_regs(ME_EXPOSURE_LONG)
+    ir = _exposure_regs(ME_EXPOSURE_SHORT, r03=0x20)
+    assert not is_me_long_pass(short)
+    assert is_me_long_pass(long)
+    assert not is_me_long_pass(ir)
+    assert (
+        classify_capture_pass_label(short, kind="color", capture_has_me=True)
+        == "color ME-short"
+    )
+    assert (
+        classify_capture_pass_label(long, kind="color", capture_has_me=True)
+        == "color ME-long"
+    )
+    assert (
+        classify_capture_pass_label(short, kind="color", capture_has_me=False) == "color"
+    )
+    assert classify_capture_pass_label(ir, kind="ir", capture_has_me=True) == "ir"
+
+
+def test_keep_bulk_in_payload_skips_unaligned_status():
+    # 7200: 65508-byte image URB is already RGB16-aligned; 512-byte status is not.
+    assert _keep_bulk_in_payload(65508, 0) is True
+    assert _keep_bulk_in_payload(512, 0) is False
+    # 1800: 30208 leaves a 4-byte remainder; the following 512 completes a pixel.
+    assert _keep_bulk_in_payload(30208, 0) is True
+    assert (30208 + 512) % 6 == 0
+    assert _keep_bulk_in_payload(512, 30208 % 6) is True

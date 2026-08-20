@@ -28,3 +28,19 @@ def test_save_tiff_rejects_wrong_shape():
     image = ScanImage(rgb=np.zeros((4, 4), dtype=np.uint16), dpi=900)
     with pytest.raises(PlustekError, match="HxWx3"):
         image.save_tiff("x.tif")
+
+
+def test_save_rgb16_tiff_roundtrip(tmp_path):
+    try:
+        import tifffile  # noqa: F401
+    except ImportError:
+        pytest.skip("tifffile not installed")
+
+    from pyopticfilm.image import load_rgb16_tiff, save_rgb16_tiff
+
+    rgb = np.arange(12, dtype=np.uint16).reshape(2, 2, 3)
+    path = save_rgb16_tiff(rgb, tmp_path / "out.tif", dpi=1800)
+    back, dpi = load_rgb16_tiff(path)
+    assert back.shape == rgb.shape
+    assert np.array_equal(back, rgb)
+    assert dpi == 1800

@@ -1042,7 +1042,14 @@ class Gl128:
                 )
         return measured
 
-    def upload_tables(self, *, resolution: int, shading: bool = False, slope: bool = True) -> None:
+    def upload_tables(
+        self,
+        *,
+        resolution: int,
+        shading: bool = False,
+        slope: bool = True,
+        channel_exposure: int | None = None,
+    ) -> None:
         """Upload motor slope and/or per-channel exposure tables to scanner RAM.
 
         ``shading=True`` loads the slow ramp (session 03 feeds); otherwise the
@@ -1055,7 +1062,9 @@ class Gl128:
             self.protocol.write_ahb(r.AHB_SLOPE_SCAN, slope_bytes)
             self.protocol.write_ahb(r.AHB_SLOPE_FAST, slope_bytes)
 
-        exposure = _u16_table_bytes(exposure_table(self.model.channel_exposure_for(resolution)))
+        if channel_exposure is None:
+            channel_exposure = self.model.channel_exposure_for(resolution)
+        exposure = _u16_table_bytes(exposure_table(int(channel_exposure)))
         for addr in (r.AHB_CHANNEL_R, r.AHB_CHANNEL_G, r.AHB_CHANNEL_B):
             self.protocol.write_ahb(addr, exposure)
         logger.debug(

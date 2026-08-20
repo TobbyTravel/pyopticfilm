@@ -69,7 +69,16 @@ class ScanSession:
         progress: Callable[[float], None] | None = None,
         cancel: threading.Event | None = None,
         apply_calib: bool = True,
+        multi_exposure: bool = False,
+        infrared: bool = False,
+        merge: str = "none",
+        align_passes: bool = True,
     ) -> ScanImage:
+        if multi_exposure or infrared or merge != "none":
+            raise NotImplementedError(
+                f"Multi-exposure / combined IR scans are not implemented for "
+                f"{getattr(self.model, 'asic', '?')}"
+            )
         if mode == "gray":
             raise ValueError("Grayscale is experimental / not implemented yet")
         if mode not in {"color", "infrared"}:

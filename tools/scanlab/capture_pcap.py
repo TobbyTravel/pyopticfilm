@@ -39,6 +39,18 @@ _IMAGE_BUFFER_WINDEX = 0x08
 #: Native optical resolution for GL128 STR/END units.
 _GL128_NATIVE_DPI = 7200
 
+#: Chunky RGB16 pixel on the wire.
+_RGB16_PIXEL_BYTES = 6
+#: Bulk-IN payloads this size or smaller are status unless they complete a pixel.
+_STATUS_IN_MAX = 512
+
+#: GL128 ``REG_EXPOSURE`` (0x7D) — session 14 multi-exposure bracket.
+_REG_EXPOSURE = 0x7D
+ME_EXPOSURE_SHORT = 14000
+ME_EXPOSURE_LONG = 42000  # exactly 3× short
+#: Accept carved bulks this close to the announced size (truncated captures).
+_CARVE_COMPLETE_FRAC = 0.98
+
 _USBPCAP_BASE = struct.Struct("<HQiHBHHBBI")
 assert _USBPCAP_BASE.size == 27
 
@@ -64,6 +76,30 @@ class BufferPreamble:
     w_index: int
     bulk_addr: int
     bulk_size: int
+
+
+@dataclass(frozen=True)
+class CaptureImagePass:
+    """One decoded image bulk announced by a buffer preamble."""
+
+    preamble: BufferPreamble
+    kind: str  # "prescan", "color", or "ir"
+    registers: dict[int, int]
+    bulk: bytes
+    #: Human label for Capture tab (e.g. ``color ME-long``).
+    label: str = ""
+
+
+@dataclass
+class CaptureDecodeResult:
+    """RGB arrays decoded from a capture, routed by pass kind."""
+
+    prescan: tuple[object, ScanGeometry] | None = None
+    color: tuple[object, ScanGeometry] | None = None
+    #: Long-exposure ME color frame when present (session 14).
+    color_me: tuple[object, ScanGeometry] | None = None
+    ir: tuple[object, ScanGeometry] | None = None
+    log_lines: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -163,24 +199,250 @@ def coalesce_image_bulk(bulk_ins: list[bytes]) -> bytes | None:
     return best or max(bulk_ins, key=len)
 
 
+#: Ignore shading/calib preambles; real image passes are multi-megabyte.
+_MIN_DECODE_PREAMBLE_BYTES = 1_000_000
+
+
+def is_ir_capture_pass(regs: dict[int, int]) -> bool:
+    """True when the white lamp is off or the IR LED enable bit is set."""
+    r03 = regs.get(0x03)
+    if r03 is not None and (r03 & 0x10) == 0:
+        return True
+    r37 = regs.get(0x37)
+    return r37 is not None and (r37 & 0x04) != 0
+
+
+def exposure_from_regs(regs: dict[int, int]) -> int | None:
+    """``REG_EXPOSURE`` (0x7D) as a 24-bit big-endian value, if present."""
+    return _u24(regs, _REG_EXPOSURE)
+
+
+def is_me_long_pass(regs: dict[int, int]) -> bool:
+    """True for the long multi-exposure color bracket (session 14: 42000)."""
+    if is_ir_capture_pass(regs):
+        return False
+    return exposure_from_regs(regs) == ME_EXPOSURE_LONG
+
+
+def capture_has_me_bracket(snapshots: list[dict[int, int]]) -> bool:
+    """True when a non-IR image pass uses the long ME exposure."""
+    return any(is_me_long_pass(regs) for regs in snapshots)
+
+
+def classify_capture_pass_label(
+    regs: dict[int, int],
+    *,
+    kind: str,
+    capture_has_me: bool,
+) -> str:
+    """Capture-tab label: ``color ME-short``, ``color ME-long``, ``ir``, …"""
+    if kind == "ir":
+        return "ir"
+    exp = exposure_from_regs(regs)
+    if kind == "prescan":
+        if capture_has_me and exp == ME_EXPOSURE_LONG:
+            return "prescan ME-long"
+        if capture_has_me and exp == ME_EXPOSURE_SHORT:
+            return "prescan ME-short"
+        return "prescan"
+    if capture_has_me and exp == ME_EXPOSURE_LONG:
+        return "color ME-long"
+    if capture_has_me and exp == ME_EXPOSURE_SHORT:
+        return "color ME-short"
+    return kind
+
+
+def classify_capture_pass_kind(
+    regs: dict[int, int],
+    *,
+    capture_has_ir: bool,
+    asic: str = "GL128",
+) -> str:
+    """Route a pass to prescan / color / IR tabs."""
+    if is_ir_capture_pass(regs):
+        return "ir"
+    snap = optical_snapshot(regs, asic=asic)
+    dpi = int(snap["dpiset"] or 0) * 6
+    # Preview-only captures (session 03) stay at 1200 dpi with no IR sibling pass.
+    if not capture_has_ir and dpi <= 1200:
+        return "prescan"
+    return "color"
+
+
+def image_preambles_for_decode(analysis: CaptureAnalysis) -> list[BufferPreamble]:
+    """Large ``wIndex=0x08`` preambles that carry a full image."""
+    return [
+        p
+        for p in analysis.buffer_preambles
+        if p.w_index == _IMAGE_BUFFER_WINDEX
+        and p.bulk_size >= _MIN_DECODE_PREAMBLE_BYTES
+    ]
+
+
 def pick_image_preamble(
     preambles: list[BufferPreamble],
     *,
     expected_size: int | None = None,
+    analysis: CaptureAnalysis | None = None,
+    asic: str = "GL128",
 ) -> BufferPreamble | None:
-    """Prefer ``wIndex=0x08`` sized like the image; else the largest preamble."""
+    """Prefer visible colour pass; else ``wIndex=0x08`` sized like the image."""
     if not preambles:
         return None
     indexed = [p for p in preambles if p.w_index == _IMAGE_BUFFER_WINDEX]
     pool = indexed or list(preambles)
+
+    def _prefer_visible(candidates: list[BufferPreamble]) -> BufferPreamble:
+        if analysis is not None and len(candidates) > 1:
+            visible = [
+                p
+                for p in candidates
+                if not is_ir_capture_pass(
+                    registers_before_packet(analysis, p.packet_index, asic=asic)
+                )
+            ]
+            if visible:
+                return visible[-1]
+        return candidates[-1]
+
     if expected_size is not None and expected_size > 0:
         exact = [p for p in pool if p.bulk_size == expected_size]
         if exact:
-            return exact[-1]
+            return _prefer_visible(exact)
         near = sorted(pool, key=lambda p: abs(p.bulk_size - expected_size))
         if near and abs(near[0].bulk_size - expected_size) < expected_size * 0.05:
             return near[0]
+    if analysis is not None and len(pool) > 1:
+        visible = [
+            p
+            for p in pool
+            if not is_ir_capture_pass(
+                registers_before_packet(analysis, p.packet_index, asic=asic)
+            )
+        ]
+        if visible:
+            return max(visible, key=lambda p: p.bulk_size)
     return max(pool, key=lambda p: p.bulk_size)
+
+
+def _keep_bulk_in_payload(payload_len: int, current_len: int) -> bool:
+    """Keep image URBs; keep 512-byte INs only when they complete an RGB16 pixel.
+
+    At 1800/3600 the short packets finish a 6-byte pixel (include them). At
+    7200 each image URB is already aligned and the 512-byte INs are status
+    on the same endpoint — including them shifts RGB by 2 bytes per line.
+    """
+    if payload_len > _STATUS_IN_MAX:
+        return True
+    if payload_len < 1:
+        return False
+    return (current_len + payload_len) % _RGB16_PIXEL_BYTES == 0
+
+
+def _image_urb_line_bytes(
+    analysis: CaptureAnalysis, preamble: BufferPreamble
+) -> int | None:
+    """Dominant RGB16-aligned image URB size after ``preamble`` (7200 → 65508)."""
+    from collections import Counter
+
+    counts: Counter[int] = Counter()
+    seen = 0
+    for pkt in analysis.packets[preamble.packet_index + 1 :]:
+        if pkt.transfer != USBPCAP_TRANSFER_BULK:
+            continue
+        if not (pkt.endpoint & 0x80) or not pkt.data:
+            continue
+        n = len(pkt.data)
+        if n > _STATUS_IN_MAX and n % _RGB16_PIXEL_BYTES == 0:
+            counts[n] += 1
+        seen += 1
+        if seen >= 40:
+            break
+    if not counts:
+        return None
+    size, hits = counts.most_common(1)[0]
+    if hits < 8:
+        return None
+    return size
+
+
+def _carve_native_dpi_lines(
+    analysis: CaptureAnalysis,
+    preamble: BufferPreamble,
+    *,
+    line_bytes: int,
+    n_lines: int,
+) -> bytes | None:
+    """Stack one-URB-per-line image packets (7200 ppi GL128)."""
+    if line_bytes < 64 or n_lines < 1:
+        return None
+    out = bytearray()
+    got = 0
+    for pkt in analysis.packets[preamble.packet_index + 1 :]:
+        if pkt.transfer != USBPCAP_TRANSFER_BULK:
+            continue
+        if not (pkt.endpoint & 0x80) or not pkt.data:
+            continue
+        n = len(pkt.data)
+        if n == line_bytes:
+            out.extend(pkt.data)
+            got += 1
+            if got >= n_lines:
+                break
+            continue
+        if got > 0 and n > _STATUS_IN_MAX:
+            break
+    if got < max(8, int(n_lines * 0.9)):
+        return None
+    return bytes(out)
+
+
+def carve_bulk_after_preamble(
+    analysis: CaptureAnalysis, preamble: BufferPreamble
+) -> bytes | None:
+    """Concatenate bulk-IN payloads after one buffer preamble."""
+    regs = registers_before_packet(analysis, preamble.packet_index, asic="GL128")
+    snap = optical_snapshot(regs, asic="GL128")
+    dpi = int(snap["dpiset"] or 0) * 6
+    lincnt = snap["lincnt"]
+    # 7200: SilverFast still announces LINCNT×width×3, but the wire is one
+    # 65508-byte RGB16 line per URB (LINCNT/4 lines). Filling the announced
+    # size concatenates a second, brighter junk region — the white band.
+    if dpi >= _GL128_NATIVE_DPI and lincnt:
+        line_bytes = _image_urb_line_bytes(analysis, preamble)
+        n_lines = int(lincnt) // 4
+        if line_bytes and n_lines:
+            carved = _carve_native_dpi_lines(
+                analysis, preamble, line_bytes=line_bytes, n_lines=n_lines
+            )
+            if carved:
+                return carved
+
+    need = int(preamble.bulk_size)
+    if need < 64:
+        return None
+    out = bytearray()
+    for pkt in analysis.packets[preamble.packet_index + 1 :]:
+        if pkt.transfer != USBPCAP_TRANSFER_BULK:
+            continue
+        if not (pkt.endpoint & 0x80) or not pkt.data:
+            continue
+        if not _keep_bulk_in_payload(len(pkt.data), len(out)):
+            continue
+        piece = pkt.data
+        room = need - len(out)
+        if room <= 0:
+            break
+        if len(piece) > room:
+            piece = piece[:room]
+        out.extend(piece)
+        if len(out) >= need:
+            break
+    # Session 14 and similar USBPcap files sometimes truncate a few hundred
+    # KB short of the announced size; still decode when nearly complete.
+    if len(out) < need and len(out) < int(need * _CARVE_COMPLETE_FRAC):
+        return None
+    return bytes(out[: min(len(out), need)])
 
 
 def carve_image_bulk(analysis: CaptureAnalysis) -> bytes | None:
@@ -200,29 +462,89 @@ def carve_image_bulk(analysis: CaptureAnalysis) -> bytes | None:
         width = (int(snap["endpixel"]) - int(snap["strpixel"])) // factor
         expected = int(snap["lincnt"]) * width * 3
 
-    preamble = pick_image_preamble(analysis.buffer_preambles, expected_size=expected)
-    if preamble is None or preamble.bulk_size < 64:
+    preamble = pick_image_preamble(
+        analysis.buffer_preambles,
+        expected_size=expected,
+        analysis=analysis,
+    )
+    if preamble is None:
         return None
     analysis.image_preamble = preamble
-    need = int(preamble.bulk_size)
-    out = bytearray()
-    for pkt in analysis.packets[preamble.packet_index + 1 :]:
-        if pkt.transfer != USBPCAP_TRANSFER_BULK:
+    return carve_bulk_after_preamble(analysis, preamble)
+
+
+def enumerate_capture_passes(
+    analysis: CaptureAnalysis, *, asic: str = "GL128"
+) -> list[CaptureImagePass]:
+    """Classify and carve every full-image pass in a capture."""
+    preambles = image_preambles_for_decode(analysis)
+    if not preambles:
+        return []
+    snapshots: list[tuple[BufferPreamble, dict[int, int]]] = []
+    for preamble in preambles:
+        regs = registers_before_packet(analysis, preamble.packet_index, asic=asic)
+        snapshots.append((preamble, regs))
+    capture_has_ir = any(is_ir_capture_pass(regs) for _, regs in snapshots)
+    capture_has_me = capture_has_me_bracket([regs for _, regs in snapshots])
+    passes: list[CaptureImagePass] = []
+    for preamble, regs in snapshots:
+        bulk = carve_bulk_after_preamble(analysis, preamble)
+        if not bulk:
             continue
-        if not (pkt.endpoint & 0x80) or not pkt.data:
-            continue
-        piece = pkt.data
-        room = need - len(out)
-        if room <= 0:
-            break
-        if len(piece) > room:
-            piece = piece[:room]
-        out.extend(piece)
-        if len(out) >= need:
-            break
-    if len(out) < need:
-        return None
-    return bytes(out[:need])
+        kind = classify_capture_pass_kind(
+            regs, capture_has_ir=capture_has_ir, asic=asic
+        )
+        label = classify_capture_pass_label(
+            regs, kind=kind, capture_has_me=capture_has_me
+        )
+        passes.append(
+            CaptureImagePass(
+                preamble=preamble,
+                kind=kind,
+                registers=regs,
+                bulk=bulk,
+                label=label,
+            )
+        )
+    return passes
+
+
+def summarize_capture_image_preambles(
+    analysis: CaptureAnalysis, *, asic: str = "GL128"
+) -> list[str]:
+    """Capture-tab lines for every large image preamble (even if carve fails)."""
+    preambles = image_preambles_for_decode(analysis)
+    if not preambles:
+        return []
+    snapshots = [
+        (p, registers_before_packet(analysis, p.packet_index, asic=asic))
+        for p in preambles
+    ]
+    capture_has_ir = any(is_ir_capture_pass(regs) for _, regs in snapshots)
+    capture_has_me = capture_has_me_bracket([regs for _, regs in snapshots])
+    lines = [
+        f"Image preambles: {len(snapshots)}"
+        + (" (multi-exposure)" if capture_has_me else "")
+        + (" (IR)" if capture_has_ir else "")
+    ]
+    for i, (preamble, regs) in enumerate(snapshots):
+        kind = classify_capture_pass_kind(
+            regs, capture_has_ir=capture_has_ir, asic=asic
+        )
+        label = classify_capture_pass_label(
+            regs, kind=kind, capture_has_me=capture_has_me
+        )
+        exp = exposure_from_regs(regs)
+        a5 = regs.get(0xA5)
+        a5_s = f"{a5:#04x}" if a5 is not None else "?"
+        bulk = carve_bulk_after_preamble(analysis, preamble)
+        carved = len(bulk) if bulk else 0
+        lines.append(
+            f"  [{i}] {label}: exp={exp} 0xA5={a5_s} "
+            f"announced={preamble.bulk_size} carved={carved} "
+            f"(pkt {preamble.packet_index})"
+        )
+    return lines
 
 
 def _u16(regs: dict[int, int], addr: int) -> int | None:
@@ -600,12 +922,14 @@ def geometry_for_capture_decode(
     *,
     dpi: int | None = None,
     area: tuple[float, float, float, float] | None = None,
+    preamble: BufferPreamble | None = None,
+    bulk: bytes | None = None,
 ) -> ScanGeometry:
     """Build geometry for decoding the carved image bulk, preferring capture regs."""
     asic = str(getattr(model, "asic", "") or "")
     asic_u = asic.upper()
     # Prefer register state just before the image preamble (avoids teardown noise).
-    pre = analysis.image_preamble
+    pre = preamble or analysis.image_preamble
     if pre is not None and analysis.register_events:
         regs = registers_before_packet(analysis, pre.packet_index, asic=asic)
     else:
@@ -627,26 +951,11 @@ def geometry_for_capture_decode(
         geo = compute_geometry(use_dpi, model=model, area=area)
 
     # Ensure image_bulk / preamble are resolved before sizing.
-    bulk = analysis.image_bulk or b""
-    if analysis.image_preamble is not None and analysis.image_preamble is not pre:
-        pre = analysis.image_preamble
-        regs = registers_before_packet(analysis, pre.packet_index, asic=asic)
-        snap = optical_snapshot(regs, asic=asic)
-        inferred_dpi = dpi_from_dpiset(model, snap["dpiset"])
-        if inferred_dpi is None and snap["dpiset"]:
-            inferred_dpi = int(snap["dpiset"]) * 6
-        new_dpi = int(inferred_dpi or dpi or min(model.resolutions_dpi))
-        if new_dpi != use_dpi:
-            use_dpi = new_dpi
-            if area is None:
-                if model_is_scan_ready(model):
-                    geo = compute_geometry(use_dpi, model=model, area=None)
-                else:
-                    geo = compute_geometry(
-                        use_dpi, model=model, area=nonse_safe_area(model)
-                    )
-            else:
-                geo = compute_geometry(use_dpi, model=model, area=area)
+    if bulk is None:
+        if pre is not None:
+            bulk = carve_bulk_after_preamble(analysis, pre) or analysis.image_bulk or b""
+        else:
+            bulk = analysis.image_bulk or b""
 
     channels = 3
     strp = snap["strpixel"]
@@ -677,10 +986,33 @@ def geometry_for_capture_decode(
             ):
                 usb_rows = fit
         usb_rows = max(1, usb_rows)
+        lincnt_per_line = int(getattr(model, "image_lincnt_per_line", 0) or 4)
+        # Session 13: output height is always LINCNT/4 (four ASIC units per line),
+        # including 7200 ppi where X oversample is 1 but Y still pairs USB rows.
         out_lines = (
-            (int(lincnt) // factor) if lincnt else max(1, usb_rows // max(1, factor // 2))
+            (int(lincnt) // lincnt_per_line)
+            if lincnt
+            else max(1, usb_rows // max(1, lincnt_per_line // 2))
         )
         out_lines = max(1, min(out_lines, usb_rows))
+        # 7200 native: one RGB16 URB per output line, wider than STR/END span.
+        if (
+            use_dpi >= _GL128_NATIVE_DPI
+            and pre is not None
+            and bulk
+        ):
+            urb = _image_urb_line_bytes(analysis, pre)
+            if (
+                urb
+                and urb % _RGB16_PIXEL_BYTES == 0
+                and len(bulk) % urb == 0
+                and urb > span_w * _RGB16_PIXEL_BYTES
+            ):
+                width = urb // _RGB16_PIXEL_BYTES
+                line_bytes = urb
+                usb_rows = len(bulk) // urb
+                out_lines = usb_rows
+                depth = 16
         # Keep ld_shift_* from compute_geometry (tri-linear CCD line offsets).
         return replace(
             geo,
@@ -757,14 +1089,28 @@ def decode_capture_bulk(
     dpi: int | None = None,
     planar: bool = False,
     area: tuple[float, float, float, float] | None = None,
+    preamble: BufferPreamble | None = None,
+    bulk: bytes | None = None,
 ):
     """Decode coalesced bulk IN through :class:`ImagePipeline` (no calib)."""
     import numpy as np
 
-    bulk = analysis.image_bulk
+    pre = preamble or analysis.image_preamble
+    if bulk is None:
+        if pre is not None:
+            bulk = carve_bulk_after_preamble(analysis, pre)
+        else:
+            bulk = analysis.image_bulk
     if not bulk:
         raise ValueError("No bulk IN image data found in capture")
-    geo = geometry_for_capture_decode(model, analysis, dpi=dpi, area=area)
+    geo = geometry_for_capture_decode(
+        model,
+        analysis,
+        dpi=dpi,
+        area=area,
+        preamble=pre,
+        bulk=bulk,
+    )
     need = geo.total_bytes
     if len(bulk) < need:
         raise ValueError(
@@ -783,7 +1129,86 @@ def decode_capture_bulk(
     except ValueError:
         pass
     rgb = pipe.apply_host_downsample(rgb, geo)
+    # 7200 URBs include ~694 dummy/padding columns past STR/END; drop them.
+    span = int(geo.pixel_endx) - int(geo.pixel_startx)
+    if span >= 8 and rgb.shape[1] > span:
+        rgb = np.ascontiguousarray(rgb[:, :span, :])
+        geo = replace(
+            geo,
+            pixels=span,
+            optical_pixels=span,
+            line_bytes=span * geo.channels * (geo.depth // 8),
+        )
     return np.asarray(rgb, dtype=np.uint16), geo
+
+
+def decode_all_capture_passes(
+    model: FilmModel,
+    analysis: CaptureAnalysis,
+    *,
+    planar: bool = False,
+) -> CaptureDecodeResult:
+    """Decode every full-image pass and route to prescan / colour / IR."""
+    asic = str(getattr(model, "asic", "") or "")
+    result = CaptureDecodeResult()
+    result.log_lines.extend(summarize_capture_image_preambles(analysis, asic=asic))
+    passes = enumerate_capture_passes(analysis, asic=asic)
+    if not passes:
+        pre = analysis.image_preamble
+        bulk = analysis.image_bulk
+        if bulk:
+            rgb, geo = decode_capture_bulk(
+                model,
+                analysis,
+                planar=planar,
+                preamble=pre,
+                bulk=bulk,
+            )
+            result.color = (rgb, geo)
+            result.log_lines.append(
+                f"Colour {rgb.shape[1]}×{rgb.shape[0]} @ {geo.resolution} dpi "
+                f"(fallback single bulk)"
+            )
+        return result
+
+    color_short: tuple[object, ScanGeometry] | None = None
+    color_long: tuple[object, ScanGeometry] | None = None
+    by_kind: dict[str, tuple[object, ScanGeometry]] = {}
+    for image_pass in passes:
+        try:
+            rgb, geo = decode_capture_bulk(
+                model,
+                analysis,
+                planar=planar,
+                preamble=image_pass.preamble,
+                bulk=image_pass.bulk,
+            )
+        except Exception as exc:  # noqa: BLE001
+            result.log_lines.append(
+                f"{image_pass.label or image_pass.kind} pass @ pkt "
+                f"{image_pass.preamble.packet_index}: decode failed ({exc})"
+            )
+            continue
+        label = image_pass.label or image_pass.kind
+        result.log_lines.append(
+            f"{label}: {rgb.shape[1]}×{rgb.shape[0]} @ {geo.resolution} dpi "
+            f"(pkt {image_pass.preamble.packet_index}, "
+            f"{len(image_pass.bulk)} bytes)"
+        )
+        if image_pass.kind == "color" and is_me_long_pass(image_pass.registers):
+            color_long = (rgb, geo)
+        elif image_pass.kind == "color":
+            color_short = (rgb, geo)
+            by_kind["color"] = (rgb, geo)
+        else:
+            by_kind[image_pass.kind] = (rgb, geo)
+
+    result.prescan = by_kind.get("prescan")
+    # Prefer the short (normal) ME bracket on the Scan tab; long goes to color_me.
+    result.color = color_short or by_kind.get("color") or color_long
+    result.color_me = color_long
+    result.ir = by_kind.get("ir")
+    return result
 
 
 def motor_register_diff(

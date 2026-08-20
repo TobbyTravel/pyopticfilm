@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PyQt6.QtCore import Qt, QThread
 from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (
@@ -37,12 +39,12 @@ from tools.scanlab.backend import (
 from tools.scanlab.capture_pcap import (
     CaptureAnalysis,
     analyze_usbpcap,
-    decode_capture_bulk,
+    decode_all_capture_passes,
     format_capture_usb_log_lines,
     model_for_capture_decode,
     motor_register_diff,
 )
-from tools.scanlab.widgets import CropImageView
+from tools.scanlab.widgets import ImageTabPage
 from tools.scanlab.worker import ScanWorker
 
 
@@ -55,6 +57,8 @@ class ScanLabWindow(QMainWindow):
         self._targets: list[LabTarget] = []
         self._usb_sections: dict[str, int] = {}
         self._capture: CaptureAnalysis | None = None
+        self._last_scan: ScanImage | None = None
+        self._last_prescan_dpi: int | None = None
         self._thread = QThread(self)
         self._worker = ScanWorker()
         self._worker.moveToThread(self._thread)
@@ -102,6 +106,20 @@ class ScanLabWindow(QMainWindow):
         self.ir_pass = QCheckBox("IR pass (second scan)")
         form.addWidget(self.ir_pass)
 
+        self.me_pass = QCheckBox("Multi-exposure (ME)")
+        form.addWidget(self.me_pass)
+
+        form.addWidget(QLabel("ME merge"))
+        self.me_merge = QComboBox()
+        self.me_merge.addItem("None (raw planes)", "none")
+        self.me_merge.addItem("Linear", "linear")
+        self.me_merge.addItem("Fusion", "fusion")
+        self.me_merge.setEnabled(False)
+        form.addWidget(self.me_merge)
+
+        self.me_pass.toggled.connect(self._on_me_pass_toggled)
+        self.me_merge.currentIndexChanged.connect(self._on_me_merge_changed)
+
         self.banner = QLabel()
         self.banner.setWordWrap(True)
         self.banner.setStyleSheet("color: #c9a227; font-weight: 600;")
@@ -123,9 +141,11 @@ class ScanLabWindow(QMainWindow):
         form.addStretch(1)
 
         tabs = QTabWidget()
-        self.prescan_view = CropImageView()
-        self.scan_view = CropImageView()
-        self.ir_view = CropImageView()
+        self.prescan_view = ImageTabPage(default_stem="prescan")
+        self.scan_view = ImageTabPage(default_stem="color_short", allow_load=True)
+        self.me_long_view = ImageTabPage(default_stem="color_long", allow_load=True)
+        self.merged_view = ImageTabPage(default_stem="merged")
+        self.ir_view = ImageTabPage(default_stem="ir")
         self.capture_diff = QPlainTextEdit()
         self.capture_diff.setReadOnly(True)
         self.capture_diff.setPlaceholderText(
@@ -160,7 +180,9 @@ class ScanLabWindow(QMainWindow):
         self._update_usb_jump_buttons()
 
         tabs.addTab(self.prescan_view, "Prescan")
-        tabs.addTab(self.scan_view, "Scan")
+        tabs.addTab(self.scan_view, "Color short")
+        tabs.addTab(self.me_long_view, "Color long")
+        tabs.addTab(self.merged_view, "Merged")
         tabs.addTab(self.ir_view, "IR")
         tabs.addTab(self.capture_diff, "Capture")
         tabs.addTab(log_page, "USB log")
@@ -188,7 +210,11 @@ class ScanLabWindow(QMainWindow):
         self._worker.failed.connect(self._on_failed)
         self._worker.busy_changed.connect(self._on_busy)
 
+        self.scan_view.load_clicked.connect(lambda: self._load_me_plane("short"))
+        self.me_long_view.load_clicked.connect(lambda: self._load_me_plane("long"))
+
         self.reload_devices()
+        self._update_me_tabs_visible()
 
     def closeEvent(self, event) -> None:
         self._worker.cancel()
@@ -227,6 +253,12 @@ class ScanLabWindow(QMainWindow):
         self.ir_pass.setEnabled(bool(getattr(target.model, "supports_infrared", False)))
         if not self.ir_pass.isEnabled():
             self.ir_pass.setChecked(False)
+        is_gl128 = getattr(target.model, "asic", "") == "GL128"
+        self.me_pass.setEnabled(is_gl128)
+        self._update_me_merge_enabled()
+        if not is_gl128:
+            self.me_pass.setChecked(False)
+        self._update_me_tabs_visible()
         self._refresh_banner()
         self.prescan_view.clear_crop()
         if self._capture is not None:
@@ -235,6 +267,204 @@ class ScanLabWindow(QMainWindow):
     def _on_ppi_changed(self, _index: int) -> None:
         if self._capture is not None:
             self._decode_loaded_capture()
+
+    def _on_me_merge_changed(self, _index: int) -> None:
+        self._update_me_tabs_visible()
+        self._refresh_merged_preview()
+
+    def _refresh_merged_preview(self) -> None:
+        image = self._last_scan
+        if image is None or image.rgb_short is None or image.rgb_long is None:
+            self.merged_view.set_caption("")
+            return
+        mode = self._me_merge_mode()
+        if mode == "none":
+            self.merged_view.set_rgb(None)
+            self.merged_view.set_caption("")
+            return
+        try:
+            from pyopticfilm.scan.exposure_merge import merge_exposures_result
+
+            short = image.rgb_short
+            result = merge_exposures_result(
+                short,
+                image.rgb_long,
+                method=mode,  # type: ignore[arg-type]
+                exposure_short=image.exposure_short or 14000,
+                exposure_long=image.exposure_long or 42000,
+                align_shift=image.align_shift_long,
+            )
+            self.merged_view.set_rgb(result.rgb, dpi=image.dpi, auto_level=True)
+            if mode == "fusion" and result.fusion_stats is not None:
+                self.merged_view.set_caption(self._format_fusion_caption(result.fusion_stats))
+            else:
+                self.merged_view.set_caption(f"Merge: {mode}")
+        except Exception:  # noqa: BLE001
+            self.merged_view.set_rgb(None)
+            self.merged_view.set_caption("")
+
+    @staticmethod
+    def _format_fusion_caption(stats) -> str:
+        msg = (
+            f"Fusion weights — short {stats.mean_short_weight:.2f}, "
+            f"long {stats.mean_long_weight:.2f}"
+        )
+        if stats.zero_weight_fraction > 0:
+            msg += f"; {stats.zero_weight_fraction:.2%} both-zero (black)"
+        return msg
+
+    def _format_fusion_caption_from_image(self, image: ScanImage) -> str:
+        msg = (
+            f"Fusion weights — short {image.merge_fusion_mean_short_weight:.2f}, "
+            f"long {image.merge_fusion_mean_long_weight:.2f}"
+        )
+        zf = image.merge_fusion_zero_weight_fraction or 0.0
+        if zf > 0:
+            msg += f"; {zf:.2%} both-zero (black)"
+        return msg
+
+    def _fusion_stats_message(self, image: ScanImage) -> str:
+        if image.merge_method != "fusion":
+            return ""
+        if image.merge_fusion_mean_short_weight is None:
+            return ""
+        msg = (
+            f"; fusion w_short={image.merge_fusion_mean_short_weight:.2f} "
+            f"w_long={image.merge_fusion_mean_long_weight:.2f}"
+        )
+        zf = image.merge_fusion_zero_weight_fraction
+        if zf:
+            msg += f" both-zero={zf:.2%}"
+        return msg
+
+    def _on_me_pass_toggled(self, checked: bool) -> None:
+        self._update_me_merge_enabled()
+        self._update_me_tabs_visible()
+
+    def _default_dpi(self) -> int:
+        data = self.ppi.currentData()
+        if data is not None:
+            return int(data)
+        return 1800
+
+    def _default_exposure_pair(self) -> tuple[int, int]:
+        target = self._current_target()
+        if target is not None:
+            model = target.model
+            short = int(getattr(model, "exposure_short", 14000))
+            long = int(getattr(model, "exposure_long", short * 3))
+            return short, long
+        return 14000, 42000
+
+    def _me_planes_ready(self) -> bool:
+        scan = self._last_scan
+        return (
+            scan is not None
+            and scan.rgb_short is not None
+            and scan.rgb_long is not None
+        )
+
+    def _update_me_merge_enabled(self) -> None:
+        busy = self.btn_cancel.isEnabled()
+        self.me_merge.setEnabled(not busy)
+
+    def _load_me_plane(self, which: str) -> None:
+        from pyopticfilm.exceptions import PlustekError
+        from pyopticfilm.image import load_rgb16_tiff
+
+        title = "Load color short TIFF" if which == "short" else "Load color long TIFF"
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            title,
+            "",
+            "TIFF (*.tif *.tiff);;All files (*.*)",
+        )
+        if not path:
+            return
+        try:
+            rgb, dpi = load_rgb16_tiff(path, default_dpi=self._default_dpi())
+        except (PlustekError, OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Load TIFF", str(exc))
+            return
+
+        exp_short, exp_long = self._default_exposure_pair()
+        prev = self._last_scan
+        short = prev.rgb_short if prev is not None and prev.rgb_short is not None else None
+        long = prev.rgb_long if prev is not None else None
+
+        if which == "short":
+            if long is not None and long.shape != rgb.shape:
+                QMessageBox.warning(
+                    self,
+                    "Load TIFF",
+                    f"Shape mismatch: short {rgb.shape[:2]} vs long {long.shape[:2]}",
+                )
+                return
+            short = rgb
+            self.scan_view.set_rgb(short, dpi=dpi, auto_level=True)
+        else:
+            if short is not None and short.shape != rgb.shape:
+                QMessageBox.warning(
+                    self,
+                    "Load TIFF",
+                    f"Shape mismatch: long {rgb.shape[:2]} vs short {short.shape[:2]}",
+                )
+                return
+            long = rgb
+            self.me_long_view.set_rgb(long, dpi=dpi, auto_level=True)
+
+        if short is None and long is None:
+            return
+        primary = short if short is not None else long
+        self._last_scan = ScanImage(
+            rgb=primary,
+            dpi=dpi,
+            rgb_short=short,
+            rgb_long=long,
+            exposure_short=exp_short,
+            exposure_long=exp_long,
+            merge_method=None,
+            align_shift_long=None,
+        )
+        self._update_me_tabs_visible()
+        self._update_me_merge_enabled()
+        if self._me_planes_ready():
+            self._refresh_merged_preview()
+            if self._me_merge_mode() != "none":
+                self.tabs.setCurrentWidget(self.merged_view)
+        self.statusBar().showMessage(
+            f"Loaded {Path(path).name} — {rgb.shape[1]}×{rgb.shape[0]} @ {dpi} dpi"
+        )
+
+    def _me_merge_mode(self) -> str:
+        idx = self.me_merge.currentIndex()
+        if idx < 0:
+            return "none"
+        data = self.me_merge.itemData(idx)
+        return str(data if data is not None else "none")
+
+    def _update_me_tabs_visible(self) -> None:
+        has_me_result = (
+            self._last_scan is not None and self._last_scan.rgb_long is not None
+        )
+        has_merged_result = (
+            self._last_scan is not None
+            and self._last_scan.merge_method not in (None, "none")
+        )
+        me = (self.me_pass.isEnabled() and self.me_pass.isChecked()) or has_me_result
+        merge_mode = self._me_merge_mode()
+        want_merge = merge_mode != "none"
+        merge = (me and want_merge) or has_merged_result
+        idx_long = self.tabs.indexOf(self.me_long_view)
+        idx_merged = self.tabs.indexOf(self.merged_view)
+        if idx_long >= 0:
+            self.tabs.setTabVisible(idx_long, me)
+        if idx_merged >= 0:
+            self.tabs.setTabVisible(idx_merged, merge)
+        scan_label = "Color short" if me else "Scan"
+        idx_scan = self.tabs.indexOf(self.scan_view)
+        if idx_scan >= 0:
+            self.tabs.setTabText(idx_scan, scan_label)
 
     def _on_override_hw_gate(self, checked: bool) -> None:
         if checked:
@@ -326,20 +556,80 @@ class ScanLabWindow(QMainWindow):
             "",
         ]
         decoded_ok = False
+        decoded = None
         try:
             # Decode uses capture DPISET for width; Lab PPI is only for the diff above.
-            rgb, geo = decode_capture_bulk(
+            decoded = decode_all_capture_passes(
                 decode_model,
                 analysis,
-                dpi=None,
                 planar=planar,
             )
-            self.scan_view.set_rgb(rgb, auto_level=True)
-            lines.append(
-                f"Decoded {rgb.shape[1]}×{rgb.shape[0]} @ capture dpi={geo.resolution} "
-                f"planar={planar} ld_shift=({geo.shift_r},{geo.shift_g},{geo.shift_b}) "
-                f"(line_bytes={geo.line_bytes}, optical_lines={geo.optical_line_count})"
-            )
+            if decoded.prescan is not None:
+                rgb, geo = decoded.prescan
+                self.prescan_view.set_rgb(rgb, dpi=geo.resolution, auto_level=True)
+            else:
+                self.prescan_view.set_rgb(None)
+            if decoded.color is not None:
+                rgb, geo = decoded.color
+                self.scan_view.set_rgb(rgb, dpi=geo.resolution, auto_level=True)
+            else:
+                self.scan_view.set_rgb(None)
+            if decoded.color_me is not None:
+                rgb_me, geo = decoded.color_me
+                self.me_long_view.set_rgb(rgb_me, dpi=geo.resolution, auto_level=True)
+                self.me_pass.setChecked(True)
+                self._update_me_tabs_visible()
+            else:
+                self.me_long_view.set_rgb(None)
+            if decoded.color is not None and decoded.color_me is not None:
+                try:
+                    from pyopticfilm.scan.exposure_merge import merge_exposures_result
+
+                    short_rgb, geo = decoded.color
+                    long_rgb, _ = decoded.color_me
+                    merged = merge_exposures_result(short_rgb, long_rgb, method="fusion")
+                    self.merged_view.set_rgb(merged.rgb, dpi=geo.resolution, auto_level=True)
+                    if merged.fusion_stats is not None:
+                        self.merged_view.set_caption(
+                            self._format_fusion_caption(merged.fusion_stats)
+                        )
+                    self.me_merge.setCurrentIndex(2)
+                    self._update_me_tabs_visible()
+                    lines.append("Merged tab: capture preview (fusion merge)")
+                except Exception as merge_exc:  # noqa: BLE001
+                    lines.append(f"Merged preview failed: {merge_exc}")
+                    self.merged_view.set_rgb(None)
+            else:
+                self.merged_view.set_rgb(None)
+            if decoded.ir is not None:
+                ir_rgb, geo = decoded.ir
+                plane = ir_rgb[:, :, 1]
+                self.ir_view.set_gray(plane, dpi=geo.resolution)
+            else:
+                self.ir_view.set_rgb(None)
+
+            lines.extend(decoded.log_lines)
+            if decoded.color is not None:
+                rgb, geo = decoded.color
+                lines.append(
+                    f"Scan tab: {rgb.shape[1]}×{rgb.shape[0]} @ {geo.resolution} dpi "
+                    f"ld_shift=({geo.shift_r},{geo.shift_g},{geo.shift_b})"
+                )
+            if decoded.prescan is not None:
+                rgb, geo = decoded.prescan
+                lines.append(
+                    f"Prescan tab: {rgb.shape[1]}×{rgb.shape[0]} @ {geo.resolution} dpi"
+                )
+            if decoded.ir is not None:
+                rgb, geo = decoded.ir
+                lines.append(
+                    f"IR tab: {rgb.shape[1]}×{rgb.shape[0]} @ {geo.resolution} dpi"
+                )
+            if decoded.color_me is not None:
+                rgb, geo = decoded.color_me
+                lines.append(
+                    f"Color long tab: {rgb.shape[1]}×{rgb.shape[0]} @ {geo.resolution} dpi"
+                )
             lines.append(
                 "Decode ignores the Lab PPI spinner (uses capture DPISET). "
                 "Toggle USB planar RGB to re-decode without reopening the file."
@@ -349,17 +639,30 @@ class ScanLabWindow(QMainWindow):
                     f"Note: capture looks like {decode_model.asic}; "
                     f"used {decode_model.model} tables instead of {target.model.model}."
                 )
-            decoded_ok = True
-            self.statusBar().showMessage(
-                f"Capture decode {rgb.shape[1]}×{rgb.shape[0]} planar={planar}"
-            )
+            decoded_ok = decoded.prescan is not None or decoded.color is not None
+            if decoded.color is not None:
+                rgb, _ = decoded.color
+                self.statusBar().showMessage(
+                    f"Capture decode scan {rgb.shape[1]}×{rgb.shape[0]} planar={planar}"
+                )
+            elif decoded.prescan is not None:
+                rgb, _ = decoded.prescan
+                self.statusBar().showMessage(
+                    f"Capture decode prescan {rgb.shape[1]}×{rgb.shape[0]} planar={planar}"
+                )
         except Exception as exc:  # noqa: BLE001
             lines.append(f"Decode failed: {exc}")
             lines.append("Register diff above may still help with FEEDL/LINCNT.")
             self.statusBar().showMessage(f"Capture decode failed: {exc}")
             QMessageBox.warning(self, "Scan lab", f"Could not decode image bulk:\n{exc}")
         self.capture_diff.setPlainText("\n".join(lines))
-        self.tabs.setCurrentWidget(self.scan_view if decoded_ok else self.capture_diff)
+        if decoded_ok:
+            if decoded.color is not None:
+                self.tabs.setCurrentWidget(self.scan_view)
+            elif decoded.prescan is not None:
+                self.tabs.setCurrentWidget(self.prescan_view)
+        else:
+            self.tabs.setCurrentWidget(self.capture_diff)
 
     def _refresh_banner(self) -> None:
         target = self._current_target()
@@ -440,6 +743,8 @@ class ScanLabWindow(QMainWindow):
             target,
             dpi,
             self.ir_pass.isChecked(),
+            self.me_pass.isChecked(),
+            str(self.me_merge.currentData() or "none"),
             crop,
             self.apply_calib.isChecked(),
         )
@@ -483,23 +788,57 @@ class ScanLabWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.usb_log.parentWidget())
 
     def _on_prescan_ready(self, image: ScanImage) -> None:
-        self.prescan_view.set_rgb(image.rgb)
+        self._last_prescan_dpi = image.dpi
+        self.prescan_view.set_rgb(image.rgb, dpi=image.dpi)
         self.tabs.setCurrentWidget(self.prescan_view)
         self.statusBar().showMessage(
             f"Prescan {image.rgb.shape[1]}×{image.rgb.shape[0]} @ {image.dpi} dpi — drag a crop"
         )
 
-    def _on_scan_ready(self, colour: ScanImage, ir: ScanImage | None) -> None:
-        self.scan_view.set_rgb(colour.rgb)
-        self.tabs.setCurrentWidget(self.scan_view)
-        if ir is not None:
-            plane = ir.ir if ir.ir is not None else ir.rgb[:, :, 1]
-            self.ir_view.set_gray(plane)
+    def _on_scan_ready(self, image: ScanImage) -> None:
+        self._last_scan = image
+        short = image.rgb_short if image.rgb_short is not None else image.rgb
+        self.scan_view.set_rgb(short, dpi=image.dpi)
+        if image.rgb_long is not None:
+            self.me_long_view.set_rgb(image.rgb_long, dpi=image.dpi)
+        else:
+            self.me_long_view.set_rgb(None)
+        if image.merge_method and image.merge_method != "none":
+            self.merged_view.set_rgb(image.rgb, dpi=image.dpi, auto_level=True)
+            if (
+                image.merge_method == "fusion"
+                and image.merge_fusion_mean_short_weight is not None
+            ):
+                self.merged_view.set_caption(
+                    self._format_fusion_caption_from_image(image)
+                )
+            else:
+                self.merged_view.set_caption(f"Merge: {image.merge_method}")
+        elif image.rgb_long is not None and self._me_merge_mode() != "none":
+            self._refresh_merged_preview()
+        else:
+            self.merged_view.set_rgb(None)
+            self.merged_view.set_caption("")
+        if image.ir is not None:
+            self.ir_view.set_gray(image.ir, dpi=image.dpi)
         else:
             self.ir_view.set_rgb(None)
-        msg = f"Scan {colour.rgb.shape[1]}×{colour.rgb.shape[0]} @ {colour.dpi} dpi"
-        if ir is not None:
-            msg += f"; IR {ir.rgb.shape[1]}×{ir.rgb.shape[0]}"
+        self._update_me_tabs_visible()
+        if image.merge_method and image.merge_method != "none":
+            self.tabs.setCurrentWidget(self.merged_view)
+        elif image.rgb_long is not None and self._me_merge_mode() != "none":
+            self.tabs.setCurrentWidget(self.merged_view)
+        else:
+            self.tabs.setCurrentWidget(self.scan_view)
+        self._update_me_merge_enabled()
+        msg = f"Scan {short.shape[1]}×{short.shape[0]} @ {image.dpi} dpi"
+        if image.rgb_long is not None:
+            msg += "; ME long"
+        if image.merge_method and image.merge_method != "none":
+            msg += f"; merged ({image.merge_method})"
+            msg += self._fusion_stats_message(image)
+        if image.ir is not None:
+            msg += f"; IR {image.ir.shape[1]}×{image.ir.shape[0]}"
         self.statusBar().showMessage(msg)
 
     def _on_failed(self, message: str) -> None:
@@ -513,6 +852,17 @@ class ScanLabWindow(QMainWindow):
         self.btn_cancel.setEnabled(busy)
         self.device.setEnabled(not busy)
         self.ppi.setEnabled(not busy)
+        self.ir_pass.setEnabled(not busy and bool(
+            getattr(self._current_target().model, "supports_infrared", False)
+            if self._current_target()
+            else False
+        ))
+        is_gl128 = (
+            self._current_target() is not None
+            and getattr(self._current_target().model, "asic", "") == "GL128"
+        )
+        self.me_pass.setEnabled(not busy and is_gl128)
+        self._update_me_merge_enabled()
         self.run_mock.setEnabled(not busy)
         self.override_hw_gate.setEnabled(not busy)
         self.apply_calib.setEnabled(not busy)

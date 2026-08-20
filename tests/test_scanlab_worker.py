@@ -23,9 +23,16 @@ def _method_args(name: str) -> tuple[list[str], list[str]]:
 
 
 def test_run_scan_accepts_positional_signal_args():
-    # request_scan = pyqtSignal(object, int, bool, object, bool) — queued slots are positional.
     positional, keyword_only = _method_args("run_scan")
-    assert positional == ["target", "dpi", "ir_pass", "crop_norm", "apply_calib"]
+    assert positional == [
+        "target",
+        "dpi",
+        "ir_pass",
+        "me_pass",
+        "merge",
+        "crop_norm",
+        "apply_calib",
+    ]
     assert keyword_only == []
 
 

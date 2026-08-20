@@ -87,8 +87,10 @@ full-TA high-PPI Scan safe.
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
 | **PPI** | Resolutions from the selected model’s `resolutions_dpi` (Scan only; Prescan uses a fixed low dpi). |
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
+| **Multi-exposure (ME)** | GL128 / 8200i SE only: short then long colour pass (3× exposure). |
+| **ME merge** | Optional host merge of short+long (`None`, Linear, Fusion). Raw planes always kept on ``ScanImage``. |
 | **Prescan** | Low-res preview (SE: 1200 dpi safe window; non-SE: lowest dpi + short Y strip). |
-| **Scan** | Colour scan at the chosen PPI; optional IR second pass. Uses the prescan crop when one is set (clamped on non-SE). |
+| **Scan** | Colour scan at the chosen PPI; optional IR and/or ME. Uses the prescan crop when one is set (clamped on non-SE). |
 | **Open capture…** | Open a USBPcap ``.pcap`` / ``.pcapng``. Decodes the largest bulk IN through the selected model’s image pipeline and diffs FEEDL / LINCNT / DPISET vs Lab geometry (Capture tab). |
 | **Cancel** | Sets the scan cancel event (busy scans only). |
 
@@ -104,9 +106,21 @@ Scan uses that crop (mirrored on SE so image-left matches film/TA space).
 Clear the crop by changing device, or by starting a new rubber-band that is too
 small to keep.
 
-### Scan
+### Color short / Scan
 
-Colour result of the last Scan.
+Colour result of the last Scan (short exposure when ME is enabled). **Load 16-bit
+TIFF…** opens a saved short plane from disk (e.g. exported earlier or from NegPy).
+
+### Color long
+
+Long ME exposure frame when **Multi-exposure** was enabled. **Load 16-bit TIFF…**
+opens a saved long plane. When both short and long are loaded (from scan or disk),
+change **ME merge** (Linear / Fusion) to preview the host merge on the **Merged**
+tab without rescanning.
+
+### Merged
+
+Host-merged short+long when **ME merge** is Linear or Fusion.
 
 ### IR
 
@@ -183,7 +197,7 @@ do not force the carriage by hand.
 ## What Scan Lab is not
 
 - Not part of the PyPI package or wheel/sdist.
-- Not a NegPy replacement (no TIFF export, no iSRD retouch UI, no roll workflow).
+- Not a NegPy replacement (no iSRD retouch UI, no roll workflow). Each image tab can export 16-bit TIFF for use in NegPy.
 - Not a substitute for flipping `scan_ready` — override is lab-only unlock.
 
 For protocol / support levels, see

@@ -28,6 +28,7 @@ from pyopticfilm.usb.protocol import GenesysUsbProtocol, UsbTransport
 logger = get_logger(__name__)
 
 ScanMode = Literal["color", "infrared", "gray"]
+MergeMode = Literal["none", "linear", "fusion"]
 
 
 class Scanner:
@@ -234,6 +235,10 @@ class Scanner:
         progress: Callable[[float], None] | None = None,
         cancel: threading.Event | None = None,
         apply_calib: bool = True,
+        multi_exposure: bool = False,
+        infrared: bool = False,
+        merge: MergeMode = "none",
+        align_passes: bool = True,
     ) -> ScanImage:
         self._ensure_scan_ready()
         self._ensure_open()
@@ -251,6 +256,10 @@ class Scanner:
             progress=progress,
             cancel=cancel,
             apply_calib=apply_calib,
+            multi_exposure=multi_exposure,
+            infrared=infrared,
+            merge=merge,
+            align_passes=align_passes,
         )
 
     def arm_bringup_motor(self) -> None:
