@@ -8,7 +8,18 @@ import importlib.util
 import numpy as np
 import pytest
 
-from tools.scanlab.widgets import downsample_for_display, rgb16_to_qimage
+from tools.scanlab.preview import MAX_DISPLAY_EDGE, downsample_for_display
+
+
+def _pyqt6_gui_importable() -> bool:
+    """True when PyQt6 is installed *and* its native libs load (needs libEGL on Linux CI)."""
+    if importlib.util.find_spec("PyQt6") is None:
+        return False
+    try:
+        from PyQt6.QtGui import QImage  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 def test_downsample_for_display_caps_long_edge():
@@ -19,8 +30,13 @@ def test_downsample_for_display_caps_long_edge():
     assert downsample_for_display(arr, max_edge=400) is arr
 
 
-@pytest.mark.skipif(importlib.util.find_spec("PyQt6") is None, reason="PyQt6 is only installed with the lab extra")
+@pytest.mark.skipif(
+    not _pyqt6_gui_importable(),
+    reason="PyQt6 GUI libs unavailable (install lab extra + libEGL on Linux)",
+)
 def test_rgb16_to_qimage_odd_width_and_downsample():
+    from tools.scanlab.widgets import rgb16_to_qimage
+
     rgb = np.full((32, 17, 3), 0x4000, dtype=np.uint16)
     rgb[:, 8, :] = 0xC000
     image = rgb16_to_qimage(rgb, auto_level=True)
@@ -32,4 +48,4 @@ def test_rgb16_to_qimage_odd_width_and_downsample():
     wide[:, ::17] = 0x8000
     preview = rgb16_to_qimage(wide, auto_level=True)
     assert not preview.isNull()
-    assert max(preview.width(), preview.height()) <= 4096
+    assert max(preview.width(), preview.height()) <= MAX_DISPLAY_EDGE

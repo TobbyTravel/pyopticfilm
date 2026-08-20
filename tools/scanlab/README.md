@@ -226,6 +226,7 @@ tools/scanlab/
   app.py        # main window
   backend.py    # device list, open real/mock, SE geometry helpers
   capture_pcap.py  # USBPcap parse + bulk decode / register diff
+  preview.py    # numpy downsample / auto-level (no Qt)
   worker.py     # QThread scan worker + USB log dividers
   widgets.py    # crop view + RGB/gray preview
   README.md     # this guide
