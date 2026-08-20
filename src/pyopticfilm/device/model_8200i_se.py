@@ -154,16 +154,16 @@ _OUTPUT_PIXEL_OFFSET_SE: dict[int, int] = {
 }
 
 #: Line period written to ``0x28`` (24-bit BE).
-#: 1200/1800 from shading sessions 03/04; other PPIs from session ``13_ppi_ladder``.
+#: Values from session ``13_ppi_ladder`` (SilverFast image pass).
 _LPERIOD_BY_DPI: dict[int, int] = {
     150: 11064,
     300: 11064,
     600: 11064,
     720: 11106,
     900: 11170,
-    1200: 11283,  # session 03 white measure
+    1200: 11277,
     1440: 11362,
-    1800: 11470,  # session 04 white measure
+    1800: 11490,
     2400: 11703,
     3600: 13407,
     7200: 15963,

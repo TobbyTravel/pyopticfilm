@@ -782,9 +782,11 @@ def test_shading_strip_setup_sets_dvdset_when_requested():
     assert asic._reg_cache[0xAB] == dark_b
 
 
-def test_capture_lperiod_matches_session_03_04():
-    assert MODEL_8200I_SE.line_period_for(1200) == 11283
-    assert MODEL_8200I_SE.line_period_for(1800) == 11470
+def test_capture_lperiod_matches_session_13():
+    assert MODEL_8200I_SE.line_period_for(1200) == 11277
+    assert MODEL_8200I_SE.line_period_for(1800) == 11490
+    assert MODEL_8200I_SE.line_period_for(3600) == 13407
+    assert MODEL_8200I_SE.line_period_for(7200) == 15963
 
 
 def test_upload_tables_slope_false_skips_slope_ahb():

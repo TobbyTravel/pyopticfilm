@@ -45,6 +45,10 @@ class LabTarget:
     allow_unvalidated: bool = False
     #: Force planar USB RGB decode (``asic.usb_planar_rgb``) for rainbow bring-up.
     usb_planar: bool = False
+    #: Sleep between GL128 image bulk chunk announces (quieter creep; default on).
+    quiet_usb_pace: bool = True
+    #: Upload slow motor slope for image configure (acoustic A/B).
+    slow_image_slope: bool = False
 
 
 def with_mock_mode(target: LabTarget, mock: bool) -> LabTarget:
@@ -60,6 +64,20 @@ def with_hw_override(target: LabTarget, allow_unvalidated: bool) -> LabTarget:
 def with_usb_planar(target: LabTarget, usb_planar: bool) -> LabTarget:
     """Copy ``target`` with the Lab planar/chunky decode toggle."""
     return replace(target, usb_planar=bool(usb_planar))
+
+
+def with_motor_acoustic(
+    target: LabTarget,
+    *,
+    quiet_usb_pace: bool = True,
+    slow_image_slope: bool = False,
+) -> LabTarget:
+    """Copy ``target`` with GL128 motor-noise A/B toggles from the UI."""
+    return replace(
+        target,
+        quiet_usb_pace=bool(quiet_usb_pace),
+        slow_image_slope=bool(slow_image_slope),
+    )
 
 
 def apply_lab_hw_override(scanner: Scanner, target: LabTarget) -> None:
@@ -79,6 +97,17 @@ def apply_lab_decode_layout(scanner: Scanner, target: LabTarget) -> None:
     if asic is None:
         return
     asic.usb_planar_rgb = bool(target.usb_planar)
+
+
+def apply_lab_motor_acoustic(scanner: Scanner, target: LabTarget) -> None:
+    """Apply GL128 image-pass acoustic A/B flags from Scan Lab checkboxes."""
+    asic = getattr(scanner, "_asic", None)
+    if asic is None:
+        return
+    from pyopticfilm.scan.session_gl128 import IMAGE_USB_PACE_S
+
+    asic.image_slope_slow = bool(target.slow_image_slope)
+    asic.image_usb_pace_s = IMAGE_USB_PACE_S if target.quiet_usb_pace else 0.0
 
 
 def nonse_safe_y_fraction(model: FilmModel) -> float:
@@ -209,6 +238,7 @@ def open_lab_scanner(
         rec = RecordingTransport(MockScannerTransport(), listener=listener)
         scanner = Scanner.open_fake(target.model, rec)
         apply_lab_decode_layout(scanner, target)
+        apply_lab_motor_acoustic(scanner, target)
         return scanner, rec
 
     from pyopticfilm.usb.device import UsbDeviceHandle
@@ -220,6 +250,7 @@ def open_lab_scanner(
     scanner = Scanner(handle, GenesysUsbProtocol(rec), model=target.model)
     apply_lab_hw_override(scanner, target)
     apply_lab_decode_layout(scanner, target)
+    apply_lab_motor_acoustic(scanner, target)
     return scanner, rec
 
 

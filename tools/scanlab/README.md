@@ -84,6 +84,8 @@ full-TA high-PPI Scan safe.
 | **Override safety HW gate** | Off (default). On: after a warning, unlock scan/home/park on real USB for models with `scan_ready=False`. Does not flip `scan_ready`. |
 | **Apply calib** | Off (default). Host/ASIC shading before the image. Forced off when enabling HW override. |
 | **USB planar RGB** | Off = chunky `RGBRGB…` (default). On = planar planes — try this if Prescan is rainbow-striped. |
+| **Quiet USB pace** | **On** (default). ~3 ms sleep between image bulk chunks — quieter high-PPI creep (confirmed on SE). Uncheck to drain flat-out. |
+| **Slow image slope** | Off (default). On: shading/slow motor ramp on the image pass (feeds stay fast). |
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
 | **PPI** | Resolutions from the selected model’s `resolutions_dpi` (Scan only; Prescan uses a fixed low dpi). |
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
@@ -174,6 +176,13 @@ Progress for the active pass is shown in the status bar.
   overrun the motor window.
 - Rubber-band crops are clamped so image `LINCNT` cannot past the scan-window
   end (see `captures/8200i-se/MOTOR.md` in the repo if present).
+- High PPI (≥2400) and ME long passes use a slower line-synced creep; a soft
+  “helicopter” whine like SilverFast is normal. Lab uses USB-sized bulk announces
+  plus **Quiet USB pace** by default (~3 ms between chunks) — that was confirmed
+  quieter on SE than unpaced drain (a single full-image preamble was louder still).
+  Uncheck **Quiet USB pace** to A/B. **Slow image slope** remains an optional
+  acoustic probe (feeds stay fast). SF’s 3600 stream is continuous bulk with
+  almost no mid-scan control; the Lab/SF gap looks like host drain timing.
 
 ### Unvalidated non-SE (8100 / GL845 aliases, …)
 

@@ -9,9 +9,9 @@ stay in :class:`~pyopticfilm.scan.session.ScanSession`. What differs from GL845:
 * motor slope tables are replayed from the capture rather than generated, so
   there is no ``zmod`` calculation;
 * feeding is a separate, synchronous move before the scan starts;
-* the image is announced with a single bulk preamble and then streamed, and the
-  source is selected with ``wIndex`` — RAM for calibration passes, the live
-  image stream for a scan.
+* the image is streamed with USB-sized ``VALUE_BUFFER`` announces (a single
+  full-image preamble was louder on real SE hardware); source is selected with
+  ``wIndex`` — RAM for calibration, live stream for a scan.
 """
 
 from __future__ import annotations
@@ -33,9 +33,13 @@ from pyopticfilm.usb.device import BULK_MAX_SIZE
 logger = get_logger(__name__)
 
 #: Max bytes announced per ``bulk_read_begin``. SilverFast uses one preamble for
-#: the whole image; we announce at most one USB bulk ceiling so a cancel never
-#: leaves an incomplete Genesys DMA transfer (that wedges EP0 until power-cycle).
+#: the whole image; Lab keeps USB-sized announces so cancel can abort cleanly
+#: and (empirically) high-PPI creep is quieter than one giant unpaced preamble.
 IMAGE_CHUNK_BYTES = BULK_MAX_SIZE
+
+#: Default sleep between image bulk chunk announces. Softens high-PPI creep on
+#: SE (Scan Lab A/B); full-frame 3600 adds on the order of ~10 s of sleeps.
+IMAGE_USB_PACE_S = 0.003
 
 try:
     from pyopticfilm.asic.gl128 import MOTOR_GATED_HINT as _MOTOR_GATED_HINT
@@ -462,18 +466,17 @@ class Gl128ScanSession(ScanSession):
             if geometry.disable_buffer_full_move
             else r.BULK_INDEX_IMAGE
         )
-        index = (
-            r.BULK_INDEX_RAM
-            if geometry.disable_buffer_full_move
-            else r.BULK_INDEX_IMAGE
-        )
 
         buf = bytearray()
         while len(buf) < total:
             if cancel is not None and cancel.is_set():
                 raise ScanCancelled("cancelled during bulk read")
+            if buf and (pace := float(getattr(self.asic, "image_usb_pace_s", 0.0) or 0.0)) > 0:
+                # Let the ASIC buffer refill so buffer-full can gate the creep.
+                time.sleep(pace)
             # Announce only this USB-sized block and fully drain it before the
-            # next cancel check — avoids mid-DMA EP0 wedge on Stop.
+            # next cancel check — a single full-image preamble made high-PPI
+            # creep louder on real SE hardware (2026-08).
             want = min(IMAGE_CHUNK_BYTES, total - len(buf))
             proto.bulk_read_begin(want, index=index)
             self._bulk_stream_active = True

@@ -16,6 +16,7 @@ from tools.scanlab.backend import (
     LabTarget,
     apply_lab_decode_layout,
     apply_lab_hw_override,
+    apply_lab_motor_acoustic,
     device_banner,
     lab_scan_kwargs,
     lab_scan_needs_motor_warning,
@@ -27,6 +28,7 @@ from tools.scanlab.backend import (
     usb_log_section_key,
     with_hw_override,
     with_mock_mode,
+    with_motor_acoustic,
     with_usb_planar,
 )
 
@@ -102,6 +104,28 @@ def test_apply_lab_decode_layout_sets_planar():
     assert asic.usb_planar_rgb is True
     apply_lab_decode_layout(scanner, with_usb_planar(target, False))
     assert asic.usb_planar_rgb is False
+
+
+def test_apply_lab_motor_acoustic_flags():
+    from pyopticfilm.scan.session_gl128 import IMAGE_USB_PACE_S
+
+    scanner = MagicMock()
+    asic = MagicMock()
+    scanner._asic = asic
+    target = with_motor_acoustic(
+        LabTarget(label="x", model=MODEL_8200I_SE),
+        quiet_usb_pace=True,
+        slow_image_slope=True,
+    )
+    apply_lab_motor_acoustic(scanner, target)
+    assert asic.image_slope_slow is True
+    assert asic.image_usb_pace_s == IMAGE_USB_PACE_S
+    apply_lab_motor_acoustic(
+        scanner,
+        with_motor_acoustic(target, quiet_usb_pace=False, slow_image_slope=False),
+    )
+    assert asic.image_slope_slow is False
+    assert asic.image_usb_pace_s == 0.0
 
 
 def test_open_real_without_connected_device_raises():
