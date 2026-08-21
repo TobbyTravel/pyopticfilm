@@ -360,7 +360,15 @@ class Gl128ScanSession(ScanSession):
             if planar is None:
                 planar = bool(getattr(self.model, "usb_planar_rgb", False))
             rgb = self.pipeline.assemble(
-                raw, geometry, dark=dark, white=white, planar=bool(planar)
+                raw,
+                geometry,
+                dark=dark,
+                white=white,
+                planar=bool(planar),
+                # Keep ME colour (and IR) planes linear — per-plane expose_film_base
+                # collapses the ~3× short/long ratio (SF USB oracle). Makeup runs
+                # once on the final deliverable below.
+                expose_base=False,
             )
 
             if key == "color_short":
@@ -400,6 +408,10 @@ class Gl128ScanSession(ScanSession):
                 merge_fusion_mean_short_weight = merged.fusion_stats.mean_short_weight
                 merge_fusion_mean_long_weight = merged.fusion_stats.mean_long_weight
                 merge_fusion_zero_weight_fraction = merged.fusion_stats.zero_weight_fraction
+
+        # Single film-base makeup on the deliverable only (not on rgb_short/long).
+        primary = self.pipeline.expose_film_base(primary, source="me deliverable")
+        primary = self.pipeline.clamp_border_highlights(primary)
 
         return ScanImage(
             rgb=primary,

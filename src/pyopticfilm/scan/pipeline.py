@@ -278,8 +278,9 @@ class ImagePipeline:
         white: np.ndarray,
         peak_target: int = HOST_CALIB_PEAK_TARGET,
         peak_percentile: float = HOST_CALIB_PEAK_PERCENTILE,
+        expose_base: bool = True,
     ) -> np.ndarray:
-        """Host-side shading: column flat-field, then expose film base near white.
+        """Host-side shading: column flat-field, then optionally expose film base.
 
         ``dark`` / ``white`` are (pixels, 3) uint16 column averages from the home
         chrome strip. Mapping that strip to 65535 leaves the film window dark when
@@ -287,6 +288,9 @@ class ImagePipeline:
         positive. A percentile makeup brings frame highlights up to ``peak_target``.
         Border chrome brighter than the film inset is then clamped so auto bounds
         do not latch onto holder margins.
+
+        Pass ``expose_base=False`` for ME bracket planes so short/long stay linear
+        for merge (makeup runs once on the final deliverable).
         """
         if dark.shape != white.shape:
             raise ValueError(f"dark/white shape mismatch: {dark.shape} vs {white.shape}")
@@ -313,6 +317,8 @@ class ImagePipeline:
             out = np.where(mask, rgb.astype(np.float32), out)
 
         stretched = np.clip(np.rint(out), 0, 65535).astype(np.uint16)
+        if not expose_base:
+            return stretched
         exposed = self.expose_film_base(
             stretched,
             source="host calib",
@@ -329,15 +335,23 @@ class ImagePipeline:
         dark: np.ndarray | None = None,
         white: np.ndarray | None = None,
         planar: bool | None = None,
+        expose_base: bool = True,
     ) -> np.ndarray:
+        """Decode USB RGB and apply calib / optional film-base makeup.
+
+        ``expose_base=False`` skips scalar peak stretch and border clamp so ME
+        short/long planes stay linear (SilverFast-wire scale) for host merge.
+        """
         rgb = self.decode_rgb(raw, geometry=geometry, planar=planar)
         rgb = self.reduce_y_oversample(rgb, geometry)
         rgb = self.apply_line_shifts(rgb, geometry)
         rgb = self.apply_y_stagger(rgb, geometry)
         rgb = self.apply_host_downsample(rgb, geometry)
         if dark is not None and white is not None:
-            rgb = self.apply_host_calib(rgb, dark=dark, white=white)
-        else:
+            rgb = self.apply_host_calib(
+                rgb, dark=dark, white=white, expose_base=expose_base
+            )
+        elif expose_base:
             rgb = self.expose_film_base(rgb, source="asic shading")
             rgb = self.clamp_border_highlights(rgb)
         if getattr(self.model, "mirror_x", False):

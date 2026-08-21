@@ -29,6 +29,66 @@ def test_align_pass_zero_shift_is_identity():
     assert np.array_equal(aligned, arr)
 
 
+def _luma_mean(rgb: np.ndarray) -> float:
+    a = rgb.astype(np.float64)
+    return float((0.2126 * a[:, :, 0] + 0.7152 * a[:, :, 1] + 0.0722 * a[:, :, 2]).mean())
+
+
+def test_assemble_expose_base_false_preserves_me_ratio():
+    """Per-plane film-base makeup collapses a 3× bracket; expose_base=False keeps it."""
+    from pyopticfilm.scan.geometry import compute_geometry
+    from pyopticfilm.scan.pipeline import ImagePipeline
+
+    pipe = ImagePipeline(MODEL_8200I_SE)
+    geometry = compute_geometry(1800, model=MODEL_8200I_SE)
+    h, w = 64, 64
+    short = np.full((h, w, 3), 8000, dtype=np.uint16)
+    long = np.full((h, w, 3), 24000, dtype=np.uint16)  # 3×
+
+    # Bypass decode: feed through assemble after mocking decode_rgb.
+    pipe.decode_rgb = lambda raw, **_k: (  # type: ignore[method-assign]
+        long.copy() if raw == b"L" else short.copy()
+    )
+    # Avoid oversample/shift changing levels for this tiny stub geometry.
+    pipe.reduce_y_oversample = lambda rgb, _g: rgb  # type: ignore[method-assign]
+    pipe.apply_line_shifts = lambda rgb, _g: rgb  # type: ignore[method-assign]
+    pipe.apply_y_stagger = lambda rgb, _g: rgb  # type: ignore[method-assign]
+    pipe.apply_host_downsample = lambda rgb, _g: rgb  # type: ignore[method-assign]
+
+    out_s = pipe.assemble(b"S", geometry, dark=None, white=None, expose_base=False)
+    out_l = pipe.assemble(b"L", geometry, dark=None, white=None, expose_base=False)
+    ratio_linear = _luma_mean(out_l) / max(_luma_mean(out_s), 1.0)
+    assert 2.9 <= ratio_linear <= 3.1
+
+    out_s_ex = pipe.assemble(b"S", geometry, dark=None, white=None, expose_base=True)
+    out_l_ex = pipe.assemble(b"L", geometry, dark=None, white=None, expose_base=True)
+    ratio_exposed = _luma_mean(out_l_ex) / max(_luma_mean(out_s_ex), 1.0)
+    # Independent peak stretch toward 0xF000 collapses the bracket.
+    assert ratio_exposed < 1.5
+
+
+def test_assemble_expose_base_false_skips_makeup_hooks():
+    from pyopticfilm.scan.geometry import compute_geometry
+    from pyopticfilm.scan.pipeline import ImagePipeline
+
+    pipe = ImagePipeline(MODEL_8200I_SE)
+    geometry = compute_geometry(1800, model=MODEL_8200I_SE)
+    rgb = np.full((32, 32, 3), 10000, dtype=np.uint16)
+    seen: list[str] = []
+    pipe.decode_rgb = lambda *_a, **_k: rgb  # type: ignore[method-assign]
+    pipe.reduce_y_oversample = lambda a, _g: a  # type: ignore[method-assign]
+    pipe.apply_line_shifts = lambda a, _g: a  # type: ignore[method-assign]
+    pipe.apply_y_stagger = lambda a, _g: a  # type: ignore[method-assign]
+    pipe.apply_host_downsample = lambda a, _g: a  # type: ignore[method-assign]
+    pipe.expose_film_base = lambda a, **_kw: (seen.append("expose") or a)  # type: ignore[method-assign]
+    pipe.clamp_border_highlights = lambda a, **_kw: (seen.append("clamp") or a)  # type: ignore[method-assign]
+
+    pipe.assemble(b"", geometry, dark=None, white=None, expose_base=False)
+    assert seen == []
+    pipe.assemble(b"", geometry, dark=None, white=None, expose_base=True)
+    assert seen == ["expose", "clamp"]
+
+
 def test_merge_linear_prefers_short_when_long_saturated():
     short = np.full((4, 4, 3), 50000, dtype=np.uint16)
     long = np.full((4, 4, 3), 65000, dtype=np.uint16)

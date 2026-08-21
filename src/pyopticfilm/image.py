@@ -23,8 +23,10 @@ class ScanImage:
     correspond to dense emulsion). Positive conversion is the host app's job.
 
     Multi-exposure fields are populated when ``multi_exposure=True`` on scan.
-    ``rgb_short`` / ``rgb_long`` preserve raw acquired frames; ``rgb`` is the
-    primary deliverable (merged when ``merge`` was requested, else short).
+    ``rgb_short`` / ``rgb_long`` preserve **linear** acquired frames (no per-plane
+    film-base peak stretch — that would erase the ~3× exposure ratio). ``rgb`` is
+    the primary deliverable (merged when ``merge`` was requested, else short),
+    after a single film-base makeup.
     """
 
     rgb: np.ndarray

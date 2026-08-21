@@ -110,15 +110,18 @@ small to keep.
 
 ### Color short / Scan
 
-Colour result of the last Scan (short exposure when ME is enabled). **Load 16-bit
-TIFF…** opens a saved short plane from disk (e.g. exported earlier or from NegPy).
+Colour result of the last Scan (short exposure when ME is enabled). ME short/long
+tabs show **linear** bracket planes (expected: long ≈ 3× brighter mean). **Load
+16-bit TIFF…** opens a saved short plane from disk (e.g. exported earlier or
+from NegPy).
 
 ### Color long
 
-Long ME exposure frame when **Multi-exposure** was enabled. **Load 16-bit TIFF…**
-opens a saved long plane. When both short and long are loaded (from scan or disk),
-change **ME merge** (Linear / Fusion / SNR·IVW) to preview the host merge on the
-**Merged** tab without rescanning.
+Long ME exposure frame when **Multi-exposure** was enabled (linear; should look
+brighter than Color short). **Load 16-bit TIFF…** opens a saved long plane. When
+both short and long are loaded (from scan or disk), change **ME merge** (Linear /
+Fusion / SNR·IVW) to preview the host merge on the **Merged** tab without
+rescanning.
 
 - **Linear** — hard switch: scaled long where not clipped, else short.
 - **Fusion** — soft heuristic reliability on luminance (noise floor + clip).
@@ -128,7 +131,8 @@ change **ME merge** (Linear / Fusion / SNR·IVW) to preview the host merge on th
 
 ### Merged
 
-Host-merged short+long when **ME merge** is Linear or Fusion.
+Host-merged short+long when **ME merge** is Linear, Fusion, or SNR/IVW. The
+merged/`rgb` deliverable may include film-base peak makeup; short/long tabs do not.
 
 ### IR
 
