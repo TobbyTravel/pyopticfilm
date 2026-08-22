@@ -23,23 +23,16 @@ BRINGUP_BLOCK = '''def clamp_area(area: Area) -> Area:
     return (x1, y1, x2, y2)
 
 
-def _flip_x_norm(area: Area) -> Area:
-    """Mirror X in normalized coords: image-left ↔ sensor/TA-left when ``mirror_x``."""
-    x1, y1, x2, y2 = area
-    return (1.0 - x2, y1, 1.0 - x1, y2)
-
-
 def image_crop_to_scan_area(model: Any, crop_norm: Area) -> Area:
     """Map Prescan crop widget coords → TA ``area`` for ``compute_geometry``."""
-    area = clamp_area(crop_norm)
-    if bool(getattr(model, "mirror_x", False)):
-        area = _flip_x_norm(area)
-    return clamp_area(area)
+    del model  # kept for call-site compatibility; orientation is fixed in assemble()
+    return clamp_area(crop_norm)
 
 
 def scan_area_to_image_crop(model: Any, area: Area) -> Area:
-    """Inverse of :func:`image_crop_to_scan_area` (same X flip when mirroring)."""
-    return image_crop_to_scan_area(model, area)
+    """Map TA ``area`` → Prescan crop widget coords (inverse of :func:`image_crop_to_scan_area`)."""
+    del model
+    return clamp_area(area)
 '''
 
 
@@ -49,7 +42,7 @@ def main() -> None:
     for path in paths:
         text = path.read_text(encoding="utf-8")
         text = text.replace(OLD, NEW)
-        text = text.replace("negpy.infrastructure.scanners.params", "pyopticfilm._prescan_geom")
+        text = text.replace("negpy.infrastructure.scanners.params", "pyopticfilm.scan.bringup")
         if path.name == "bringup.py" and "scan" in path.parts:
             text = re.sub(
                 r"def clamp_area\(area: Area\) -> Area:.*?def scan_area_to_image_crop\(model: Any, area: Area\) -> Area:.*?\n    return image_crop_to_scan_area\(model, area\)\n",
