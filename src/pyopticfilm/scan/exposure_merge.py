@@ -23,6 +23,10 @@ _SNR_BETA = 4096.0  # ~64 DN read noise
 _SNR_Z_LO = 3.0
 _SNR_Z_HI = 5.0
 
+# Row bands for IVW merge — avoids several full-frame float32 planes at 3600+ dpi.
+_MERGE_CHUNK_ROWS = 128
+_STATS_MAX_SIDE = 1024
+
 
 @dataclass(frozen=True)
 class FusionStats:
@@ -121,28 +125,39 @@ def merge_exposures_result(
     beta: float = _SNR_BETA,
 ) -> MergeResult:
     """Like :func:`merge_exposures` but returns weight stats."""
-    a = np.asarray(short, dtype=np.float32)
-    b_raw = np.asarray(long, dtype=np.float32)
-    if a.shape != b_raw.shape or a.ndim != 3 or a.shape[2] != 3:
-        raise ValueError(f"expected matching HxWx3 arrays, got {a.shape} and {b_raw.shape}")
+    short_u = np.asarray(short, dtype=np.uint16)
+    long_u = np.asarray(long, dtype=np.uint16)
+    if short_u.shape != long_u.shape or short_u.ndim != 3 or short_u.shape[2] != 3:
+        raise ValueError(
+            f"expected matching HxWx3 arrays, got {short_u.shape} and {long_u.shape}"
+        )
     if exposure_long <= 0 or exposure_short <= 0:
         raise ValueError("exposure values must be positive")
 
-    b, _ = align_pass_to_reference(a.astype(np.uint16), b_raw.astype(np.uint16), shift=align_shift)
-    b = b.astype(np.float32)
-    ratio = exposure_long / float(exposure_short)
+    long_u, _ = align_pass_to_reference(short_u, long_u, shift=align_shift)
+    usb_ratio = exposure_long / float(exposure_short)
 
     rgb, stats = _merge_snr(
-        a,
-        b,
-        usb_ratio=ratio,
+        short_u,
+        long_u,
+        usb_ratio=usb_ratio,
         alpha=alpha,
         beta=beta,
         floor=_SNR_FLOOR,
         clip_start=_SNR_CLIP_START,
         clip_end=_SNR_CLIP_END,
     )
-    return MergeResult(rgb=rgb.astype(np.uint16), fusion_stats=stats)
+    return MergeResult(rgb=rgb, fusion_stats=stats)
+
+
+def _subsample_for_stats(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Stride down large frames for global ratio / median estimates."""
+    ha, wa = a.shape[:2]
+    sy = max(1, ha // _STATS_MAX_SIDE)
+    sx = max(1, wa // _STATS_MAX_SIDE)
+    if sy == 1 and sx == 1:
+        return a, b
+    return a[::sy, ::sx], b[::sy, ::sx]
 
 
 def _smoothstep01(x: np.ndarray) -> np.ndarray:
@@ -196,23 +211,46 @@ def _estimate_exposure_ratio(
     return float(np.median(ratios))
 
 
-def _merge_snr(
-    a: np.ndarray,
-    b_raw: np.ndarray,
+def _estimate_z_median(
+    short_u: np.ndarray,
+    long_u: np.ndarray,
     *,
-    usb_ratio: float,
+    r: float,
     alpha: float,
     beta: float,
     floor: float,
     clip_start: float,
     clip_end: float,
-) -> tuple[np.ndarray, FusionStats]:
-    """Clipping-aware inverse-variance fusion in short-exposure radiometric scale.
+) -> float:
+    """Global residual-gate median on a strided subsample (full frame is OOM at high dpi)."""
+    a_s, b_s = _subsample_for_stats(short_u, long_u)
+    a = a_s.astype(np.float32)
+    b_raw = b_s.astype(np.float32)
+    xb = b_raw / r
+    lum_xa = a.mean(axis=2)
+    lum_xb = xb.mean(axis=2)
+    lum_b_raw = b_raw.mean(axis=2)
+    va_lum = alpha * np.maximum(lum_xa, 0.0) + beta
+    vb_lum = (alpha * np.maximum(lum_b_raw, 0.0) + beta) / (r * r)
+    z = (lum_xa - lum_xb) / np.sqrt(np.maximum(va_lum + vb_lum, 1e-12))
+    return float(np.median(z))
 
-    Per-channel soft confidence avoids luma-only highlight mistakes (one channel
-    clipped while mean RGB still looks safe). Residual gating stays on luminance.
-    """
-    r = max(_estimate_exposure_ratio(a, b_raw, usb_ratio=usb_ratio), 1e-12)
+
+def _merge_snr_rows(
+    short_rows: np.ndarray,
+    long_rows: np.ndarray,
+    *,
+    r: float,
+    z_median: float,
+    alpha: float,
+    beta: float,
+    floor: float,
+    clip_start: float,
+    clip_end: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """IVW merge for one row band; returns uint16 chunk and stat accumulators."""
+    a = short_rows.astype(np.float32)
+    b_raw = long_rows.astype(np.float32)
     xa = a
     xb = b_raw / r
 
@@ -228,7 +266,7 @@ def _merge_snr(
     va_lum = alpha * np.maximum(lum_xa, 0.0) + beta
     vb_lum = (alpha * np.maximum(lum_b_raw, 0.0) + beta) / (r * r)
     z = (lum_xa - lum_xb) / np.sqrt(np.maximum(va_lum + vb_lum, 1e-12))
-    z_local = z - float(np.median(z))
+    z_local = z - z_median
     c_res = _residual_confidence(z_local)
     gate = np.minimum(ca, cb).mean(axis=2)
     c_res_eff = 1.0 - gate * (1.0 - c_res)
@@ -244,12 +282,80 @@ def _merge_snr(
     out = np.where(both_zero, 0.0, out)
 
     both_zero_pix = np.all(both_zero, axis=2)
+    chunk = np.clip(out, 0, 65535).astype(np.uint16)
+    return chunk, wa, wb, both_zero_pix, c_res_eff
+
+
+def _merge_snr(
+    short_u: np.ndarray,
+    long_u: np.ndarray,
+    *,
+    usb_ratio: float,
+    alpha: float,
+    beta: float,
+    floor: float,
+    clip_start: float,
+    clip_end: float,
+) -> tuple[np.ndarray, FusionStats]:
+    """Clipping-aware inverse-variance fusion in short-exposure radiometric scale.
+
+    Processed in row bands so peak memory stays O(chunk) not O(full frame float32).
+    """
+    a_sub, b_sub = _subsample_for_stats(short_u, long_u)
+    r = max(
+        _estimate_exposure_ratio(
+            a_sub.astype(np.float32),
+            b_sub.astype(np.float32),
+            usb_ratio=usb_ratio,
+        ),
+        1e-12,
+    )
+    z_median = _estimate_z_median(
+        short_u,
+        long_u,
+        r=r,
+        alpha=alpha,
+        beta=beta,
+        floor=floor,
+        clip_start=clip_start,
+        clip_end=clip_end,
+    )
+
+    h = short_u.shape[0]
+    out = np.empty_like(short_u)
+    wa_sum = 0.0
+    wb_sum = 0.0
+    n_weights = 0
+    zero_count = 0
+    c_res_sum = 0.0
+    total_pixels = int(short_u.shape[0] * short_u.shape[1])
+
+    for y0 in range(0, h, _MERGE_CHUNK_ROWS):
+        y1 = min(h, y0 + _MERGE_CHUNK_ROWS)
+        chunk, wa, wb, both_zero_pix, c_res_eff = _merge_snr_rows(
+            short_u[y0:y1],
+            long_u[y0:y1],
+            r=r,
+            z_median=z_median,
+            alpha=alpha,
+            beta=beta,
+            floor=floor,
+            clip_start=clip_start,
+            clip_end=clip_end,
+        )
+        out[y0:y1] = chunk
+        wa_sum += float(wa.sum())
+        wb_sum += float(wb.sum())
+        n_weights += int(wa.size)
+        zero_count += int(np.count_nonzero(both_zero_pix))
+        c_res_sum += float(c_res_eff.sum())
+
     stats = FusionStats(
-        mean_short_weight=float(wa.mean()),
-        mean_long_weight=float(wb.mean()),
-        zero_weight_pixels=int(np.count_nonzero(both_zero_pix)),
-        total_pixels=int(both_zero_pix.size),
-        mean_residual_confidence=float(c_res_eff.mean()),
+        mean_short_weight=wa_sum / max(n_weights, 1),
+        mean_long_weight=wb_sum / max(n_weights, 1),
+        zero_weight_pixels=zero_count,
+        total_pixels=total_pixels,
+        mean_residual_confidence=c_res_sum / max(total_pixels, 1),
         exposure_ratio_used=float(r),
     )
-    return np.clip(out, 0, 65535), stats
+    return out, stats

@@ -21,10 +21,17 @@ Shift2D = tuple[float, float]
 
 
 def _luminance_plane(image: np.ndarray) -> np.ndarray:
-    arr = np.asarray(image, dtype=np.float32)
+    arr = np.asarray(image)
     if arr.ndim == 3:
-        return arr.mean(axis=2, dtype=np.float32)
-    return arr
+        h, w = arr.shape[:2]
+        # Downsample before float32 — full-frame luma OOMs at 3600+ dpi ME.
+        scale = max(1.0, w / _ALIGN_PROBE_WIDTH)
+        if scale > 1.0:
+            sy = max(1, int(round(h / scale)))
+            sx = max(1, int(round(w / scale)))
+            arr = arr[::sy, ::sx]
+        return arr.astype(np.float32).mean(axis=2)
+    return arr.astype(np.float32)
 
 
 def estimate_pass_shift(reference: np.ndarray, moving: np.ndarray) -> Shift2D:

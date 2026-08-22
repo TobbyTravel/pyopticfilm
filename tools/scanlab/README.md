@@ -90,7 +90,7 @@ full-TA high-PPI Scan safe.
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
 | **PPI** | Resolutions from the selected model’s `resolutions_dpi` (Scan only; Prescan uses a fixed low dpi). |
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
-| **Multi-exposure (ME)** | GL128 / 8200i SE: short+long colour passes; host SNR/IVW merge into ``rgb``. Raw planes kept on ``ScanImage``. |
+| **Multi-exposure (ME)** | GL128 / 8200i SE: short+long colour passes; host SNR/IVW merge into ``rgb``. Bracket planes on ``Scanner.last_me_debug`` (not ``ScanImage``). |
 | **Prescan** | Low-res preview (SE: 1200 dpi safe window; non-SE: lowest dpi + short Y strip). |
 | **Scan** | Colour scan at the chosen PPI; optional IR and/or ME. Uses the prescan crop when one is set (clamped on non-SE). |
 | **Open capture…** | Open a USBPcap ``.pcap`` / ``.pcapng``. Decodes the largest bulk IN through the selected model’s image pipeline and diffs FEEDL / LINCNT / DPISET vs Lab geometry (Capture tab). |
@@ -112,9 +112,10 @@ small to keep.
 ### Color short / Scan
 
 Colour result of the last Scan (short exposure when ME is enabled). ME short/long
-tabs show **linear** bracket planes (expected: long ≈ 3× brighter mean) — same for
-**Load 16-bit TIFF…** (no per-tab auto-level; Explorer brightness differences stay
-visible). Opens a saved short plane from disk (e.g. exported earlier or from NegPy).
+tabs read **linear** bracket planes from ``Scanner.last_me_debug`` after a live
+ME scan (expected: long ≈ 3× brighter mean) — same for **Load 16-bit TIFF…**
+(no per-tab auto-level; Explorer brightness differences stay visible). Opens a
+saved short plane from disk (e.g. exported earlier or from NegPy).
 
 ### Color long
 

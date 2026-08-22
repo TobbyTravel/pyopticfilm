@@ -173,6 +173,11 @@ def _u16_table_bytes(words: tuple[int, ...]) -> bytes:
     return bytes(out)
 
 
+#: Default adaptive quiet USB drain on GL128 image acquire (seconds per line cap).
+#: Set ``Gl128.image_usb_pace_s = 0`` for flat-out bulk drain (louder motor).
+DEFAULT_IMAGE_USB_PACE_S = 0.003
+
+
 class Gl128:
     """GL128 chip operations for the OpticFilm 8200i SE."""
 
@@ -218,7 +223,7 @@ class Gl128:
         #: Max adaptive throttle (seconds) per line when quiet USB drain is on.
         #: ``Gl128ScanSession._acquire`` applies it only after a fast read; ``0``
         #: drains flat-out (louder motor creep).
-        self.image_usb_pace_s: float = 0.003
+        self.image_usb_pace_s: float = DEFAULT_IMAGE_USB_PACE_S
 
     def _require_motor_enabled(self) -> None:
         if not self._motor_moves_enabled:

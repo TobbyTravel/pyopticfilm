@@ -91,6 +91,16 @@ def test_acquire_adaptive_throttle_capped_per_chunk():
     assert sleeps[0] <= IMAGE_USB_PACE_S * chunk_lines + 1e-9
 
 
+def test_gl128_default_adaptive_usb_drain():
+    from unittest.mock import MagicMock
+
+    from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S, Gl128
+
+    asic = Gl128(MagicMock(), MODEL_8200I_SE)
+    assert asic.image_usb_pace_s == DEFAULT_IMAGE_USB_PACE_S
+    assert DEFAULT_IMAGE_USB_PACE_S > 0.0
+
+
 def test_verify_geometry_usb_span_rejects_bad_line_bytes():
     geometry = _geometry(dpi=1800)
     session = Gl128ScanSession(MagicMock(), MODEL_8200I_SE)

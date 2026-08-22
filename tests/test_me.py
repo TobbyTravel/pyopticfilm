@@ -171,6 +171,20 @@ def test_merge_snr_differs_from_short_when_long_adds_signal():
     assert not np.allclose(result.rgb, short, atol=50)
 
 
+def test_merge_exposures_large_shape_chunked():
+    """Regression: 3600 dpi-class frames must not need full-frame float32 planes."""
+    h, w = 3603, 5184
+    short = np.full((h, w, 3), 8000, dtype=np.uint16)
+    long = np.full((h, w, 3), 24000, dtype=np.uint16)
+    result = merge_exposures_result(
+        short, long, exposure_short=14000, exposure_long=42000, align_shift=(0, 0)
+    )
+    assert result.rgb.shape == (h, w, 3)
+    assert result.rgb.dtype == np.uint16
+    assert result.fusion_stats is not None
+    assert abs(float(result.rgb.mean()) - 8000.0) < 50.0
+
+
 def test_merge_snr_reduces_noise_vs_short_only():
     """Synthetic PG noise: fused frame closer to truth than noisy short alone."""
     rng = np.random.default_rng(42)

@@ -20,6 +20,7 @@ import threading
 import time
 from collections.abc import Callable
 
+from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
 from pyopticfilm.asic.registers import Gl128Registers
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.device.protocol import AsicDriver, FilmModel
@@ -40,7 +41,8 @@ IMAGE_CHUNK_BYTES = BULK_MAX_SIZE
 #: Max adaptive throttle (seconds) per line when quiet USB drain is enabled.
 #: Not a fixed pre-chunk sleep — :meth:`Gl128ScanSession._acquire` only pauses
 #: after a fast drain if the host outran the expected line interval.
-IMAGE_USB_PACE_S = 0.003
+#: Matches :data:`pyopticfilm.asic.gl128.DEFAULT_IMAGE_USB_PACE_S` (on by default).
+IMAGE_USB_PACE_S = DEFAULT_IMAGE_USB_PACE_S
 
 #: Scale ASIC ``LPERIOD`` register to approximate output-line duration (seconds).
 _LINE_PERIOD_TO_SECONDS = 1.0 / 4_500_000.0
@@ -68,6 +70,8 @@ class Gl128ScanSession(ScanSession):
         self._bulk_stream_active = False
         #: Image ``REG_EXPOSURE`` for the current pass (``None`` → short / 14000).
         self._pass_exposure: int | None = None
+        #: Lab-only ME bracket / IVW stats (not on :class:`~pyopticfilm.image.ScanImage`).
+        self.last_me_debug = None
 
     def run(
         self,
@@ -275,6 +279,7 @@ class Gl128ScanSession(ScanSession):
         from pyopticfilm.pass_align import align_pass_to_reference
         from pyopticfilm.scan.exposure_merge import merge_exposures_result
         from pyopticfilm.scan.geometry import compute_geometry
+        from pyopticfilm.scan.me_debug import MeScanDebug
 
         if mode == "infrared":
             raise ValueError("Use mode='color' with infrared=True for colour+IR scans")
@@ -285,6 +290,8 @@ class Gl128ScanSession(ScanSession):
 
         if not self.asic._initialized:
             self.asic.init()
+
+        self.last_me_debug = None
 
         if geometry is None:
             geometry = compute_geometry(resolution, model=model, area=area)
@@ -385,12 +392,8 @@ class Gl128ScanSession(ScanSession):
             ir_plane, align_shift_ir = align_pass_to_reference(rgb_short, ir_plane)
 
         primary = rgb_short
-        merge_method: str | None = None
-        merge_fusion_mean_short_weight: float | None = None
-        merge_fusion_mean_long_weight: float | None = None
-        merge_fusion_zero_weight_fraction: float | None = None
+        fusion_stats = None
         if multi_exposure and rgb_long is not None:
-            merge_method = "snr"
             shift = align_shift_long if align_passes else (0.0, 0.0)
             alpha = float(getattr(model, "me_noise_alpha", 1.0))
             beta = float(getattr(model, "me_noise_beta", 4096.0))
@@ -404,12 +407,18 @@ class Gl128ScanSession(ScanSession):
                 beta=beta,
             )
             primary = merged.rgb
-            if merged.fusion_stats is not None:
-                merge_fusion_mean_short_weight = merged.fusion_stats.mean_short_weight
-                merge_fusion_mean_long_weight = merged.fusion_stats.mean_long_weight
-                merge_fusion_zero_weight_fraction = merged.fusion_stats.zero_weight_fraction
+            fusion_stats = merged.fusion_stats
+            self.last_me_debug = MeScanDebug(
+                rgb_short=rgb_short,
+                rgb_long=rgb_long,
+                exposure_short=exp_short,
+                exposure_long=exp_long,
+                fusion_stats=fusion_stats,
+                align_shift_long=align_shift_long,
+                align_shift_ir=align_shift_ir,
+            )
 
-        # Single film-base makeup on the deliverable only (not on rgb_short/long).
+        # Single film-base makeup on the deliverable only (not on bracket planes).
         # Headroom cap keeps IVW highlight recovery from being crushed to white.
         primary = self.pipeline.expose_film_base(
             primary, source="me deliverable", preserve_headroom=True
@@ -421,16 +430,6 @@ class Gl128ScanSession(ScanSession):
             dpi=geometry.resolution,
             device_model=f"{self.model.vendor} {self.model.model}",
             ir=ir_plane,
-            rgb_short=rgb_short,
-            rgb_long=rgb_long,
-            exposure_short=exp_short if multi_exposure else None,
-            exposure_long=exp_long if multi_exposure else None,
-            merge_method=merge_method,
-            merge_fusion_mean_short_weight=merge_fusion_mean_short_weight,
-            merge_fusion_mean_long_weight=merge_fusion_mean_long_weight,
-            merge_fusion_zero_weight_fraction=merge_fusion_zero_weight_fraction,
-            align_shift_long=align_shift_long,
-            align_shift_ir=align_shift_ir,
         )
 
     # --- acquire --------------------------------------------------------
@@ -519,7 +518,7 @@ class Gl128ScanSession(ScanSession):
         )
 
         buf = bytearray()
-        pace_cap = float(getattr(self.asic, "image_usb_pace_s", 0.0) or 0.0)
+        pace_cap = float(getattr(self.asic, "image_usb_pace_s", IMAGE_USB_PACE_S) or 0.0)
         line_interval = self._line_interval_s(geometry) if pace_cap > 0 else 0.0
         while len(buf) < total:
             if cancel is not None and cancel.is_set():

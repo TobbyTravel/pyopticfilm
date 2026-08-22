@@ -29,6 +29,7 @@ class ScanWorker(QObject):
     banner = pyqtSignal(str)
     prescan_ready = pyqtSignal(object)
     scan_ready = pyqtSignal(object)
+    me_debug_ready = pyqtSignal(object)
     failed = pyqtSignal(str)
     busy_changed = pyqtSignal(bool)
     calib_cleared = pyqtSignal(str)
@@ -174,6 +175,7 @@ class ScanWorker(QObject):
                     infrared=ir,
                     **scan_kw,
                 )
+                self.me_debug_ready.emit(getattr(scanner, "last_me_debug", None))
                 self.scan_ready.emit(image)
         except ScanCancelled:
             self.busy_changed.emit(False)
