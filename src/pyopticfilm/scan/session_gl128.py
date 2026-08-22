@@ -37,9 +37,13 @@ logger = get_logger(__name__)
 #: and (empirically) high-PPI creep is quieter than one giant unpaced preamble.
 IMAGE_CHUNK_BYTES = BULK_MAX_SIZE
 
-#: Default sleep between image bulk chunk announces. Softens high-PPI creep on
-#: SE (Scan Lab A/B); full-frame 3600 adds on the order of ~10 s of sleeps.
+#: Max adaptive throttle (seconds) per line when quiet USB drain is enabled.
+#: Not a fixed pre-chunk sleep — :meth:`Gl128ScanSession._acquire` only pauses
+#: after a fast drain if the host outran the expected line interval.
 IMAGE_USB_PACE_S = 0.003
+
+#: Scale ASIC ``LPERIOD`` register to approximate output-line duration (seconds).
+_LINE_PERIOD_TO_SECONDS = 1.0 / 4_500_000.0
 
 try:
     from pyopticfilm.asic.gl128 import MOTOR_GATED_HINT as _MOTOR_GATED_HINT
@@ -164,6 +168,7 @@ class Gl128ScanSession(ScanSession):
         self._set16(cache, r.REG_DPISET, dpiset)
         self._set24(cache, r.REG_STRPIXEL, geometry.pixel_startx)
         self._set24(cache, r.REG_ENDPIXEL, geometry.pixel_endx)
+        self._verify_geometry_usb_span(geometry)
         if self._pass_exposure is not None:
             exposure_reg = int(self._pass_exposure)
         else:
@@ -457,6 +462,42 @@ class Gl128ScanSession(ScanSession):
             time.sleep(0.02)
         raise ScanError(f"No scan data within {DATA_TIMEOUT_S:.0f}s")
 
+    def _verify_geometry_usb_span(self, geometry: ScanGeometry) -> None:
+        """Fail loud when STR/END span disagrees with USB line width (diamond shear)."""
+        span = int(geometry.pixel_endx) - int(geometry.pixel_startx)
+        if span != int(geometry.optical_pixels):
+            raise ScanError(
+                f"STR/END span {span} != optical_pixels {geometry.optical_pixels} "
+                f"at {geometry.resolution} dpi"
+            )
+        sample_bytes = 2 if geometry.depth == 16 else 1
+        expected_line = geometry.pixels * geometry.channels * sample_bytes
+        if geometry.line_bytes != expected_line:
+            raise ScanError(
+                f"USB line_bytes {geometry.line_bytes} != pixels×channels×sample "
+                f"({expected_line}) at {geometry.resolution} dpi"
+            )
+
+    def _line_interval_s(self, geometry: ScanGeometry) -> float:
+        lperiod = float(self.model.line_period_for(geometry.resolution))
+        return lperiod * _LINE_PERIOD_TO_SECONDS
+
+    @staticmethod
+    def _chunk_bytes(geometry: ScanGeometry, remaining: int) -> int:
+        raw_line = getattr(geometry, "line_bytes", 0)
+        try:
+            line = max(1, int(raw_line))
+        except (TypeError, ValueError):
+            line = IMAGE_CHUNK_BYTES
+        if remaining <= line:
+            return remaining
+        if line > IMAGE_CHUNK_BYTES:
+            return min(line, remaining)
+        full_lines = min(remaining // line, IMAGE_CHUNK_BYTES // line)
+        if full_lines >= 1:
+            return full_lines * line
+        return min(line, remaining)
+
     def _acquire(
         self,
         geometry: ScanGeometry,
@@ -478,16 +519,14 @@ class Gl128ScanSession(ScanSession):
         )
 
         buf = bytearray()
+        pace_cap = float(getattr(self.asic, "image_usb_pace_s", 0.0) or 0.0)
+        line_interval = self._line_interval_s(geometry) if pace_cap > 0 else 0.0
         while len(buf) < total:
             if cancel is not None and cancel.is_set():
                 raise ScanCancelled("cancelled during bulk read")
-            if buf and (pace := float(getattr(self.asic, "image_usb_pace_s", 0.0) or 0.0)) > 0:
-                # Let the ASIC buffer refill so buffer-full can gate the creep.
-                time.sleep(pace)
-            # Announce only this USB-sized block and fully drain it before the
-            # next cancel check — a single full-image preamble made high-PPI
-            # creep louder on real SE hardware (2026-08).
-            want = min(IMAGE_CHUNK_BYTES, total - len(buf))
+            remaining = total - len(buf)
+            want = self._chunk_bytes(geometry, remaining)
+            t0 = time.monotonic()
             proto.bulk_read_begin(want, index=index)
             self._bulk_stream_active = True
             try:
@@ -501,6 +540,17 @@ class Gl128ScanSession(ScanSession):
             buf.extend(chunk)
             if progress is not None:
                 progress(min(1.0, len(buf) / total))
+            if pace_cap > 0 and line_interval > 0:
+                try:
+                    line_bytes = max(1, int(geometry.line_bytes))
+                except (TypeError, ValueError):
+                    line_bytes = IMAGE_CHUNK_BYTES
+                lines = max(1.0, len(chunk) / line_bytes)
+                expected = line_interval * lines
+                elapsed = time.monotonic() - t0
+                throttle = min(pace_cap * lines, max(0.0, expected - elapsed))
+                if throttle > 0:
+                    time.sleep(throttle)
 
         if progress is not None:
             progress(1.0)

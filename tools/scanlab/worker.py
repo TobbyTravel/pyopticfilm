@@ -31,6 +31,7 @@ class ScanWorker(QObject):
     scan_ready = pyqtSignal(object)
     failed = pyqtSignal(str)
     busy_changed = pyqtSignal(bool)
+    calib_cleared = pyqtSignal(str)
     #: target, apply_calib
     request_prescan = pyqtSignal(object, bool)
     #: target, dpi, ir_pass, me_pass, crop_norm, apply_calib
@@ -77,6 +78,24 @@ class ScanWorker(QObject):
             self._scanner = scanner
         self.banner.emit(device_banner(target))
         return scanner
+
+    def clear_calib_cache(self) -> None:
+        """Drop on-disk calib entries and close the scanner session."""
+        with self._lock:
+            scanner = self._scanner
+        if scanner is None:
+            self.calib_cleared.emit("")
+            return
+        calibrator = getattr(scanner, "_calibrator", None)
+        path = ""
+        if calibrator is not None:
+            path = str(getattr(calibrator, "cache_path", None) or "")
+            calibrator.clear()
+        asic = getattr(scanner, "_asic", None)
+        if asic is not None:
+            asic.asic_shading_ready = False
+        self.close_scanner()
+        self.calib_cleared.emit(path)
 
     def cancel(self) -> None:
         self._cancel.set()

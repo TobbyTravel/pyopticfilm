@@ -215,8 +215,9 @@ class Gl128:
         self.last_color_shading_host_ok: bool = False
         #: Lab acoustic A/B: use ``SLOPE_TABLE_SLOW`` for non-shading table uploads.
         self.image_slope_slow: bool = False
-        #: Seconds to sleep between image bulk chunk announces. Softens high-PPI
-        #: helicopter creep (Scan Lab confirmed); set ``0`` to drain flat-out.
+        #: Max adaptive throttle (seconds) per line when quiet USB drain is on.
+        #: ``Gl128ScanSession._acquire`` applies it only after a fast read; ``0``
+        #: drains flat-out (louder motor creep).
         self.image_usb_pace_s: float = 0.003
 
     def _require_motor_enabled(self) -> None:

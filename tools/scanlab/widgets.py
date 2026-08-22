@@ -73,10 +73,11 @@ def gray16_to_qimage(gray: np.ndarray) -> QImage:
 
 
 class CropImageView(QWidget):
-    """Scales a scan preview and lets the user drag a crop rectangle (0..1)."""
+    """Scales a scan preview and optionally lets the user drag a crop rectangle (0..1)."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, allow_crop: bool = True) -> None:
         super().__init__(parent)
+        self._allow_crop = allow_crop
         self._label = QLabel(self)
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -154,6 +155,8 @@ class CropImageView(QWidget):
         self._refresh()
 
     def eventFilter(self, watched, event) -> bool:
+        if not self._allow_crop:
+            return super().eventFilter(watched, event)
         if watched is not self._label or self._pixmap.isNull():
             return super().eventFilter(watched, event)
         if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
@@ -220,19 +223,20 @@ class CropImageView(QWidget):
         canvas.fill(QColor("#1a1a1a"))
         painter = QPainter(canvas)
         painter.drawPixmap(ir.topLeft(), scaled)
-        crop_rect = self._drag_rect
-        if crop_rect is None and self._crop is not None:
-            x1, y1, x2, y2 = self._crop
-            crop_rect = QRect(
-                ir.left() + int(x1 * ir.width()),
-                ir.top() + int(y1 * ir.height()),
-                max(1, int((x2 - x1) * ir.width())),
-                max(1, int((y2 - y1) * ir.height())),
-            )
-        if crop_rect is not None:
-            painter.setPen(QPen(QColor("#4fc3f7"), 2))
-            painter.setBrush(QColor(79, 195, 247, 40))
-            painter.drawRect(crop_rect.intersected(ir))
+        if self._allow_crop:
+            crop_rect = self._drag_rect
+            if crop_rect is None and self._crop is not None:
+                x1, y1, x2, y2 = self._crop
+                crop_rect = QRect(
+                    ir.left() + int(x1 * ir.width()),
+                    ir.top() + int(y1 * ir.height()),
+                    max(1, int((x2 - x1) * ir.width())),
+                    max(1, int((y2 - y1) * ir.height())),
+                )
+            if crop_rect is not None:
+                painter.setPen(QPen(QColor("#4fc3f7"), 2))
+                painter.setBrush(QColor(79, 195, 247, 40))
+                painter.drawRect(crop_rect.intersected(ir))
         painter.end()
         self._label.setPixmap(canvas)
 
@@ -247,13 +251,14 @@ class ImageTabPage(QWidget):
         *,
         default_stem: str = "scan",
         allow_load: bool = False,
+        allow_crop: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._default_stem = default_stem
         self._dpi: int | None = None
         self._is_gray = False
-        self._view = CropImageView(self)
+        self._view = CropImageView(self, allow_crop=allow_crop)
         self._caption = QLabel("")
         self._caption.setWordWrap(True)
         self._caption.setStyleSheet("color: #aaa; padding: 2px 6px;")

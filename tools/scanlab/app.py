@@ -28,6 +28,8 @@ from pyopticfilm.image import ScanImage
 from tools.scanlab.backend import (
     LabTarget,
     device_banner,
+    format_crop_status,
+    lab_crop_scan_meta,
     lab_scan_needs_motor_warning,
     list_lab_targets,
     nonse_safe_y_fraction,
@@ -60,6 +62,7 @@ class ScanLabWindow(QMainWindow):
         self._capture: CaptureAnalysis | None = None
         self._last_scan: ScanImage | None = None
         self._last_prescan_dpi: int | None = None
+        self._pending_crop_meta: dict | None = None
         self._thread = QThread(self)
         self._worker = ScanWorker()
         self._worker.moveToThread(self._thread)
@@ -88,20 +91,28 @@ class ScanLabWindow(QMainWindow):
         form.addWidget(self.override_hw_gate)
 
         self.apply_calib = QCheckBox("Apply calib")
-        self.apply_calib.setChecked(False)
+        self.apply_calib.setChecked(True)
+        self.apply_calib.setToolTip(
+            "ASIC shading before colour scans. First prescan/scan at each PPI "
+            "measures once; results are cached in ~/.cache/pyopticfilm/calib_v2.json."
+        )
         form.addWidget(self.apply_calib)
+
+        self.btn_clear_calib = QPushButton("Clear calib cache")
+        self.btn_clear_calib.clicked.connect(self._on_clear_calib_cache)
+        form.addWidget(self.btn_clear_calib)
 
         self.usb_planar = QCheckBox("USB planar RGB")
         self.usb_planar.setChecked(False)
         self.usb_planar.toggled.connect(self._on_usb_planar)
         form.addWidget(self.usb_planar)
 
-        self.quiet_usb_pace = QCheckBox("Quiet USB pace (~3 ms/chunk)")
+        self.quiet_usb_pace = QCheckBox("Adaptive quiet drain")
         self.quiet_usb_pace.setChecked(True)
         self.quiet_usb_pace.setToolTip(
-            "Sleep between image bulk announces so the ASIC buffer can refill "
-            "(motor buffer-full gate). Default on — quieter high-PPI creep; "
-            "adds ~3 ms per 60 KiB chunk."
+            "Rate-limit host bulk reads to the ASIC line rate (no fixed pause "
+            "before each chunk). Keeps motor creep continuous at 7200 dpi; "
+            "uncheck for fastest drain (louder)."
         )
         form.addWidget(self.quiet_usb_pace)
 
@@ -150,7 +161,7 @@ class ScanLabWindow(QMainWindow):
         form.addStretch(1)
 
         tabs = QTabWidget()
-        self.prescan_view = ImageTabPage(default_stem="prescan")
+        self.prescan_view = ImageTabPage(default_stem="prescan", allow_crop=True)
         self.scan_view = ImageTabPage(default_stem="color_short", allow_load=True)
         self.me_long_view = ImageTabPage(default_stem="color_long", allow_load=True)
         self.merged_view = ImageTabPage(default_stem="merged")
@@ -218,6 +229,7 @@ class ScanLabWindow(QMainWindow):
         self._worker.scan_ready.connect(self._on_scan_ready)
         self._worker.failed.connect(self._on_failed)
         self._worker.busy_changed.connect(self._on_busy)
+        self._worker.calib_cleared.connect(self._on_calib_cleared)
 
         self.scan_view.load_clicked.connect(lambda: self._load_me_plane("short"))
         self.me_long_view.load_clicked.connect(lambda: self._load_me_plane("long"))
@@ -727,11 +739,31 @@ class ScanLabWindow(QMainWindow):
             slow_image_slope=self.slow_image_slope.isChecked(),
         )
 
+    def _clear_scan_tabs(self) -> None:
+        """Drop prior prescan/scan results so a new Prescan starts a fresh session."""
+        self._last_scan = None
+        self._last_prescan_dpi = None
+        self.prescan_view.set_rgb(None)
+        self.prescan_view.clear_crop()
+        self.prescan_view.set_caption("")
+        self.scan_view.set_rgb(None)
+        self.scan_view.set_caption("")
+        self.me_long_view.set_rgb(None)
+        self.me_long_view.set_caption("")
+        self.merged_view.set_rgb(None)
+        self.merged_view.set_caption("")
+        self.ir_view.set_rgb(None)
+        self.ir_view.set_caption("")
+        self._update_me_tabs_visible()
+        self.tabs.setCurrentWidget(self.prescan_view)
+
     def _on_prescan(self) -> None:
         target = self._resolved_target()
         if target is None:
             return
         self._clear_usb_log()
+        self._clear_scan_tabs()
+        self.statusBar().showMessage("Prescanning…")
         self._worker.request_prescan.emit(target, self.apply_calib.isChecked())
 
     def _on_scan(self) -> None:
@@ -760,6 +792,11 @@ class ScanLabWindow(QMainWindow):
             )
             if reply != QMessageBox.StandardButton.Ok:
                 return
+        self._pending_crop_meta = None
+        if crop is not None:
+            self._pending_crop_meta = lab_crop_scan_meta(
+                target.model, dpi=dpi, crop_norm=crop
+            )
         self._worker.request_scan.emit(
             target,
             dpi,
@@ -853,7 +890,29 @@ class ScanLabWindow(QMainWindow):
             msg += self._fusion_stats_message(image)
         if image.ir is not None:
             msg += f"; IR {image.ir.shape[1]}×{image.ir.shape[0]}"
+        crop_note = format_crop_status(self._pending_crop_meta)
+        if crop_note:
+            msg += f"; {crop_note}"
         self.statusBar().showMessage(msg)
+
+    def _on_clear_calib_cache(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Clear calib cache",
+            "Delete all cached ASIC shading entries on disk?\n\n"
+            "The next prescan or scan will re-measure shading at home.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._worker.clear_calib_cache()
+
+    def _on_calib_cleared(self, path: str) -> None:
+        if path:
+            self.statusBar().showMessage(f"Cleared calibration cache ({path})")
+        else:
+            self.statusBar().showMessage("No open scanner — calib cache unchanged")
 
     def _on_failed(self, message: str) -> None:
         self.statusBar().showMessage(message)
@@ -879,6 +938,7 @@ class ScanLabWindow(QMainWindow):
         self.run_mock.setEnabled(not busy)
         self.override_hw_gate.setEnabled(not busy)
         self.apply_calib.setEnabled(not busy)
+        self.btn_clear_calib.setEnabled(not busy)
         self.usb_planar.setEnabled(not busy)
         self.quiet_usb_pace.setEnabled(not busy)
         self.slow_image_slope.setEnabled(not busy)

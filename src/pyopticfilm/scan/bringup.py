@@ -238,6 +238,35 @@ def default_frame_crop_norm(model: Any) -> Area:
     return clamp_area(area)
 
 
+def effective_scan_area(
+    model: Any,
+    geometry: ScanGeometry,
+    requested: Area,
+) -> Area:
+    """Normalized TA rect actually covered by ``geometry`` (after span snap / LINCNT clamp)."""
+    x1, y1, _x2, _y2 = clamp_area(requested)
+    x_size = float(model.x_size_ta_mm)
+    y_size = float(model.y_size_ta_mm)
+    width_mm = geometry.pixels * MM_PER_INCH / max(1, geometry.asic_dpi)
+    eff_x2 = min(1.0, max(x1 + 1e-6, x1 + width_mm / x_size))
+    eff_y2 = min(1.0, max(y1 + 1e-6, y1 + geometry.travel_mm / y_size))
+    return clamp_area((x1, y1, eff_x2, eff_y2))
+
+
+def crop_adjustment_message(requested: Area, effective: Area) -> str | None:
+    """Human-readable note when optical alignment narrowed the crop."""
+    req = clamp_area(requested)
+    eff = clamp_area(effective)
+    parts: list[str] = []
+    if abs(req[2] - eff[2]) > 1e-4:
+        parts.append(f"x2 {req[2]:.3f}→{eff[2]:.3f}")
+    if abs(req[3] - eff[3]) > 1e-4:
+        parts.append(f"y2 {req[3]:.3f}→{eff[3]:.3f}")
+    if not parts:
+        return None
+    return "Crop adjusted (" + ", ".join(parts) + ")"
+
+
 def crop_scan_geometry(
     model: Any,
     dpi: int,
@@ -249,16 +278,19 @@ def crop_scan_geometry(
     the scan-window end. Optical span alignment stays in ``compute_geometry``.
     """
     area = clamp_area(area)
+    requested_area = area
     feed2 = _feed2_for(model, area[1])
     max_fn = getattr(model, "max_lincnt_for", None)
     max_lincnt = int(max_fn(feed2, dpi)) if callable(max_fn) else 0
 
     geometry = compute_geometry(dpi, model=model, area=area)
-    target = int(geometry.lincnt_register)
+    target_before_clamp = int(geometry.lincnt_register)
+    target = target_before_clamp
     if max_lincnt > 0 and target > max_lincnt:
         geometry = apply_target_lincnt(geometry, max_lincnt)
         target = max_lincnt
 
+    effective_area = effective_scan_area(model, geometry, requested_area)
     travel_mm = _travel_mm(model, target, dpi)
     meta = {
         "profile": "crop",
@@ -272,6 +304,9 @@ def crop_scan_geometry(
         "geometry_lincnt": geometry.lincnt_register,
         "optical_line_count": geometry.optical_line_count,
         "area": geometry.area if geometry.area is not None else area,
+        "requested_area": requested_area,
+        "effective_area": effective_area,
+        "lincnt_clamped": target < target_before_clamp,
         "pixels": geometry.pixels,
     }
     return geometry, meta

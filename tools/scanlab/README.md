@@ -65,7 +65,7 @@ Lesson from early 8100 HW: override unlocks the gate; it does **not** make
 full-TA high-PPI Scan safe.
 
 1. Uncheck **Run against MOCK**, check **Override safety HW gate** (accept warning).
-2. Leave **Apply calib** unchecked until a short image looks sane (avoids extra motor moves).
+2. Leave **Apply calib** on (default). Use **Clear calib cache** if you change film or lamp.
 3. **Prescan** (uses the model’s lowest PPI, e.g. 600 on 8100) — Lab clamps to a
    short Y strip, not full TA.
 4. If the image is rainbow-striped with a recognizable scene, toggle **USB planar RGB**
@@ -82,9 +82,10 @@ full-TA high-PPI Scan safe.
 | **Device** | Connected Plustek scanners first, then every known model. |
 | **Run against MOCK** | On (default): fake USB. Off: open the selected connected device. |
 | **Override safety HW gate** | Off (default). On: after a warning, unlock scan/home/park on real USB for models with `scan_ready=False`. Does not flip `scan_ready`. |
-| **Apply calib** | Off (default). Host/ASIC shading before the image. Forced off when enabling HW override. |
+| **Apply calib** | **On** (default). ASIC shading before colour prescan/scan; first run at each PPI/geometry measures once, then reuses `~/.cache/pyopticfilm/calib_v2.json`. Forced off when **Override safety HW gate** is on. |
+| **Clear calib cache** | Deletes cached shading entries; next scan re-measures at home. |
 | **USB planar RGB** | Off = chunky `RGBRGB…` (default). On = planar planes — try this if Prescan is rainbow-striped. |
-| **Quiet USB pace** | **On** (default). ~3 ms sleep between image bulk chunks — quieter high-PPI creep (confirmed on SE). Uncheck to drain flat-out. |
+| **Adaptive quiet drain** | On (default). Rate-limits host bulk reads to the ASIC line rate so motor creep stays continuous at 7200 dpi. Uncheck for fastest drain (louder). |
 | **Slow image slope** | Off (default). On: shading/slow motor ramp on the image pass (feeds stay fast). |
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
 | **PPI** | Resolutions from the selected model’s `resolutions_dpi` (Scan only; Prescan uses a fixed low dpi). |
@@ -103,7 +104,8 @@ and USB RGB layout when relevant).
 ### Prescan
 
 Full-window preview. Drag with the left mouse button to set a normalized crop.
-Scan uses that crop (mirrored on SE so image-left matches film/TA space).
+Scan uses that crop in the same image coordinates as the prescan preview
+(orientation corrected in ``ImagePipeline.assemble()``).
 Clear the crop by changing device, or by starting a new rubber-band that is too
 small to keep.
 
@@ -174,13 +176,10 @@ Progress for the active pass is shown in the status bar.
   overrun the motor window.
 - Rubber-band crops are clamped so image `LINCNT` cannot past the scan-window
   end (see `captures/8200i-se/MOTOR.md` in the repo if present).
-- High PPI (≥2400) and ME long passes use a slower line-synced creep; a soft
-  “helicopter” whine like SilverFast is normal. Lab uses USB-sized bulk announces
-  plus **Quiet USB pace** by default (~3 ms between chunks) — that was confirmed
-  quieter on SE than unpaced drain (a single full-image preamble was louder still).
-  Uncheck **Quiet USB pace** to A/B. **Slow image slope** remains an optional
-  acoustic probe (feeds stay fast). SF’s 3600 stream is continuous bulk with
-  almost no mid-scan control; the Lab/SF gap looks like host drain timing.
+- High PPI (≥2400) uses line-aligned bulk drain; **Adaptive quiet drain** keeps
+  motor creep continuous at 7200 (no fixed pause before each USB chunk).
+  Uncheck for fastest/loudest drain. **Slow image slope** is an optional acoustic
+  probe (feeds stay fast).
 
 ### Unvalidated non-SE (8100 / GL845 aliases, …)
 
@@ -190,7 +189,7 @@ Progress for the active pass is shown in the status bar.
 - High-PPI Scan (≥2400) with override on prompts a warning before the clamped move.
 - Prefer **Apply calib** off and **USB planar RGB** experiments before long travels.
 
-Calibration is controlled by the **Apply calib** checkbox (default off).
+Calibration is controlled by **Apply calib** (default on) and **Clear calib cache**.
 
 ## Motor grind recovery
 

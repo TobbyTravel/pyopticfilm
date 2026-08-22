@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.scan.bringup import (
     bringup_scan_geometry,
@@ -63,3 +65,36 @@ def test_crop_scan_geometry_clamps_lincnt():
     assert geometry.pixels % 2 == 0
     assert geometry.lincnt_register <= int(meta["max_lincnt"])
     assert geometry.lincnt_register == int(meta["target_lincnt"])
+    assert "effective_area" in meta
+    assert "requested_area" in meta
+
+
+def test_crop_widths_at_2400_are_even():
+    for i in range(40):
+        x1 = (i % 20) / 100
+        x2 = min(1.0, x1 + 0.25 + (i % 10) / 100)
+        g = compute_geometry(2400, model=MODEL_8200I_SE, area=(x1, 0.1, x2, 0.75))
+        assert g.pixels % 2 == 0, g.pixels
+        assert g.pixel_endx - g.pixel_startx == g.optical_pixels
+        assert g.optical_pixels % 4 == 0
+
+
+def test_crop_widths_at_3600_are_even():
+    for i in range(40):
+        x1 = (i % 20) / 100
+        x2 = min(1.0, x1 + 0.25 + (i % 10) / 100)
+        g = compute_geometry(3600, model=MODEL_8200I_SE, area=(x1, 0.1, x2, 0.75))
+        assert g.pixels % 2 == 0, g.pixels
+        assert g.pixel_endx - g.pixel_startx == g.optical_pixels
+
+
+def test_effective_scan_area_narrows_x_when_aligned():
+    from pyopticfilm.scan.bringup import effective_scan_area
+
+    requested = (0.1, 0.2, 0.9, 0.8)
+    geometry = compute_geometry(2400, model=MODEL_8200I_SE, area=requested)
+    effective = effective_scan_area(MODEL_8200I_SE, geometry, requested)
+    assert effective[0] == pytest.approx(0.1)
+    assert effective[1] == pytest.approx(0.2)
+    assert effective[2] <= requested[2] + 1e-9
+    assert effective[3] <= requested[3] + 1e-9
