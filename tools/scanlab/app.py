@@ -127,17 +127,7 @@ class ScanLabWindow(QMainWindow):
         self.me_pass = QCheckBox("Multi-exposure (ME)")
         form.addWidget(self.me_pass)
 
-        form.addWidget(QLabel("ME merge"))
-        self.me_merge = QComboBox()
-        self.me_merge.addItem("None (raw planes)", "none")
-        self.me_merge.addItem("Linear", "linear")
-        self.me_merge.addItem("Fusion", "fusion")
-        self.me_merge.addItem("SNR / IVW", "snr")
-        self.me_merge.setEnabled(False)
-        form.addWidget(self.me_merge)
-
         self.me_pass.toggled.connect(self._on_me_pass_toggled)
-        self.me_merge.currentIndexChanged.connect(self._on_me_merge_changed)
 
         self.banner = QLabel()
         self.banner.setWordWrap(True)
@@ -274,7 +264,6 @@ class ScanLabWindow(QMainWindow):
             self.ir_pass.setChecked(False)
         is_gl128 = getattr(target.model, "asic", "") == "GL128"
         self.me_pass.setEnabled(is_gl128)
-        self._update_me_merge_enabled()
         if not is_gl128:
             self.me_pass.setChecked(False)
         self._update_me_tabs_visible()
@@ -287,66 +276,69 @@ class ScanLabWindow(QMainWindow):
         if self._capture is not None:
             self._decode_loaded_capture()
 
-    def _on_me_merge_changed(self, _index: int) -> None:
-        self._update_me_tabs_visible()
-        self._refresh_merged_preview()
-
     def _refresh_merged_preview(self) -> None:
         image = self._last_scan
         if image is None or image.rgb_short is None or image.rgb_long is None:
             self.merged_view.set_caption("")
             return
-        mode = self._me_merge_mode()
-        if mode == "none":
-            self.merged_view.set_rgb(None)
-            self.merged_view.set_caption("")
-            return
         try:
+            from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
             from pyopticfilm.scan.exposure_merge import merge_exposures_result
+            from pyopticfilm.scan.pipeline import ImagePipeline
 
-            short = image.rgb_short
             result = merge_exposures_result(
-                short,
+                image.rgb_short,
                 image.rgb_long,
-                method=mode,  # type: ignore[arg-type]
                 exposure_short=image.exposure_short or 14000,
                 exposure_long=image.exposure_long or 42000,
                 align_shift=image.align_shift_long,
             )
-            self.merged_view.set_rgb(result.rgb, dpi=image.dpi, auto_level=True)
+            # Same deliverable path as a live ME scan: short-scale IVW then makeup.
+            # Without makeup, Merged matches Color short brightness (by design of
+            # short-scale fusion) and looks "unused."
+            pipe = ImagePipeline(MODEL_8200I_SE)
+            rgb = pipe.expose_film_base(
+                result.rgb, source="me preview", preserve_headroom=True
+            )
+            rgb = pipe.clamp_border_highlights(rgb)
+            self.merged_view.set_rgb(rgb, dpi=image.dpi, auto_level=False)
             if result.fusion_stats is not None:
-                self.merged_view.set_caption(
-                    self._format_fusion_caption(result.fusion_stats, method=mode)
-                )
+                self.merged_view.set_caption(self._format_fusion_caption(result.fusion_stats))
             else:
-                self.merged_view.set_caption(f"Merge: {mode}")
+                self.merged_view.set_caption("Merge: SNR / IVW (short scale + makeup)")
         except Exception:  # noqa: BLE001
             self.merged_view.set_rgb(None)
             self.merged_view.set_caption("")
 
     @staticmethod
-    def _format_fusion_caption(stats, *, method: str = "fusion") -> str:
-        label = "SNR / IVW" if method == "snr" else "Fusion"
+    def _format_fusion_caption(stats) -> str:
+        # Absolute IVW weights are tiny (÷ variance); ratio matters.
+        ws = float(stats.mean_short_weight)
+        wl = float(stats.mean_long_weight)
+        ratio_w = wl / max(ws, 1e-30)
         msg = (
-            f"{label} weights — short {stats.mean_short_weight:.4g}, "
-            f"long {stats.mean_long_weight:.4g}"
+            f"SNR / IVW — short-scale output; "
+            f"w_long/w_short={ratio_w:.2f} "
+            f"(short {ws:.4g}, long {wl:.4g})"
         )
         if stats.zero_weight_fraction > 0:
             msg += f"; {stats.zero_weight_fraction:.2%} both-zero (black)"
         mean_res = getattr(stats, "mean_residual_confidence", None)
-        if mean_res is not None and method == "snr":
+        if mean_res is not None:
             msg += f"; residual conf {mean_res:.2f}"
         ratio = getattr(stats, "exposure_ratio_used", None)
-        if ratio is not None and method == "snr":
+        if ratio is not None:
             msg += f"; r={ratio:.3f}"
         return msg
 
     def _format_fusion_caption_from_image(self, image: ScanImage) -> str:
-        method = image.merge_method or "fusion"
-        label = "SNR / IVW" if method == "snr" else "Fusion"
+        ws = float(image.merge_fusion_mean_short_weight or 0.0)
+        wl = float(image.merge_fusion_mean_long_weight or 0.0)
+        ratio_w = wl / max(ws, 1e-30)
         msg = (
-            f"{label} weights — short {image.merge_fusion_mean_short_weight:.4g}, "
-            f"long {image.merge_fusion_mean_long_weight:.4g}"
+            f"SNR / IVW — short-scale + makeup; "
+            f"w_long/w_short={ratio_w:.2f} "
+            f"(short {ws:.4g}, long {wl:.4g})"
         )
         zf = image.merge_fusion_zero_weight_fraction or 0.0
         if zf > 0:
@@ -354,13 +346,12 @@ class ScanLabWindow(QMainWindow):
         return msg
 
     def _fusion_stats_message(self, image: ScanImage) -> str:
-        if image.merge_method not in ("fusion", "snr"):
+        if image.merge_method != "snr":
             return ""
         if image.merge_fusion_mean_short_weight is None:
             return ""
-        label = "snr" if image.merge_method == "snr" else "fusion"
         msg = (
-            f"; {label} w_short={image.merge_fusion_mean_short_weight:.4g} "
+            f"; SNR/IVW w_short={image.merge_fusion_mean_short_weight:.4g} "
             f"w_long={image.merge_fusion_mean_long_weight:.4g}"
         )
         zf = image.merge_fusion_zero_weight_fraction
@@ -369,7 +360,6 @@ class ScanLabWindow(QMainWindow):
         return msg
 
     def _on_me_pass_toggled(self, checked: bool) -> None:
-        self._update_me_merge_enabled()
         self._update_me_tabs_visible()
 
     def _default_dpi(self) -> int:
@@ -394,10 +384,6 @@ class ScanLabWindow(QMainWindow):
             and scan.rgb_short is not None
             and scan.rgb_long is not None
         )
-
-    def _update_me_merge_enabled(self) -> None:
-        busy = self.btn_cancel.isEnabled()
-        self.me_merge.setEnabled(not busy)
 
     def _load_me_plane(self, which: str) -> None:
         from pyopticfilm.exceptions import PlustekError
@@ -432,7 +418,9 @@ class ScanLabWindow(QMainWindow):
                 )
                 return
             short = rgb
-            self.scan_view.set_rgb(short, dpi=dpi, auto_level=True)
+            # Linear 8-bit preview (same as live ME short/long) so exposure
+            # ratios stay visible — auto_level would stretch each plane alone.
+            self.scan_view.set_rgb(short, dpi=dpi, auto_level=False)
         else:
             if short is not None and short.shape != rgb.shape:
                 QMessageBox.warning(
@@ -442,7 +430,7 @@ class ScanLabWindow(QMainWindow):
                 )
                 return
             long = rgb
-            self.me_long_view.set_rgb(long, dpi=dpi, auto_level=True)
+            self.me_long_view.set_rgb(long, dpi=dpi, auto_level=False)
 
         if short is None and long is None:
             return
@@ -458,40 +446,27 @@ class ScanLabWindow(QMainWindow):
             align_shift_long=None,
         )
         self._update_me_tabs_visible()
-        self._update_me_merge_enabled()
         if self._me_planes_ready():
             self._refresh_merged_preview()
-            if self._me_merge_mode() != "none":
-                self.tabs.setCurrentWidget(self.merged_view)
+            self.tabs.setCurrentWidget(self.merged_view)
+        # Status mean is on the raw uint16 (not the 8-bit preview).
+        mean_y = float(rgb.astype("float64").mean() / 65535.0)
         self.statusBar().showMessage(
-            f"Loaded {Path(path).name} — {rgb.shape[1]}×{rgb.shape[0]} @ {dpi} dpi"
+            f"Loaded {Path(path).name} — {rgb.shape[1]}×{rgb.shape[0]} @ {dpi} dpi "
+            f"(mean Y={mean_y:.3f}, linear preview)"
         )
-
-    def _me_merge_mode(self) -> str:
-        idx = self.me_merge.currentIndex()
-        if idx < 0:
-            return "none"
-        data = self.me_merge.itemData(idx)
-        return str(data if data is not None else "none")
 
     def _update_me_tabs_visible(self) -> None:
         has_me_result = (
             self._last_scan is not None and self._last_scan.rgb_long is not None
         )
-        has_merged_result = (
-            self._last_scan is not None
-            and self._last_scan.merge_method not in (None, "none")
-        )
         me = (self.me_pass.isEnabled() and self.me_pass.isChecked()) or has_me_result
-        merge_mode = self._me_merge_mode()
-        want_merge = merge_mode != "none"
-        merge = (me and want_merge) or has_merged_result
         idx_long = self.tabs.indexOf(self.me_long_view)
         idx_merged = self.tabs.indexOf(self.merged_view)
         if idx_long >= 0:
             self.tabs.setTabVisible(idx_long, me)
         if idx_merged >= 0:
-            self.tabs.setTabVisible(idx_merged, merge)
+            self.tabs.setTabVisible(idx_merged, me)
         scan_label = "Color short" if me else "Scan"
         idx_scan = self.tabs.indexOf(self.scan_view)
         if idx_scan >= 0:
@@ -618,15 +593,22 @@ class ScanLabWindow(QMainWindow):
 
                     short_rgb, geo = decoded.color
                     long_rgb, _ = decoded.color_me
-                    merged = merge_exposures_result(short_rgb, long_rgb, method="fusion")
-                    self.merged_view.set_rgb(merged.rgb, dpi=geo.resolution, auto_level=True)
+                    merged = merge_exposures_result(short_rgb, long_rgb)
+                    from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
+                    from pyopticfilm.scan.pipeline import ImagePipeline
+
+                    pipe = ImagePipeline(MODEL_8200I_SE)
+                    rgb = pipe.expose_film_base(
+                        merged.rgb, source="capture me preview", preserve_headroom=True
+                    )
+                    rgb = pipe.clamp_border_highlights(rgb)
+                    self.merged_view.set_rgb(rgb, dpi=geo.resolution, auto_level=False)
                     if merged.fusion_stats is not None:
                         self.merged_view.set_caption(
-                            self._format_fusion_caption(merged.fusion_stats, method="fusion")
+                            self._format_fusion_caption(merged.fusion_stats)
                         )
-                    self.me_merge.setCurrentIndex(2)
                     self._update_me_tabs_visible()
-                    lines.append("Merged tab: capture preview (fusion merge)")
+                    lines.append("Merged tab: capture preview (SNR / IVW)")
                 except Exception as merge_exc:  # noqa: BLE001
                     lines.append(f"Merged preview failed: {merge_exc}")
                     self.merged_view.set_rgb(None)
@@ -783,7 +765,6 @@ class ScanLabWindow(QMainWindow):
             dpi,
             self.ir_pass.isChecked(),
             self.me_pass.isChecked(),
-            str(self.me_merge.currentData() or "none"),
             crop,
             self.apply_calib.isChecked(),
         )
@@ -842,18 +823,15 @@ class ScanLabWindow(QMainWindow):
             self.me_long_view.set_rgb(image.rgb_long, dpi=image.dpi)
         else:
             self.me_long_view.set_rgb(None)
-        if image.merge_method and image.merge_method != "none":
-            self.merged_view.set_rgb(image.rgb, dpi=image.dpi, auto_level=True)
-            if (
-                image.merge_method in ("fusion", "snr")
-                and image.merge_fusion_mean_short_weight is not None
-            ):
+        if image.merge_method == "snr":
+            self.merged_view.set_rgb(image.rgb, dpi=image.dpi, auto_level=False)
+            if image.merge_fusion_mean_short_weight is not None:
                 self.merged_view.set_caption(
                     self._format_fusion_caption_from_image(image)
                 )
             else:
-                self.merged_view.set_caption(f"Merge: {image.merge_method}")
-        elif image.rgb_long is not None and self._me_merge_mode() != "none":
+                self.merged_view.set_caption("Merge: SNR / IVW")
+        elif image.rgb_long is not None:
             self._refresh_merged_preview()
         else:
             self.merged_view.set_rgb(None)
@@ -863,18 +841,15 @@ class ScanLabWindow(QMainWindow):
         else:
             self.ir_view.set_rgb(None)
         self._update_me_tabs_visible()
-        if (
-            image.merge_method and image.merge_method != "none"
-        ) or (image.rgb_long is not None and self._me_merge_mode() != "none"):
+        if image.rgb_long is not None:
             self.tabs.setCurrentWidget(self.merged_view)
         else:
             self.tabs.setCurrentWidget(self.scan_view)
-        self._update_me_merge_enabled()
         msg = f"Scan {short.shape[1]}×{short.shape[0]} @ {image.dpi} dpi"
         if image.rgb_long is not None:
             msg += "; ME long"
-        if image.merge_method and image.merge_method != "none":
-            msg += f"; merged ({image.merge_method})"
+        if image.merge_method == "snr":
+            msg += "; merged (SNR/IVW)"
             msg += self._fusion_stats_message(image)
         if image.ir is not None:
             msg += f"; IR {image.ir.shape[1]}×{image.ir.shape[0]}"
@@ -901,7 +876,6 @@ class ScanLabWindow(QMainWindow):
             and getattr(self._current_target().model, "asic", "") == "GL128"
         )
         self.me_pass.setEnabled(not busy and is_gl128)
-        self._update_me_merge_enabled()
         self.run_mock.setEnabled(not busy)
         self.override_hw_gate.setEnabled(not busy)
         self.apply_calib.setEnabled(not busy)

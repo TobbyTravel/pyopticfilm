@@ -23,8 +23,9 @@ class ScanImage:
     correspond to dense emulsion). Positive conversion is the host app's job.
 
     Multi-exposure fields are populated when ``multi_exposure=True`` on scan.
-    ``rgb_short`` / ``rgb_long`` preserve raw acquired frames; ``rgb`` is the
-    primary deliverable (merged when ``merge`` was requested, else short).
+    ``rgb_short`` / ``rgb_long`` preserve **linear** acquired frames (no per-plane
+    film-base peak stretch — that would erase the ~3× exposure ratio). ``rgb`` is
+    the SNR/IVW-merged deliverable (after a single film-base makeup).
     """
 
     rgb: np.ndarray
@@ -40,8 +41,8 @@ class ScanImage:
     merge_fusion_mean_short_weight: float | None = None
     merge_fusion_mean_long_weight: float | None = None
     merge_fusion_zero_weight_fraction: float | None = None
-    align_shift_long: tuple[int, int] | None = None
-    align_shift_ir: tuple[int, int] | None = None
+    align_shift_long: tuple[float, float] | None = None
+    align_shift_ir: tuple[float, float] | None = None
 
     def save_tiff(self, path: str | Path) -> Path:
         """Write a 16-bit RGB TIFF (the scanned frame only; no ``*_IR`` sidecar)."""

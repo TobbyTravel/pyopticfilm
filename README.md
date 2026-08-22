@@ -106,6 +106,42 @@ with Scanner.open() as scanner:
     ir = scanner.scan(resolution=1800, mode="infrared")
 ```
 
+Multi-exposure (8200i SE / GL128): short then long colour passes (3× exposure).
+`rgb_short` / `rgb_long` are **linear** bracket planes (no per-plane film-base
+peak stretch — that erased the ~3× ratio). `rgb` is the SNR/IVW-merged frame
+after a single film-base makeup.
+
+```python
+with Scanner.open() as scanner:
+    scanner.warmup()
+    image = scanner.scan(
+        resolution=1800,
+        mode="color",
+        multi_exposure=True,
+    )
+    print(image.rgb.shape)  # SNR/IVW merged
+    print(image.rgb_short.shape, image.rgb_long.shape)
+    print(image.exposure_short, image.exposure_long)  # e.g. 14000, 42000
+    image.save_tiff("merged.tif")
+    # Optional: keep the bracket for offline inspection
+    from pyopticfilm.image import save_rgb16_tiff
+
+    save_rgb16_tiff(image.rgb_short, "short.tif", dpi=image.dpi)
+    save_rgb16_tiff(image.rgb_long, "long.tif", dpi=image.dpi)
+```
+
+Colour + IR in one call (IR after the colour / ME passes):
+
+```python
+image = scanner.scan(
+    resolution=1800,
+    mode="color",
+    multi_exposure=True,
+    infrared=True,
+)
+# image.rgb / rgb_short / rgb_long as above; image.ir is HxW uint16
+```
+
 Crop (normalized coordinates on the transparency window):
 
 ```python
@@ -139,9 +175,17 @@ for info in find_devices():
 | `scanner.advanced` | Low-level register read/write (bring-up) |
 | `scanner.calibrator` | Direct access to calibration cache |
 
-`ScanImage` fields: `rgb` (uint16 H×W×3), `dpi`, `device_model`, optional `ir` plane (not populated by default).
+`ScanImage` fields: `rgb` (uint16 H×W×3), `dpi`, `device_model`, optional `ir`, and for ME: `rgb_short`, `rgb_long`, `exposure_short`, `exposure_long`, `merge_method`. ME short/long are linear; `rgb` may include film-base makeup.
 
 Scan modes: `"color"`, `"infrared"`. `"gray"` is not implemented.
+
+`scan(..., multi_exposure=True)` is GL128 / 8200i SE only. When ME is on, `rgb` is always SNR/IVW-merged (per-channel clip confidence, soft highlight roll-off from ~80–95% FS; optional `model.me_noise_alpha` / `me_noise_beta`). Short/long planes stay linear on the `ScanImage`. Pass `infrared=True` with `mode="color"` for a dust/IR plane on the same `ScanImage`.
+
+Audit a saved bracket (and optional SilverFast ME TIFF)::
+
+```bash
+PYTHONPATH=src python -m tools.audit_me_bracket short.tif long.tif --sf sf_merged.tif
+```
 
 Enable debug logging:
 
