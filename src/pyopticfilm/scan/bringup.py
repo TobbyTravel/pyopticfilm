@@ -215,23 +215,16 @@ def clamp_area(area: Area) -> Area:
     return (x1, y1, x2, y2)
 
 
-def _flip_x_norm(area: Area) -> Area:
-    """Mirror X in normalized coords: image-left ↔ sensor/TA-left when ``mirror_x``."""
-    x1, y1, x2, y2 = area
-    return (1.0 - x2, y1, 1.0 - x1, y2)
-
-
 def image_crop_to_scan_area(model: Any, crop_norm: Area) -> Area:
     """Map Prescan crop widget coords → TA ``area`` for ``compute_geometry``."""
-    area = clamp_area(crop_norm)
-    if bool(getattr(model, "mirror_x", False)):
-        area = _flip_x_norm(area)
-    return clamp_area(area)
+    del model  # kept for call-site compatibility; orientation is fixed in assemble()
+    return clamp_area(crop_norm)
 
 
 def scan_area_to_image_crop(model: Any, area: Area) -> Area:
-    """Inverse of :func:`image_crop_to_scan_area` (same X flip when mirroring)."""
-    return image_crop_to_scan_area(model, area)
+    """Map TA ``area`` → Prescan crop widget coords (inverse of :func:`image_crop_to_scan_area`)."""
+    del model
+    return clamp_area(area)
 
 
 
@@ -239,10 +232,39 @@ def default_frame_crop_norm(model: Any) -> Area:
     """Centered ~35 mm frame crop (session-13 ladder y-extent, full width).
 
     Returned in **TA / scan** space. Convert with :func:`scan_area_to_image_crop`
-    before drawing on a mirrored Prescan.
+    before drawing on the Prescan preview.
     """
     area, _ = ladder_scan_area(model, PRESCAN_DPI)
     return clamp_area(area)
+
+
+def effective_scan_area(
+    model: Any,
+    geometry: ScanGeometry,
+    requested: Area,
+) -> Area:
+    """Normalized TA rect actually covered by ``geometry`` (after span snap / LINCNT clamp)."""
+    x1, y1, _x2, _y2 = clamp_area(requested)
+    x_size = float(model.x_size_ta_mm)
+    y_size = float(model.y_size_ta_mm)
+    width_mm = geometry.pixels * MM_PER_INCH / max(1, geometry.asic_dpi)
+    eff_x2 = min(1.0, max(x1 + 1e-6, x1 + width_mm / x_size))
+    eff_y2 = min(1.0, max(y1 + 1e-6, y1 + geometry.travel_mm / y_size))
+    return clamp_area((x1, y1, eff_x2, eff_y2))
+
+
+def crop_adjustment_message(requested: Area, effective: Area) -> str | None:
+    """Human-readable note when optical alignment narrowed the crop."""
+    req = clamp_area(requested)
+    eff = clamp_area(effective)
+    parts: list[str] = []
+    if abs(req[2] - eff[2]) > 1e-4:
+        parts.append(f"x2 {req[2]:.3f}→{eff[2]:.3f}")
+    if abs(req[3] - eff[3]) > 1e-4:
+        parts.append(f"y2 {req[3]:.3f}→{eff[3]:.3f}")
+    if not parts:
+        return None
+    return "Crop adjusted (" + ", ".join(parts) + ")"
 
 
 def crop_scan_geometry(
@@ -256,16 +278,19 @@ def crop_scan_geometry(
     the scan-window end. Optical span alignment stays in ``compute_geometry``.
     """
     area = clamp_area(area)
+    requested_area = area
     feed2 = _feed2_for(model, area[1])
     max_fn = getattr(model, "max_lincnt_for", None)
     max_lincnt = int(max_fn(feed2, dpi)) if callable(max_fn) else 0
 
     geometry = compute_geometry(dpi, model=model, area=area)
-    target = int(geometry.lincnt_register)
+    target_before_clamp = int(geometry.lincnt_register)
+    target = target_before_clamp
     if max_lincnt > 0 and target > max_lincnt:
         geometry = apply_target_lincnt(geometry, max_lincnt)
         target = max_lincnt
 
+    effective_area = effective_scan_area(model, geometry, requested_area)
     travel_mm = _travel_mm(model, target, dpi)
     meta = {
         "profile": "crop",
@@ -279,6 +304,9 @@ def crop_scan_geometry(
         "geometry_lincnt": geometry.lincnt_register,
         "optical_line_count": geometry.optical_line_count,
         "area": geometry.area if geometry.area is not None else area,
+        "requested_area": requested_area,
+        "effective_area": effective_area,
+        "lincnt_clamped": target < target_before_clamp,
         "pixels": geometry.pixels,
     }
     return geometry, meta

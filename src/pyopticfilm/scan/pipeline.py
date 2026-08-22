@@ -25,6 +25,10 @@ HOST_CALIB_HIGHLIGHT_PERCENTILE = 99.9
 #: holder chrome so NegPy auto bounds do not latch onto Full-window margins.
 HOST_CALIB_BORDER_INSET = 0.04
 
+#: Row slabs for host calib / makeup — avoids full-frame float temps at 7200 dpi.
+_HOST_CALIB_CHUNK_ROWS = 256
+_FS = np.float32(65535.0)
+
 
 class ImagePipeline:
     """Convert raw scanner bytes into HxWx3 uint16 RGB."""
@@ -116,9 +120,11 @@ class ImagePipeline:
         if groups < 1:
             raise ValueError(f"Buffer of {height} rows is shorter than one {n}-row group")
         trimmed = rgb[: groups * n].reshape(groups, n, width, channels)
-        out = trimmed.mean(axis=1)
+        # Integer sum avoids a full-resolution float64 mean (OOM at 7200 dpi).
+        sums = trimmed.astype(np.uint32).sum(axis=1, dtype=np.uint32)
+        out = (sums + n // 2) // n
         logger.debug("averaged %d rows -> %d (oversample=%d)", height, groups, n)
-        return np.rint(out).astype(np.uint16)
+        return out.astype(np.uint16)
 
     def apply_host_downsample(self, rgb: np.ndarray, geometry: ScanGeometry) -> np.ndarray:
         """Block-average when the ASIC ran hotter than the requested PPI (SE <600)."""
@@ -131,7 +137,9 @@ class ImagePipeline:
         if nh == 0 or nw == 0:
             return rgb
         block = rgb[:nh, :nw].reshape(nh // factor, factor, nw // factor, factor, c)
-        out = block.mean(axis=(1, 3))
+        count = factor * factor
+        sums = block.astype(np.uint32).sum(axis=(1, 3), dtype=np.uint32)
+        out = (sums + count // 2) // count
         logger.debug(
             "host downsample %dx%d -> %dx%d (factor=%d)",
             h,
@@ -140,7 +148,7 @@ class ImagePipeline:
             out.shape[1],
             factor,
         )
-        return np.rint(out).astype(np.uint16)
+        return out.astype(np.uint16)
 
     def apply_line_shifts(self, rgb: np.ndarray, geometry: ScanGeometry) -> np.ndarray:
         """Align R/G/B using genesys ld_shift scaled to yres.
@@ -220,11 +228,12 @@ class ImagePipeline:
         border[ys, xs] = False
         if not border.any():
             return rgb
-        out = rgb.astype(np.float32, copy=True)
-        hot = border & (out > peaks).any(axis=2)
+        peaks_u16 = np.clip(np.rint(peaks), 0, 65535).astype(np.uint16)
+        hot = border & (rgb > peaks_u16).any(axis=2)
         if not hot.any():
             return rgb
-        out[hot] = np.minimum(out[hot], peaks)
+        out = rgb.copy()
+        out[hot] = np.minimum(out[hot], peaks_u16)
         logger.info(
             "border highlight clamp inset=%.2f peak_p%.1f=(%.0f,%.0f,%.0f) pixels=%d",
             float(inset),
@@ -234,7 +243,7 @@ class ImagePipeline:
             peaks[2],
             int(hot.sum()),
         )
-        return np.clip(np.rint(out), 0, 65535).astype(np.uint16)
+        return out
 
     def expose_film_base(
         self,
@@ -287,8 +296,15 @@ class ImagePipeline:
             target,
             " (headroom)" if preserve_headroom else "",
         )
-        lifted = np.clip(rgb.astype(np.float32) * gain, 0, 65535)
-        return np.clip(np.rint(lifted), 0, 65535).astype(np.uint16)
+        gain_f = np.float32(gain)
+        out = np.empty_like(rgb)
+        for y0 in range(0, h, _HOST_CALIB_CHUNK_ROWS):
+            y1 = min(h, y0 + _HOST_CALIB_CHUNK_ROWS)
+            slab = rgb[y0:y1].astype(np.float32)
+            np.multiply(slab, gain_f, out=slab)
+            np.clip(slab, 0, 65535, out=slab)
+            out[y0:y1] = np.rint(slab).astype(np.uint16)
+        return out
 
     def apply_host_calib(
         self,
@@ -322,25 +338,29 @@ class ImagePipeline:
         dark_f = dark[: rgb.shape[1]].astype(np.float32)
         white_f = white[: rgb.shape[1]].astype(np.float32)
         denom = white_f - dark_f
-        # Avoid div0 / inverted ranges
         bad = denom <= 0
-        denom = np.where(bad, 1.0, denom)
-        offset = dark_f / 65535.0
-        mult = 65535.0 / denom
+        denom = np.where(bad, np.float32(1.0), denom)
+        offset = dark_f / _FS
+        mult = _FS / denom
 
-        img = rgb.astype(np.float32) / 65535.0
-        out = (img - offset) * mult
-        out = np.clip(out * 65535.0, 0, 65535)
-        if bad.any():
-            # Leave original where calib is invalid
-            mask = np.broadcast_to(bad, rgb.shape)
-            out = np.where(mask, rgb.astype(np.float32), out)
+        h = rgb.shape[0]
+        out = np.empty_like(rgb)
+        for y0 in range(0, h, _HOST_CALIB_CHUNK_ROWS):
+            y1 = min(h, y0 + _HOST_CALIB_CHUNK_ROWS)
+            slab = rgb[y0:y1].astype(np.float32) / _FS
+            corrected = (slab - offset) * mult
+            np.clip(corrected * _FS, 0, 65535, out=corrected)
+            chunk = np.rint(corrected).astype(np.uint16)
+            if bad.any():
+                mask = np.broadcast_to(bad, chunk.shape)
+                out[y0:y1] = np.where(mask, rgb[y0:y1], chunk)
+            else:
+                out[y0:y1] = chunk
 
-        stretched = np.clip(np.rint(out), 0, 65535).astype(np.uint16)
         if not expose_base:
-            return stretched
+            return out
         exposed = self.expose_film_base(
-            stretched,
+            out,
             source="host calib",
             peak_target=peak_target,
             peak_percentile=peak_percentile,

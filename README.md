@@ -107,9 +107,9 @@ with Scanner.open() as scanner:
 ```
 
 Multi-exposure (8200i SE / GL128): short then long colour passes (3× exposure).
-`rgb_short` / `rgb_long` are **linear** bracket planes (no per-plane film-base
-peak stretch — that erased the ~3× ratio). `rgb` is the SNR/IVW-merged frame
-after a single film-base makeup.
+The SNR/IVW-merged deliverable with film-base makeup is in ``rgb``. Bracket
+planes and fusion stats are on :attr:`~pyopticfilm.scanner.Scanner.last_me_debug`
+(Scan Lab / audit tooling only — not part of the NegPy-facing ``ScanImage``).
 
 ```python
 with Scanner.open() as scanner:
@@ -119,15 +119,15 @@ with Scanner.open() as scanner:
         mode="color",
         multi_exposure=True,
     )
-    print(image.rgb.shape)  # SNR/IVW merged
-    print(image.rgb_short.shape, image.rgb_long.shape)
-    print(image.exposure_short, image.exposure_long)  # e.g. 14000, 42000
+    print(image.rgb.shape)  # SNR/IVW merged deliverable
     image.save_tiff("merged.tif")
-    # Optional: keep the bracket for offline inspection
-    from pyopticfilm.image import save_rgb16_tiff
+    debug = scanner.last_me_debug
+    if debug is not None:
+        from pyopticfilm.image import save_rgb16_tiff
 
-    save_rgb16_tiff(image.rgb_short, "short.tif", dpi=image.dpi)
-    save_rgb16_tiff(image.rgb_long, "long.tif", dpi=image.dpi)
+        save_rgb16_tiff(debug.rgb_short, "short.tif", dpi=image.dpi)
+        save_rgb16_tiff(debug.rgb_long, "long.tif", dpi=image.dpi)
+        print(debug.exposure_short, debug.exposure_long)  # e.g. 14000, 42000
 ```
 
 Colour + IR in one call (IR after the colour / ME passes):
@@ -139,7 +139,7 @@ image = scanner.scan(
     multi_exposure=True,
     infrared=True,
 )
-# image.rgb / rgb_short / rgb_long as above; image.ir is HxW uint16
+# image.rgb is the merged deliverable; image.ir is HxW uint16
 ```
 
 Crop (normalized coordinates on the transparency window):
@@ -175,11 +175,17 @@ for info in find_devices():
 | `scanner.advanced` | Low-level register read/write (bring-up) |
 | `scanner.calibrator` | Direct access to calibration cache |
 
-`ScanImage` fields: `rgb` (uint16 H×W×3), `dpi`, `device_model`, optional `ir`, and for ME: `rgb_short`, `rgb_long`, `exposure_short`, `exposure_long`, `merge_method`. ME short/long are linear; `rgb` may include film-base makeup.
+`ScanImage` fields: `rgb` (uint16 H×W×3), `dpi`, `device_model`, optional `ir`.
+For ME scans, `rgb` is the SNR/IVW-merged deliverable (with film-base makeup).
+Bracket planes live on `Scanner.last_me_debug`, not on `ScanImage`.
 
 Scan modes: `"color"`, `"infrared"`. `"gray"` is not implemented.
 
-`scan(..., multi_exposure=True)` is GL128 / 8200i SE only. When ME is on, `rgb` is always SNR/IVW-merged (per-channel clip confidence, soft highlight roll-off from ~80–95% FS; optional `model.me_noise_alpha` / `me_noise_beta`). Short/long planes stay linear on the `ScanImage`. Pass `infrared=True` with `mode="color"` for a dust/IR plane on the same `ScanImage`.
+`scan(..., multi_exposure=True)` is GL128 / 8200i SE only. When ME is on, `rgb`
+is always SNR/IVW-merged (per-channel clip confidence, soft highlight roll-off
+from ~80–95% FS; optional `model.me_noise_alpha` / `me_noise_beta`). Pass
+`infrared=True` with `mode="color"` for a dust/IR plane on the same `ScanImage`.
+Inspect short/long via `scanner.last_me_debug` after the scan.
 
 Audit a saved bracket (and optional SilverFast ME TIFF)::
 

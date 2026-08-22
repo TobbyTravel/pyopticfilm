@@ -20,6 +20,7 @@ import threading
 import time
 from collections.abc import Callable
 
+from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
 from pyopticfilm.asic.registers import Gl128Registers
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.device.protocol import AsicDriver, FilmModel
@@ -37,9 +38,14 @@ logger = get_logger(__name__)
 #: and (empirically) high-PPI creep is quieter than one giant unpaced preamble.
 IMAGE_CHUNK_BYTES = BULK_MAX_SIZE
 
-#: Default sleep between image bulk chunk announces. Softens high-PPI creep on
-#: SE (Scan Lab A/B); full-frame 3600 adds on the order of ~10 s of sleeps.
-IMAGE_USB_PACE_S = 0.003
+#: Max adaptive throttle (seconds) per line when quiet USB drain is enabled.
+#: Not a fixed pre-chunk sleep — :meth:`Gl128ScanSession._acquire` only pauses
+#: after a fast drain if the host outran the expected line interval.
+#: Matches :data:`pyopticfilm.asic.gl128.DEFAULT_IMAGE_USB_PACE_S` (on by default).
+IMAGE_USB_PACE_S = DEFAULT_IMAGE_USB_PACE_S
+
+#: Scale ASIC ``LPERIOD`` register to approximate output-line duration (seconds).
+_LINE_PERIOD_TO_SECONDS = 1.0 / 4_500_000.0
 
 try:
     from pyopticfilm.asic.gl128 import MOTOR_GATED_HINT as _MOTOR_GATED_HINT
@@ -64,6 +70,8 @@ class Gl128ScanSession(ScanSession):
         self._bulk_stream_active = False
         #: Image ``REG_EXPOSURE`` for the current pass (``None`` → short / 14000).
         self._pass_exposure: int | None = None
+        #: Lab-only ME bracket / IVW stats (not on :class:`~pyopticfilm.image.ScanImage`).
+        self.last_me_debug = None
 
     def run(
         self,
@@ -164,6 +172,7 @@ class Gl128ScanSession(ScanSession):
         self._set16(cache, r.REG_DPISET, dpiset)
         self._set24(cache, r.REG_STRPIXEL, geometry.pixel_startx)
         self._set24(cache, r.REG_ENDPIXEL, geometry.pixel_endx)
+        self._verify_geometry_usb_span(geometry)
         if self._pass_exposure is not None:
             exposure_reg = int(self._pass_exposure)
         else:
@@ -267,9 +276,10 @@ class Gl128ScanSession(ScanSession):
         align_passes: bool = True,
     ):
         from pyopticfilm.image import ScanImage
-        from pyopticfilm.pass_align import align_pass_to_reference
+        from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift, warn_if_align_unavailable
         from pyopticfilm.scan.exposure_merge import merge_exposures_result
         from pyopticfilm.scan.geometry import compute_geometry
+        from pyopticfilm.scan.me_debug import MeScanDebug
 
         if mode == "infrared":
             raise ValueError("Use mode='color' with infrared=True for colour+IR scans")
@@ -280,6 +290,8 @@ class Gl128ScanSession(ScanSession):
 
         if not self.asic._initialized:
             self.asic.init()
+
+        self.last_me_debug = None
 
         if geometry is None:
             geometry = compute_geometry(resolution, model=model, area=area)
@@ -375,17 +387,25 @@ class Gl128ScanSession(ScanSession):
         align_shift_ir: tuple[float, float] | None = None
 
         if align_passes and rgb_long is not None:
-            _, align_shift_long = align_pass_to_reference(rgb_short, rgb_long)
+            warn_if_align_unavailable("ME long")
+            align_shift_long = estimate_pass_shift(rgb_short, rgb_long)
+            logger.info(
+                "ME long pass shift (dx, dy)=(%.3f, %.3f)",
+                align_shift_long[0],
+                align_shift_long[1],
+            )
         if align_passes and ir_plane is not None:
+            warn_if_align_unavailable("IR")
             ir_plane, align_shift_ir = align_pass_to_reference(rgb_short, ir_plane)
+            logger.info(
+                "IR pass shift (dx, dy)=(%.3f, %.3f)",
+                align_shift_ir[0],
+                align_shift_ir[1],
+            )
 
         primary = rgb_short
-        merge_method: str | None = None
-        merge_fusion_mean_short_weight: float | None = None
-        merge_fusion_mean_long_weight: float | None = None
-        merge_fusion_zero_weight_fraction: float | None = None
+        fusion_stats = None
         if multi_exposure and rgb_long is not None:
-            merge_method = "snr"
             shift = align_shift_long if align_passes else (0.0, 0.0)
             alpha = float(getattr(model, "me_noise_alpha", 1.0))
             beta = float(getattr(model, "me_noise_beta", 4096.0))
@@ -399,12 +419,18 @@ class Gl128ScanSession(ScanSession):
                 beta=beta,
             )
             primary = merged.rgb
-            if merged.fusion_stats is not None:
-                merge_fusion_mean_short_weight = merged.fusion_stats.mean_short_weight
-                merge_fusion_mean_long_weight = merged.fusion_stats.mean_long_weight
-                merge_fusion_zero_weight_fraction = merged.fusion_stats.zero_weight_fraction
+            fusion_stats = merged.fusion_stats
+            self.last_me_debug = MeScanDebug(
+                rgb_short=rgb_short,
+                rgb_long=rgb_long,
+                exposure_short=exp_short,
+                exposure_long=exp_long,
+                fusion_stats=fusion_stats,
+                align_shift_long=align_shift_long,
+                align_shift_ir=align_shift_ir,
+            )
 
-        # Single film-base makeup on the deliverable only (not on rgb_short/long).
+        # Single film-base makeup on the deliverable only (not on bracket planes).
         # Headroom cap keeps IVW highlight recovery from being crushed to white.
         primary = self.pipeline.expose_film_base(
             primary, source="me deliverable", preserve_headroom=True
@@ -416,16 +442,6 @@ class Gl128ScanSession(ScanSession):
             dpi=geometry.resolution,
             device_model=f"{self.model.vendor} {self.model.model}",
             ir=ir_plane,
-            rgb_short=rgb_short,
-            rgb_long=rgb_long,
-            exposure_short=exp_short if multi_exposure else None,
-            exposure_long=exp_long if multi_exposure else None,
-            merge_method=merge_method,
-            merge_fusion_mean_short_weight=merge_fusion_mean_short_weight,
-            merge_fusion_mean_long_weight=merge_fusion_mean_long_weight,
-            merge_fusion_zero_weight_fraction=merge_fusion_zero_weight_fraction,
-            align_shift_long=align_shift_long,
-            align_shift_ir=align_shift_ir,
         )
 
     # --- acquire --------------------------------------------------------
@@ -457,6 +473,42 @@ class Gl128ScanSession(ScanSession):
             time.sleep(0.02)
         raise ScanError(f"No scan data within {DATA_TIMEOUT_S:.0f}s")
 
+    def _verify_geometry_usb_span(self, geometry: ScanGeometry) -> None:
+        """Fail loud when STR/END span disagrees with USB line width (diamond shear)."""
+        span = int(geometry.pixel_endx) - int(geometry.pixel_startx)
+        if span != int(geometry.optical_pixels):
+            raise ScanError(
+                f"STR/END span {span} != optical_pixels {geometry.optical_pixels} "
+                f"at {geometry.resolution} dpi"
+            )
+        sample_bytes = 2 if geometry.depth == 16 else 1
+        expected_line = geometry.pixels * geometry.channels * sample_bytes
+        if geometry.line_bytes != expected_line:
+            raise ScanError(
+                f"USB line_bytes {geometry.line_bytes} != pixels×channels×sample "
+                f"({expected_line}) at {geometry.resolution} dpi"
+            )
+
+    def _line_interval_s(self, geometry: ScanGeometry) -> float:
+        lperiod = float(self.model.line_period_for(geometry.resolution))
+        return lperiod * _LINE_PERIOD_TO_SECONDS
+
+    @staticmethod
+    def _chunk_bytes(geometry: ScanGeometry, remaining: int) -> int:
+        raw_line = getattr(geometry, "line_bytes", 0)
+        try:
+            line = max(1, int(raw_line))
+        except (TypeError, ValueError):
+            line = IMAGE_CHUNK_BYTES
+        if remaining <= line:
+            return remaining
+        if line > IMAGE_CHUNK_BYTES:
+            return min(line, remaining)
+        full_lines = min(remaining // line, IMAGE_CHUNK_BYTES // line)
+        if full_lines >= 1:
+            return full_lines * line
+        return min(line, remaining)
+
     def _acquire(
         self,
         geometry: ScanGeometry,
@@ -478,16 +530,14 @@ class Gl128ScanSession(ScanSession):
         )
 
         buf = bytearray()
+        pace_cap = float(getattr(self.asic, "image_usb_pace_s", IMAGE_USB_PACE_S) or 0.0)
+        line_interval = self._line_interval_s(geometry) if pace_cap > 0 else 0.0
         while len(buf) < total:
             if cancel is not None and cancel.is_set():
                 raise ScanCancelled("cancelled during bulk read")
-            if buf and (pace := float(getattr(self.asic, "image_usb_pace_s", 0.0) or 0.0)) > 0:
-                # Let the ASIC buffer refill so buffer-full can gate the creep.
-                time.sleep(pace)
-            # Announce only this USB-sized block and fully drain it before the
-            # next cancel check — a single full-image preamble made high-PPI
-            # creep louder on real SE hardware (2026-08).
-            want = min(IMAGE_CHUNK_BYTES, total - len(buf))
+            remaining = total - len(buf)
+            want = self._chunk_bytes(geometry, remaining)
+            t0 = time.monotonic()
             proto.bulk_read_begin(want, index=index)
             self._bulk_stream_active = True
             try:
@@ -501,6 +551,17 @@ class Gl128ScanSession(ScanSession):
             buf.extend(chunk)
             if progress is not None:
                 progress(min(1.0, len(buf) / total))
+            if pace_cap > 0 and line_interval > 0:
+                try:
+                    line_bytes = max(1, int(geometry.line_bytes))
+                except (TypeError, ValueError):
+                    line_bytes = IMAGE_CHUNK_BYTES
+                lines = max(1.0, len(chunk) / line_bytes)
+                expected = line_interval * lines
+                elapsed = time.monotonic() - t0
+                throttle = min(pace_cap * lines, max(0.0, expected - elapsed))
+                if throttle > 0:
+                    time.sleep(throttle)
 
         if progress is not None:
             progress(1.0)

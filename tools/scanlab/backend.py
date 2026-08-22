@@ -13,6 +13,7 @@ from pyopticfilm.scan.bringup import (
     PRESCAN_DPI,
     bringup_scan_geometry,
     clamp_area,
+    crop_adjustment_message,
     crop_scan_geometry,
     image_crop_to_scan_area,
     is_opticfilm_8200i_se,
@@ -192,6 +193,30 @@ def lab_scan_kwargs(
     else:
         area = nonse_safe_area(model)
     return {"resolution": dpi, "area": area}
+
+
+def lab_crop_scan_meta(
+    model: FilmModel,
+    *,
+    dpi: int,
+    crop_norm: tuple[float, float, float, float],
+) -> dict | None:
+    """Crop geometry meta for Scan Lab status (SE cropped scans only)."""
+    if not is_opticfilm_8200i_se(model):
+        return None
+    area = image_crop_to_scan_area(model, crop_norm)
+    _geometry, meta = crop_scan_geometry(model, dpi, area)
+    return meta
+
+
+def format_crop_status(meta: dict | None) -> str | None:
+    if meta is None:
+        return None
+    requested = meta.get("requested_area")
+    effective = meta.get("effective_area")
+    if not requested or not effective:
+        return None
+    return crop_adjustment_message(requested, effective)
 
 
 def list_lab_targets() -> list[LabTarget]:

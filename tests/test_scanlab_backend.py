@@ -18,6 +18,8 @@ from tools.scanlab.backend import (
     apply_lab_hw_override,
     apply_lab_motor_acoustic,
     device_banner,
+    format_crop_status,
+    lab_crop_scan_meta,
     lab_scan_kwargs,
     lab_scan_needs_motor_warning,
     list_lab_targets,
@@ -104,6 +106,27 @@ def test_apply_lab_decode_layout_sets_planar():
     assert asic.usb_planar_rgb is True
     apply_lab_decode_layout(scanner, with_usb_planar(target, False))
     assert asic.usb_planar_rgb is False
+
+
+def test_format_crop_status_reports_adjustment():
+    from pyopticfilm.scan.bringup import crop_adjustment_message
+
+    meta = {
+        "requested_area": (0.1, 0.2, 0.9, 0.8),
+        "effective_area": (0.1, 0.2, 0.85, 0.8),
+    }
+    note = format_crop_status(meta)
+    assert note == crop_adjustment_message(meta["requested_area"], meta["effective_area"])
+
+
+def test_lab_crop_scan_meta_se():
+    meta = lab_crop_scan_meta(
+        MODEL_8200I_SE,
+        dpi=2400,
+        crop_norm=(0.1, 0.2, 0.9, 0.8),
+    )
+    assert meta is not None
+    assert meta.get("effective_area") is not None
 
 
 def test_apply_lab_motor_acoustic_flags():

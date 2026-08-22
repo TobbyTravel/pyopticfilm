@@ -56,6 +56,7 @@ class Scanner:
             model=self._model,  # type: ignore[arg-type]
         )
         self._closed = False
+        self._last_me_debug = None
         #: Lab / session may disarm GL128 briefly for stationary shading.
         self._bringup_motor_armed = bool(model_is_scan_ready(self._model))
         #: When True, scan/home/park are allowed even if ``scan_ready`` is False.
@@ -224,6 +225,11 @@ class Scanner:
             if was_armed:
                 self.arm_bringup_motor()
 
+    @property
+    def last_me_debug(self):
+        """Bracket planes / IVW stats from the last ME scan (GL128 only), or ``None``."""
+        return self._last_me_debug
+
     def scan(
         self,
         *,
@@ -246,7 +252,8 @@ class Scanner:
                 self._asic.home()
         from pyopticfilm.scan.session import create_session
 
-        return create_session(self._asic, self._model, self._calibrator).run(  # type: ignore[arg-type]
+        session = create_session(self._asic, self._model, self._calibrator)
+        image = session.run(  # type: ignore[arg-type]
             resolution=resolution,
             mode=mode,
             area=area,
@@ -258,6 +265,8 @@ class Scanner:
             infrared=infrared,
             align_passes=align_passes,
         )
+        self._last_me_debug = getattr(session, "last_me_debug", None)
+        return image
 
     def arm_bringup_motor(self) -> None:
         """Enable GL128 motor moves (default on for scan-ready SE).

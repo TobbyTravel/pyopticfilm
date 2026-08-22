@@ -43,7 +43,7 @@ def test_gl128_configure_long_exposure_registers():
 
 
 def test_gl128_acquire_reannounces_usb_sized_blocks():
-    """Chunked VALUE_BUFFER — full-image preamble was louder on real SE HW."""
+    """Chunked VALUE_BUFFER — one announce per line or USB block."""
     from unittest.mock import MagicMock
 
     from pyopticfilm.asic.registers import Gl128Registers
@@ -53,6 +53,7 @@ def test_gl128_acquire_reannounces_usb_sized_blocks():
     geometry = MagicMock()
     geometry.total_bytes = total
     geometry.disable_buffer_full_move = False
+    geometry.line_bytes = BULK_MAX_SIZE
 
     proto = MagicMock()
     begins: list[int] = []
@@ -84,7 +85,7 @@ def test_gl128_acquire_reannounces_usb_sized_blocks():
 
 
 def test_gl128_acquire_paces_between_chunks(monkeypatch):
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, patch
 
     from pyopticfilm.asic.registers import Gl128Registers
     from pyopticfilm.usb.device import BULK_MAX_SIZE
@@ -99,6 +100,8 @@ def test_gl128_acquire_paces_between_chunks(monkeypatch):
     geometry = MagicMock()
     geometry.total_bytes = total
     geometry.disable_buffer_full_move = False
+    geometry.line_bytes = BULK_MAX_SIZE
+    geometry.resolution = 7200
 
     proto = MagicMock()
     remaining = {"n": total}
@@ -117,5 +120,9 @@ def test_gl128_acquire_paces_between_chunks(monkeypatch):
 
     session = Gl128ScanSession(asic, MODEL_8200I_SE)
     session.se_regs = Gl128Registers()
-    session._acquire(geometry, progress=None, cancel=None)
-    assert sleeps == [0.003]
+    mono = iter([0.0, 5.0, 5.0, 10.0])
+    with patch.object(Gl128ScanSession, "_wait_data"), patch(
+        "pyopticfilm.scan.session_gl128.time.monotonic", side_effect=lambda: next(mono)
+    ):
+        session._acquire(geometry, progress=None, cancel=None)
+    assert sleeps == []

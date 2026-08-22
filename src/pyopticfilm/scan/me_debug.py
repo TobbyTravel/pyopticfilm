@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Lab-only multi-exposure bracket diagnostics (not part of ScanImage)."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from pyopticfilm.scan.exposure_merge import FusionStats
+
+
+@dataclass(frozen=True)
+class MeScanDebug:
+    """Bracket planes and IVW stats from a GL128 ME scan.
+
+    Exposed via :attr:`~pyopticfilm.scanner.Scanner.last_me_debug` for Scan Lab
+    and audit tooling. Integrators should use :class:`~pyopticfilm.image.ScanImage`
+    ``rgb`` only.
+    """
+
+    rgb_short: np.ndarray
+    rgb_long: np.ndarray
+    exposure_short: int
+    exposure_long: int
+    fusion_stats: FusionStats | None = None
+    align_shift_long: tuple[float, float] | None = None
+    align_shift_ir: tuple[float, float] | None = None

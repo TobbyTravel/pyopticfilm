@@ -131,3 +131,22 @@ def test_host_stretch_applied_on_genesys_assemble():
     cal = Calibrator(None, model=MODEL_8200I)
     cal.prefer_asic_shading = False
     assert cal.should_apply_host_calib() is True
+
+
+def test_host_calib_chunked_at_large_geometry():
+    """7200 host calib must not allocate a full-frame float64 slab."""
+    from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
+    from pyopticfilm.scan.geometry import compute_geometry
+    from pyopticfilm.scan.pipeline import ImagePipeline
+
+    geo = compute_geometry(7200, model=MODEL_8200I_SE, area=None)
+    h, w = geo.lines, geo.pixels
+    rgb = np.full((h, w, 3), 20000, dtype=np.uint16)
+    dark = np.zeros((w, 3), dtype=np.uint16)
+    white = np.full((w, 3), 40000, dtype=np.uint16)
+    out = ImagePipeline(MODEL_8200I_SE).apply_host_calib(
+        rgb, dark=dark, white=white, expose_base=False
+    )
+    assert out.shape == (h, w, 3)
+    assert out.dtype == np.uint16
+    assert float(out.mean()) > 25000

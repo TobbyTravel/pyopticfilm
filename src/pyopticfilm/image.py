@@ -22,27 +22,16 @@ class ScanImage:
     All arrays are **linear film-negative measurements** (bright sensor values
     correspond to dense emulsion). Positive conversion is the host app's job.
 
-    Multi-exposure fields are populated when ``multi_exposure=True`` on scan.
-    ``rgb_short`` / ``rgb_long`` preserve **linear** acquired frames (no per-plane
-    film-base peak stretch — that would erase the ~3× exposure ratio). ``rgb`` is
-    the SNR/IVW-merged deliverable (after a single film-base makeup).
+    Multi-exposure (8200i SE): the SNR/IVW-merged deliverable with film-base
+    makeup is in ``rgb``. Bracket planes and fusion stats are **not** on
+    ``ScanImage`` — use :attr:`~pyopticfilm.scanner.Scanner.last_me_debug`
+    for Scan Lab / bring-up inspection.
     """
 
     rgb: np.ndarray
     dpi: int
     device_model: str = "PLUSTEK OpticFilm 8200i"
     ir: np.ndarray | None = None
-
-    rgb_short: np.ndarray | None = None
-    rgb_long: np.ndarray | None = None
-    exposure_short: int | None = None
-    exposure_long: int | None = None
-    merge_method: str | None = None
-    merge_fusion_mean_short_weight: float | None = None
-    merge_fusion_mean_long_weight: float | None = None
-    merge_fusion_zero_weight_fraction: float | None = None
-    align_shift_long: tuple[float, float] | None = None
-    align_shift_ir: tuple[float, float] | None = None
 
     def save_tiff(self, path: str | Path) -> Path:
         """Write a 16-bit RGB TIFF (the scanned frame only; no ``*_IR`` sidecar)."""

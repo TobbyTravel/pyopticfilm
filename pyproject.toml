@@ -50,7 +50,7 @@ dev = [
     "ruff>=0.9",
 ]
 # Repo-only Scan Lab GUI — not published as a PyPI extra.
-lab = ["PyQt6>=6.6", "tifffile>=2024.2"]
+lab = ["PyQt6>=6.6", "tifffile>=2024.2", "opencv-python-headless>=4.8"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
