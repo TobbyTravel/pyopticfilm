@@ -33,8 +33,8 @@ class ScanWorker(QObject):
     busy_changed = pyqtSignal(bool)
     #: target, apply_calib
     request_prescan = pyqtSignal(object, bool)
-    #: target, dpi, ir_pass, me_pass, merge, crop_norm, apply_calib
-    request_scan = pyqtSignal(object, int, bool, bool, str, object, bool)
+    #: target, dpi, ir_pass, me_pass, crop_norm, apply_calib
+    request_scan = pyqtSignal(object, int, bool, bool, object, bool)
 
     def __init__(self) -> None:
         super().__init__()
@@ -88,7 +88,6 @@ class ScanWorker(QObject):
             dpi=prescan_resolution(target.model),
             ir=False,
             me=False,
-            merge="none",
             crop=None,
             apply_calib=bool(apply_calib),
         )
@@ -99,7 +98,6 @@ class ScanWorker(QObject):
         dpi: int,
         ir_pass: bool,
         me_pass: bool,
-        merge: str,
         crop_norm: tuple[float, float, float, float] | None,
         apply_calib: bool = False,
     ) -> None:
@@ -109,7 +107,6 @@ class ScanWorker(QObject):
             dpi=dpi,
             ir=ir_pass,
             me=me_pass,
-            merge=str(merge or "none"),
             crop=crop_norm,
             apply_calib=bool(apply_calib),
         )
@@ -122,7 +119,6 @@ class ScanWorker(QObject):
         dpi: int,
         ir: bool,
         me: bool,
-        merge: str,
         crop: tuple[float, float, float, float] | None,
         apply_calib: bool,
     ) -> None:
@@ -141,7 +137,6 @@ class ScanWorker(QObject):
                     cancel=self._cancel,
                     apply_calib=apply_calib,
                     multi_exposure=me,
-                    merge=merge if me else "none",
                     **scan_kw,
                 )
                 self.prescan_ready.emit(image)
@@ -158,7 +153,6 @@ class ScanWorker(QObject):
                     apply_calib=apply_calib,
                     multi_exposure=me,
                     infrared=ir,
-                    merge=merge if me else "none",
                     **scan_kw,
                 )
                 self.scan_ready.emit(image)

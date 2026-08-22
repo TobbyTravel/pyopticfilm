@@ -71,10 +71,9 @@ class ScanSession:
         apply_calib: bool = True,
         multi_exposure: bool = False,
         infrared: bool = False,
-        merge: str = "none",
         align_passes: bool = True,
     ) -> ScanImage:
-        if multi_exposure or infrared or merge != "none":
+        if multi_exposure or infrared:
             raise NotImplementedError(
                 f"Multi-exposure / combined IR scans are not implemented for "
                 f"{getattr(self.model, 'asic', '?')}"

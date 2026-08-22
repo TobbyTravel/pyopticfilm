@@ -29,7 +29,6 @@ def test_run_scan_accepts_positional_signal_args():
         "dpi",
         "ir_pass",
         "me_pass",
-        "merge",
         "crop_norm",
         "apply_calib",
     ]

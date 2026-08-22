@@ -18,6 +18,9 @@ logger = get_logger(__name__)
 HOST_CALIB_PEAK_PERCENTILE = 99.7
 HOST_CALIB_PEAK_TARGET = 0xF000
 HOST_CALIB_PEAK_TRIGGER = 0.85
+#: Cap post-ME makeup so already-bright pixels are not driven into hard clip.
+HOST_CALIB_HIGHLIGHT_CEILING = int(0.92 * 65535)
+HOST_CALIB_HIGHLIGHT_PERCENTILE = 99.9
 #: Drop this fraction from each edge when estimating film highlights / clamping
 #: holder chrome so NegPy auto bounds do not latch onto Full-window margins.
 HOST_CALIB_BORDER_INSET = 0.04
@@ -240,6 +243,9 @@ class ImagePipeline:
         source: str,
         peak_target: int = HOST_CALIB_PEAK_TARGET,
         peak_percentile: float = HOST_CALIB_PEAK_PERCENTILE,
+        preserve_headroom: bool = False,
+        highlight_ceiling: int = HOST_CALIB_HIGHLIGHT_CEILING,
+        highlight_percentile: float = HOST_CALIB_HIGHLIGHT_PERCENTILE,
     ) -> np.ndarray:
         """Lift the film window toward sensor white with one scalar gain.
 
@@ -248,6 +254,10 @@ class ImagePipeline:
         (~42% at 1800 dpi) and NegPy meters a thin negative into a washed-bright
         positive. The gain is scalar and keyed to the brightest channel: a
         per-channel lift would neutralize the orange mask that inversion needs.
+
+        When ``preserve_headroom`` is set (ME deliverable), gain is also capped
+        so the high highlight percentile does not exceed ``highlight_ceiling`` —
+        avoiding a blunt stretch that undoes IVW highlight recovery.
         """
         target = int(peak_target)
         if target <= 0:
@@ -255,17 +265,27 @@ class ImagePipeline:
         h, w, _ = rgb.shape
         region = self._inset_slice(h, w, HOST_CALIB_BORDER_INSET)
         sample = rgb[region[0], region[1]] if region is not None else rgb
-        peak = float(np.percentile(sample, float(peak_percentile), axis=(0, 1)).max())
+        peaks = np.percentile(sample, float(peak_percentile), axis=(0, 1))
+        peak = float(np.max(peaks))
         if peak <= 1.0 or peak >= float(target) * float(HOST_CALIB_PEAK_TRIGGER):
             return rgb
         gain = float(target) / peak
+        if preserve_headroom and highlight_ceiling > 0:
+            hi = float(
+                np.percentile(sample, float(highlight_percentile), axis=(0, 1)).max()
+            )
+            if hi > 1.0:
+                gain = min(gain, float(highlight_ceiling) / hi)
+        if gain <= 1.0 + 1e-6:
+            return rgb
         logger.info(
-            "%s exposure makeup gain=%.3f peak_p%.1f=%.0f → %d",
+            "%s exposure makeup gain=%.3f peak_p%.1f=%.0f → %d%s",
             source,
             gain,
             float(peak_percentile),
             peak,
             target,
+            " (headroom)" if preserve_headroom else "",
         )
         lifted = np.clip(rgb.astype(np.float32) * gain, 0, 65535)
         return np.clip(np.rint(lifted), 0, 65535).astype(np.uint16)

@@ -70,7 +70,6 @@ class Gl128ScanSession(ScanSession):
         *args,
         multi_exposure: bool = False,
         infrared: bool = False,
-        merge: str = "none",
         align_passes: bool = True,
         **kwargs,
     ):  # type: ignore[no-untyped-def]
@@ -82,7 +81,6 @@ class Gl128ScanSession(ScanSession):
                 *args,
                 multi_exposure=multi_exposure,
                 infrared=infrared,
-                merge=merge,
                 align_passes=align_passes,
                 **kwargs,
             )
@@ -266,7 +264,6 @@ class Gl128ScanSession(ScanSession):
         apply_calib: bool = True,
         multi_exposure: bool = False,
         infrared: bool = False,
-        merge: str = "none",
         align_passes: bool = True,
     ):
         from pyopticfilm.image import ScanImage
@@ -276,10 +273,6 @@ class Gl128ScanSession(ScanSession):
 
         if mode == "infrared":
             raise ValueError("Use mode='color' with infrared=True for colour+IR scans")
-        if merge not in {"none", "linear", "fusion", "snr"}:
-            raise ValueError(f"Unsupported merge {merge!r}")
-        if merge != "none" and not multi_exposure:
-            raise ValueError("merge requires multi_exposure=True")
 
         model = self.model
         exp_short = int(getattr(model, "exposure_short", model.exposure_lperiod))
@@ -300,12 +293,11 @@ class Gl128ScanSession(ScanSession):
             passes.append(("color_long", "transparency", exp_long, True))
 
         logger.info(
-            "GL128 multi-pass %ddpi passes=%d me=%s ir=%s merge=%s",
+            "GL128 multi-pass %ddpi passes=%d me=%s ir=%s",
             geometry.resolution,
             len(passes),
             multi_exposure,
             infrared,
-            merge,
         )
 
         rgb_short = None
@@ -379,8 +371,8 @@ class Gl128ScanSession(ScanSession):
                 ir_plane = self._infrared_plane(rgb)
 
         assert rgb_short is not None
-        align_shift_long: tuple[int, int] | None = None
-        align_shift_ir: tuple[int, int] | None = None
+        align_shift_long: tuple[float, float] | None = None
+        align_shift_ir: tuple[float, float] | None = None
 
         if align_passes and rgb_long is not None:
             _, align_shift_long = align_pass_to_reference(rgb_short, rgb_long)
@@ -392,16 +384,19 @@ class Gl128ScanSession(ScanSession):
         merge_fusion_mean_short_weight: float | None = None
         merge_fusion_mean_long_weight: float | None = None
         merge_fusion_zero_weight_fraction: float | None = None
-        if multi_exposure and merge != "none" and rgb_long is not None:
-            merge_method = merge
-            shift = align_shift_long if align_passes else (0, 0)
+        if multi_exposure and rgb_long is not None:
+            merge_method = "snr"
+            shift = align_shift_long if align_passes else (0.0, 0.0)
+            alpha = float(getattr(model, "me_noise_alpha", 1.0))
+            beta = float(getattr(model, "me_noise_beta", 4096.0))
             merged = merge_exposures_result(
                 rgb_short,
                 rgb_long,
-                method=merge,  # type: ignore[arg-type]
                 exposure_short=exp_short,
                 exposure_long=exp_long,
                 align_shift=shift,
+                alpha=alpha,
+                beta=beta,
             )
             primary = merged.rgb
             if merged.fusion_stats is not None:
@@ -410,7 +405,10 @@ class Gl128ScanSession(ScanSession):
                 merge_fusion_zero_weight_fraction = merged.fusion_stats.zero_weight_fraction
 
         # Single film-base makeup on the deliverable only (not on rgb_short/long).
-        primary = self.pipeline.expose_film_base(primary, source="me deliverable")
+        # Headroom cap keeps IVW highlight recovery from being crushed to white.
+        primary = self.pipeline.expose_film_base(
+            primary, source="me deliverable", preserve_headroom=True
+        )
         primary = self.pipeline.clamp_border_highlights(primary)
 
         return ScanImage(

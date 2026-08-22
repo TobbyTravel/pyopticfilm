@@ -108,8 +108,8 @@ with Scanner.open() as scanner:
 
 Multi-exposure (8200i SE / GL128): short then long colour passes (3× exposure).
 `rgb_short` / `rgb_long` are **linear** bracket planes (no per-plane film-base
-peak stretch — that erased the ~3× ratio). `rgb` is the merged frame when
-`merge` is set (else short), after a single film-base makeup.
+peak stretch — that erased the ~3× ratio). `rgb` is the SNR/IVW-merged frame
+after a single film-base makeup.
 
 ```python
 with Scanner.open() as scanner:
@@ -118,13 +118,12 @@ with Scanner.open() as scanner:
         resolution=1800,
         mode="color",
         multi_exposure=True,
-        merge="snr",  # "none" | "linear" | "fusion" | "snr"
     )
-    print(image.rgb.shape)  # merged (or short if merge="none")
+    print(image.rgb.shape)  # SNR/IVW merged
     print(image.rgb_short.shape, image.rgb_long.shape)
     print(image.exposure_short, image.exposure_long)  # e.g. 14000, 42000
     image.save_tiff("merged.tif")
-    # Optional: keep the bracket for offline merge experiments
+    # Optional: keep the bracket for offline inspection
     from pyopticfilm.image import save_rgb16_tiff
 
     save_rgb16_tiff(image.rgb_short, "short.tif", dpi=image.dpi)
@@ -138,7 +137,6 @@ image = scanner.scan(
     resolution=1800,
     mode="color",
     multi_exposure=True,
-    merge="fusion",
     infrared=True,
 )
 # image.rgb / rgb_short / rgb_long as above; image.ir is HxW uint16
@@ -181,7 +179,13 @@ for info in find_devices():
 
 Scan modes: `"color"`, `"infrared"`. `"gray"` is not implemented.
 
-`scan(..., multi_exposure=True, merge=...)` is GL128 / 8200i SE only. Merge modes: `"none"` (short as `rgb` after makeup), `"linear"`, `"fusion"`, `"snr"`. Pass `infrared=True` with `mode="color"` for a dust/IR plane on the same `ScanImage`.
+`scan(..., multi_exposure=True)` is GL128 / 8200i SE only. When ME is on, `rgb` is always SNR/IVW-merged (per-channel clip confidence, soft highlight roll-off from ~80–95% FS; optional `model.me_noise_alpha` / `me_noise_beta`). Short/long planes stay linear on the `ScanImage`. Pass `infrared=True` with `mode="color"` for a dust/IR plane on the same `ScanImage`.
+
+Audit a saved bracket (and optional SilverFast ME TIFF)::
+
+```bash
+PYTHONPATH=src python -m tools.audit_me_bracket short.tif long.tif --sf sf_merged.tif
+```
 
 Enable debug logging:
 
