@@ -32,13 +32,21 @@ Other OpticFilm models **enumerate and open**: you can read status, turn the lam
 ## Features (8200i SE)
 
 - Color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host)
+- Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour)
+- Multi-exposure (ME): short + long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
 - Optional crop via normalized `area` (`x1, y1, x2, y2` in 0–1)
 - Dark/white shading calibration with on-disk cache (`~/.cache/pyopticfilm/calib_v2.json`)
 - GL128 ASIC shading path (AFE codes + shading blob) aligned with SilverFast capture order
+- Adaptive quiet USB drain on GL128 (line-aligned; keeps motor creep continuous at high PPI)
+- Left–right orientation corrected in `ImagePipeline.assemble()` for `mirror_x` models
 - 16-bit RGB `numpy` output; optional TIFF export via `tifffile`
 - Progress and cancel hooks for long scans
 
 Not implemented or out of scope here: iSRD infrared dust removal, SilverFast-style UI, or shipping a desktop app—applications own post-processing.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes. Latest release: [v1.1.2 on GitHub](https://github.com/jboneng/pyopticfilm/releases/tag/v1.1.2).
 
 ## Requirements
 
