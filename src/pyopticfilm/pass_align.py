@@ -68,8 +68,8 @@ def _warp_shift(mov: np.ndarray, dx: float, dy: float) -> np.ndarray:
     h, w = mov.shape[:2]
     # Integer path: cheap index gather (exact, no OpenCV).
     if abs(dx - round(dx)) < 1e-6 and abs(dy - round(dy)) < 1e-6:
-        idx = int(round(dx))
-        idy = int(round(dy))
+        idx = round(dx)
+        idy = round(dy)
         x_idx = np.clip(np.arange(w) + idx, 0, w - 1)
         y_idx = np.clip(np.arange(h) + idy, 0, h - 1)
         if mov.ndim == 3:
@@ -78,8 +78,8 @@ def _warp_shift(mov: np.ndarray, dx: float, dy: float) -> np.ndarray:
     try:
         import cv2
     except ImportError:
-        idx = int(round(dx))
-        idy = int(round(dy))
+        idx = round(dx)
+        idy = round(dy)
         x_idx = np.clip(np.arange(w) + idx, 0, w - 1)
         y_idx = np.clip(np.arange(h) + idy, 0, h - 1)
         if mov.ndim == 3:
