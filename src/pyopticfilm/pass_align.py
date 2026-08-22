@@ -61,8 +61,8 @@ def _luminance_plane(image: np.ndarray, *, probe_w: int = _ALIGN_PROBE_WIDTH) ->
     try:
         import cv2
     except ImportError:
-        sy = max(1, int(round(h / scale)))
-        sx = max(1, int(round(w / scale)))
+        sy = max(1, round(h / scale))
+        sx = max(1, round(w / scale))
         arr = arr[::sy, ::sx]
         if arr.ndim == 3:
             return arr.astype(np.float32).mean(axis=2)

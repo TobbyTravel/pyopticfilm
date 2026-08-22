@@ -10,7 +10,7 @@ import pytest
 
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.scan.geometry import compute_geometry
-from pyopticfilm.scan.session_gl128 import Gl128ScanSession, IMAGE_USB_PACE_S
+from pyopticfilm.scan.session_gl128 import IMAGE_USB_PACE_S, Gl128ScanSession
 
 
 def _geometry(*, dpi: int = 7200, lines: int = 4) -> object:
