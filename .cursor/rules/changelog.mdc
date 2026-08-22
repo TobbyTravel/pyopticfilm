@@ -1,0 +1,12 @@
+---
+description: Do not edit CHANGELOG.md unless the user explicitly requests it
+alwaysApply: true
+---
+
+# Changelog policy
+
+- **Do not** create, edit, or append to `CHANGELOG.md` unless the user **explicitly** asks to update the changelog (e.g. "add a changelog entry", "prepare release notes", "update CHANGELOG for 1.1.x").
+- Completing features, fixes, refactors, or docs work **does not** by itself warrant a changelog update.
+- Do not add an "Unreleased" section or version bump prose proactively after ordinary tasks.
+- When the user **does** request a changelog update: follow [Keep a Changelog](https://keepachangelog.com/) style, match existing section headings (`Added`, `Fixed`, `Changed`, …), and place new release blocks **above** older versions.
+- Bumping `src/pyopticfilm/_version.py` is separate; only change it when the user asks for a version or release prep.
