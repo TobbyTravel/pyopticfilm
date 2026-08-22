@@ -139,3 +139,32 @@ def test_line_shifts_align_channels():
     assert np.all(shifted[:, :, 0] == np.array([[10, 10], [11, 11]]))
     assert np.all(shifted[:, :, 1] == np.array([[20, 20], [21, 21]]))
     assert np.all(shifted[:, :, 2] == np.array([[30, 30], [31, 31]]))
+
+
+def test_reduce_y_oversample_uses_uint32_not_float64():
+    geo = _geometry(pixels=4, lines=2, optical_line_count=4)
+    rgb = np.array(
+        [
+            [[100, 200, 300], [101, 201, 301], [102, 202, 302], [103, 203, 303]],
+            [[104, 204, 304], [105, 205, 305], [106, 206, 306], [107, 207, 307]],
+            [[108, 208, 308], [109, 209, 309], [110, 210, 310], [111, 211, 311]],
+            [[112, 212, 312], [113, 213, 313], [114, 214, 314], [115, 215, 315]],
+        ],
+        dtype=np.uint16,
+    )
+    out = ImagePipeline().reduce_y_oversample(rgb, geo)
+    assert out.dtype == np.uint16
+    assert out.shape == (2, 4, 3)
+    assert out[0, 0, 0] == 102
+    assert out[1, 0, 0] == 110
+
+
+def test_reduce_y_oversample_sum_stays_uint32():
+    from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
+    from pyopticfilm.scan.geometry import compute_geometry
+
+    geo = compute_geometry(7200, model=MODEL_8200I_SE, area=None)
+    n = geo.optical_line_count // geo.lines
+    trimmed = np.zeros((geo.lines, n, geo.pixels, 3), dtype=np.uint16)
+    sums = trimmed.astype(np.uint32).sum(axis=1, dtype=np.uint32)
+    assert sums.dtype == np.uint32

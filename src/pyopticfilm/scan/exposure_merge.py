@@ -121,15 +121,15 @@ def merge_exposures_result(
     beta: float = _SNR_BETA,
 ) -> MergeResult:
     """Like :func:`merge_exposures` but returns weight stats."""
-    a = np.asarray(short, dtype=np.float64)
-    b_raw = np.asarray(long, dtype=np.float64)
+    a = np.asarray(short, dtype=np.float32)
+    b_raw = np.asarray(long, dtype=np.float32)
     if a.shape != b_raw.shape or a.ndim != 3 or a.shape[2] != 3:
         raise ValueError(f"expected matching HxWx3 arrays, got {a.shape} and {b_raw.shape}")
     if exposure_long <= 0 or exposure_short <= 0:
         raise ValueError("exposure values must be positive")
 
     b, _ = align_pass_to_reference(a.astype(np.uint16), b_raw.astype(np.uint16), shift=align_shift)
-    b = b.astype(np.float64)
+    b = b.astype(np.float32)
     ratio = exposure_long / float(exposure_short)
 
     rgb, stats = _merge_snr(
@@ -166,7 +166,7 @@ def _smooth_confidence(
 def _residual_confidence(z: np.ndarray, *, z_lo: float = _SNR_Z_LO, z_hi: float = _SNR_Z_HI) -> np.ndarray:
     """1 for |z|<=z_lo, smooth decay to 0 by z_hi."""
     az = np.abs(z)
-    conf = np.ones_like(az, dtype=np.float64)
+    conf = np.ones_like(az, dtype=np.float32)
     mid = (az > z_lo) & (az < z_hi)
     conf[az >= z_hi] = 0.0
     conf[mid] = (z_hi - az[mid]) / max(z_hi - z_lo, 1e-12)

@@ -23,7 +23,7 @@ Shift2D = tuple[float, float]
 def _luminance_plane(image: np.ndarray) -> np.ndarray:
     arr = np.asarray(image, dtype=np.float32)
     if arr.ndim == 3:
-        return arr.mean(axis=2)
+        return arr.mean(axis=2, dtype=np.float32)
     return arr
 
 
