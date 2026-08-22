@@ -77,6 +77,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--exposure-long", type=int, default=42000, help="USB long LPERIOD"
     )
+    parser.add_argument(
+        "--align",
+        action="store_true",
+        help="Estimate pass shift and report post-align luma residual",
+    )
     args = parser.parse_args(argv)
 
     short = _load(args.short)
@@ -87,6 +92,26 @@ def main(argv: list[str] | None = None) -> int:
 
     from pyopticfilm.scan.exposure_merge import merge_exposures_result
 
+    align_shift = (0.0, 0.0)
+    if args.align:
+        from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift
+
+        align_shift = estimate_pass_shift(
+            short.astype(np.uint16), long.astype(np.uint16)
+        )
+        print("--- alignment ---")
+        print(f"  estimated shift (dx, dy)=({align_shift[0]:.3f}, {align_shift[1]:.3f})")
+        long_aligned, _ = align_pass_to_reference(
+            short.astype(np.uint16),
+            long.astype(np.uint16),
+            shift=align_shift,
+        )
+        usb_r = args.exposure_long / float(args.exposure_short)
+        lum_s = short.mean(axis=2)
+        lum_l = long_aligned.astype(np.float64).mean(axis=2) / usb_r
+        residual = float(np.mean(np.abs(lum_s - lum_l)))
+        print(f"  mean |luma_short − luma_long/r| after align = {residual:.1f} DN")
+
     if args.merged is not None:
         merged = _load(args.merged)
     else:
@@ -95,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
             long.astype(np.uint16),
             exposure_short=args.exposure_short,
             exposure_long=args.exposure_long,
-            align_shift=(0.0, 0.0),
+            align_shift=align_shift,
         )
         merged = result.rgb.astype(np.float64)
         stats = result.fusion_stats

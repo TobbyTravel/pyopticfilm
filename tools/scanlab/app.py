@@ -349,6 +349,15 @@ class ScanLabWindow(QMainWindow):
             msg += f"; r={ratio:.3f}"
         return msg
 
+    @staticmethod
+    def _format_align_shift(shift: tuple[float, float] | None) -> str:
+        if shift is None:
+            return ""
+        dx, dy = float(shift[0]), float(shift[1])
+        if abs(dx) < 1e-6 and abs(dy) < 1e-6:
+            return "align (0, 0)"
+        return f"align dx={dx:.2f} dy={dy:.2f}"
+
     def _fusion_stats_message(self, debug) -> str:
         stats = getattr(debug, "fusion_stats", None)
         if stats is None:
@@ -359,6 +368,9 @@ class ScanLabWindow(QMainWindow):
         )
         if stats.zero_weight_fraction:
             msg += f" both-zero={stats.zero_weight_fraction:.2%}"
+        align = getattr(debug, "align_shift_long", None)
+        if align is not None:
+            msg += f"; {self._format_align_shift(align)}"
         return msg
 
     def _on_me_pass_toggled(self, checked: bool) -> None:
@@ -857,11 +869,13 @@ class ScanLabWindow(QMainWindow):
             self.merged_view.set_rgb(image.rgb, dpi=image.dpi, auto_level=False)
             stats = debug.fusion_stats
             if stats is not None:
-                self.merged_view.set_caption(
-                    self._format_fusion_caption(stats).replace(
-                        "short-scale output", "short-scale + makeup"
-                    )
+                cap = self._format_fusion_caption(stats).replace(
+                    "short-scale output", "short-scale + makeup"
                 )
+                align = debug.align_shift_long
+                if align is not None:
+                    cap += f"; {self._format_align_shift(align)}"
+                self.merged_view.set_caption(cap)
             else:
                 self.merged_view.set_caption("Merge: SNR / IVW")
         else:

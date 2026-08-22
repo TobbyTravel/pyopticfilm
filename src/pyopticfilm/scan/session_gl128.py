@@ -276,7 +276,7 @@ class Gl128ScanSession(ScanSession):
         align_passes: bool = True,
     ):
         from pyopticfilm.image import ScanImage
-        from pyopticfilm.pass_align import align_pass_to_reference
+        from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift, warn_if_align_unavailable
         from pyopticfilm.scan.exposure_merge import merge_exposures_result
         from pyopticfilm.scan.geometry import compute_geometry
         from pyopticfilm.scan.me_debug import MeScanDebug
@@ -387,9 +387,21 @@ class Gl128ScanSession(ScanSession):
         align_shift_ir: tuple[float, float] | None = None
 
         if align_passes and rgb_long is not None:
-            _, align_shift_long = align_pass_to_reference(rgb_short, rgb_long)
+            warn_if_align_unavailable("ME long")
+            align_shift_long = estimate_pass_shift(rgb_short, rgb_long)
+            logger.info(
+                "ME long pass shift (dx, dy)=(%.3f, %.3f)",
+                align_shift_long[0],
+                align_shift_long[1],
+            )
         if align_passes and ir_plane is not None:
+            warn_if_align_unavailable("IR")
             ir_plane, align_shift_ir = align_pass_to_reference(rgb_short, ir_plane)
+            logger.info(
+                "IR pass shift (dx, dy)=(%.3f, %.3f)",
+                align_shift_ir[0],
+                align_shift_ir[1],
+            )
 
         primary = rgb_short
         fusion_stats = None

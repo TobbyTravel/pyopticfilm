@@ -26,6 +26,9 @@ _SNR_Z_HI = 5.0
 # Row bands for IVW merge — avoids several full-frame float32 planes at 3600+ dpi.
 _MERGE_CHUNK_ROWS = 128
 _STATS_MAX_SIDE = 1024
+# Luma disagreement (short scale) above which IVW is suppressed (misregistration guard).
+_LUMA_DISAGREE_TAU = 300.0
+_IVW_CHANNEL_SPREAD_TAU = 150.0
 
 
 @dataclass(frozen=True)
@@ -278,7 +281,13 @@ def _merge_snr_rows(
     ivw = (wa * xa + wb * xb) / np.maximum(denom, 1e-12)
 
     prefer = np.where(wa >= wb, xa, xb)
-    out = c_res_eff[..., np.newaxis] * ivw + (1.0 - c_res_eff[..., np.newaxis]) * prefer
+    merged = c_res_eff[..., np.newaxis] * ivw + (1.0 - c_res_eff[..., np.newaxis]) * prefer
+    # Misregistered edges: per-channel IVW causes R/G/B fringes; fall back to short scale
+    # only when luma AND channel spread both disagree (dense shadow keeps long recovery).
+    lum_diff = np.abs(lum_xa - lum_xb)
+    ivw_spread = np.max(ivw, axis=2) - np.min(ivw, axis=2)
+    misaligned = (lum_diff > _LUMA_DISAGREE_TAU) & (ivw_spread > _IVW_CHANNEL_SPREAD_TAU)
+    out = np.where(misaligned[..., np.newaxis], xa, merged)
     out = np.where(both_zero, 0.0, out)
 
     both_zero_pix = np.all(both_zero, axis=2)

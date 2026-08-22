@@ -171,6 +171,30 @@ def test_merge_snr_differs_from_short_when_long_adds_signal():
     assert not np.allclose(result.rgb, short, atol=50)
 
 
+def test_merge_guard_limits_channel_split_at_shifted_edge():
+    """Misregistered long at an edge should not split R/G/B after IVW."""
+    h, w = 64, 64
+    level_lo = 8000
+    level_hi = 15000
+    short = np.full((h, w, 3), level_lo, dtype=np.uint16)
+    long = np.full((h, w, 3), level_lo * 3, dtype=np.uint16)
+    short[: h // 2, :, :] = level_hi
+    long[: h // 2, :, :] = level_hi * 3
+    long_shifted = np.roll(long, 2, axis=0)
+
+    result = merge_exposures_result(
+        short,
+        long_shifted,
+        exposure_short=14000,
+        exposure_long=42000,
+        align_shift=(0.0, 0.0),
+    )
+    row = h // 2
+    px = result.rgb[row, w // 2].astype(np.float64)
+    spread = float(px.max() - px.min())
+    assert spread < 400.0
+
+
 def test_merge_exposures_large_shape_chunked():
     """Regression: 3600 dpi-class frames must not need full-frame float32 planes."""
     h, w = 3603, 5184
