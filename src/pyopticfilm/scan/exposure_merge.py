@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
 
-from pyopticfilm.pass_align import align_pass_to_reference
+from pyopticfilm.pass_align import (
+    align_pass_to_reference,
+)
 
 _FULL_SCALE = 65535.0
 
@@ -368,3 +371,266 @@ def _merge_snr(
         exposure_ratio_used=float(r),
     )
     return out, stats
+
+
+# --- N-pass generalisation (multi-pass / IVW over more than 2 exposures) ----
+#
+# The 2-pass path above (merge_exposures / _merge_snr) is untouched and remains
+# the byte-identical path used for the classic short+long ME bracket. Below is a
+# streaming N-pass merger (N>=2) built from the same per-pass confidence and
+# variance model, so that N=2 reproduces the 2-pass *weights* exactly.
+#
+# Memory: per-pixel it holds only the running moments (num, den, sumx, sumx2)
+# as float64 plus one uint16 output plane — independent of N. So N=99 does not
+# multiply memory; it only multiplies pass count and time.
+
+@dataclass(frozen=True)
+class NPassFuseResult:
+    """Fused frame plus per-pass diagnostics for an N-pass merge."""
+
+    rgb: np.ndarray
+    exposures: tuple[int, ...]
+    base_exposure: int
+    per_pass_mean_weight: tuple[float, ...]
+    zero_weight_fraction: float
+    mean_gate: float
+
+
+class NPassMerger:
+    """Streaming inverse-variance fusion of ``n`` aligned colour passes.
+
+    ``add_pass`` may be called once per pass (in any order); all passes must be
+    aligned onto the same reference geometry before they are added.
+    ``finalize`` folds the running moments into a uint16 RGB frame.
+
+    The fused value is the inverse-variance weighted mean of the passes
+    expressed on the *shortest-exposure* radiometric scale, i.e.::
+
+        x_i   = raw_i / (exposure_i / base)      # to base-exposure scale
+        w_i   = conf_i / ( (alpha*raw_i + beta) / (exposure_i/base)^2 )
+        fused = sum(w_i * x_i) / sum(w_i)
+
+    A cross-pass *dispersion gate* suppresses a pixel where the passes do not
+    agree (misregistration / a bad frame / nonlinearity)::
+
+        gate = 1                     if var(x)/mean(x)^2 <= disp_lo
+             = 0                     if var(x)/mean(x)^2 >= disp_hi
+             = smooth decay         otherwise
+
+    where ``var``/``mean`` are over the N pass values at that pixel.
+    """
+
+    def __init__(
+        self,
+        shape: tuple[int, int, int],
+        exposures: Sequence[int],
+        *,
+        alpha: float = _SNR_ALPHA,
+        beta: float = _SNR_BETA,
+        floor: float = _SNR_FLOOR,
+        clip_start: float = _SNR_CLIP_START,
+        clip_end: float = _SNR_CLIP_END,
+        disp_lo: float = 0.10,
+        disp_hi: float = 0.60,
+    ) -> None:
+        h, w, c = (int(x) for x in shape)
+        if c != 3:
+            raise ValueError(f"expected HxWx3, got {shape}")
+        exps = tuple(int(e) for e in exposures)
+        if len(exps) < 1 or any(e <= 0 for e in exps):
+            raise ValueError("exposures must be positive")
+        self.shape = (h, w, c)
+        self.exposures = exps
+        self.base_exposure = min(exps)
+        self._n = len(exps)
+        self._alpha = float(alpha)
+        self._beta = float(beta)
+        self._floor = float(floor)
+        self._clip_start = float(clip_start)
+        self._clip_end = float(clip_end)
+        self._disp_lo = float(disp_lo)
+        self._disp_hi = float(disp_hi)
+
+        # Per-pixel float64 running moments (independent of N in size).
+        self._num = np.zeros((h, w, c), dtype=np.float64)
+        self._den = np.zeros((h, w, c), dtype=np.float64)
+        self._sumx = np.zeros((h, w, c), dtype=np.float64)
+        self._sumx2 = np.zeros((h, w, c), dtype=np.float64)
+        self._wsum = [0.0] * self._n  # per-pass weight sum (stats)
+        self._added = 0
+        self._eps = 1e-12
+
+    def add_pass(
+        self,
+        raw: np.ndarray,
+        exposure: int | None = None,
+    ) -> None:
+        """Fold one aligned pass into the running moments.
+
+        ``exposure`` defaults to the next entry of :attr:`exposures`; pass it
+        explicitly when the order of :meth:`add_pass` calls differs from the
+        :attr:`exposures` order.
+        """
+        if self._added >= self._n:
+            raise ValueError("all passes already added to this merger")
+        if exposure is None:
+            exp = self.exposures[self._added]
+        else:
+            exp = int(exposure)
+        raw_u = np.asarray(raw)
+        if raw_u.shape != self.shape:
+            raise ValueError(f"pass shape {raw_u.shape} != {self.shape}")
+        raw = raw_u.astype(np.float64)
+        r = float(exp) / float(self.base_exposure)
+        x = raw / r
+        conf = _smooth_confidence(
+            raw, floor=self._floor, clip_start=self._clip_start, clip_end=self._clip_end
+        )
+        var = (self._alpha * np.maximum(raw, 0.0) + self._beta) / (r * r)
+        w = conf / np.maximum(var, self._eps)
+        self._num += w * x
+        self._den += w
+        self._sumx += x
+        self._sumx2 += x * x
+        self._wsum[self._added] += float(w.sum())
+        self._added += 1
+
+    def finalize(self) -> NPassFuseResult:
+        if self._added < self._n:
+            missing = self._n - self._added
+            raise ValueError(f"{missing} pass(es) not yet added to this merger")
+        n = float(self._n)
+        # A pixel where every pass has negligible confidence is black: zero the
+        # numerator there so the convex combination is 0 (no broadcast gymnastics).
+        both_zero = self._den <= 1e-6
+        if bool(both_zero.any()):
+            self._num = np.where(both_zero, 0.0, self._num)
+        # Fused inverse-variance value (convex combination — bounded, no overflow).
+        ivw = self._num / np.maximum(self._den, self._eps)
+        # Cross-pass dispersion gate (per pixel luma, broadcast over channels).
+        xbar = self._sumx / n
+        level2 = np.maximum(xbar * xbar, self._eps)
+        rel = (self._sumx2 / n - xbar * xbar) / level2
+        rel = np.clip(rel, 0.0, None)
+        rel_lum = rel.mean(axis=2)
+        gate = _dispersion_gate(
+            rel_lum, disp_lo=self._disp_lo, disp_hi=self._disp_hi
+        )
+        out = gate[..., np.newaxis] * ivw
+        rgb = np.clip(out, 0.0, _FULL_SCALE).astype(np.uint16)
+        total_px = int(self.shape[0] * self.shape[1])
+        wsum_total = float(sum(self._wsum))
+        per_pass_mean_weight = (
+            tuple(ws / wsum_total for ws in self._wsum) if wsum_total > 0 else tuple(
+                0.0 for _ in self._wsum
+            )
+        )
+        return NPassFuseResult(
+            rgb=rgb,
+            exposures=tuple(self.exposures),
+            base_exposure=int(self.base_exposure),
+            per_pass_mean_weight=per_pass_mean_weight,
+            zero_weight_fraction=float(np.count_nonzero(both_zero)) / max(total_px, 1),
+            mean_gate=float(gate.mean()),
+        )
+
+
+def _dispersion_gate(rel: np.ndarray, *, disp_lo: float, disp_hi: float) -> np.ndarray:
+    """1 for ``rel <= disp_lo``, smooth 0 by ``disp_hi``. ``rel`` is luma HxW."""
+    rel = np.asarray(rel, dtype=np.float32)
+    out = np.ones_like(rel)
+    out[rel >= disp_hi] = 0.0
+    mid = (rel > disp_lo) & (rel < disp_hi)
+    t = (rel[mid] - disp_lo) / max(disp_hi - disp_lo, 1e-12)
+    out[mid] = 1.0 - t * t * (3.0 - 2.0 * t)
+    return out
+
+
+def reduce_passes(
+    planes: Sequence[np.ndarray],
+    exposures: Sequence[int],
+    *,
+    alpha: float = _SNR_ALPHA,
+    beta: float = _SNR_BETA,
+    disp_lo: float = 0.10,
+    disp_hi: float = 0.60,
+) -> NPassFuseResult:
+    """Fuse ``len(planes)`` aligned colour passes on the given exposures.
+
+    * 1 pass → returned as-is (no fusion).
+    * 2 passes → delegates to the battle-tested :func:`merge_exposures_result`
+      (byte-identical to the classic ME path).
+    * >=3 passes → streaming :class:`NPassMerger`.
+
+    All planes must already be aligned to the same reference geometry.
+    """
+    planes = list(planes)
+    exps = tuple(int(e) for e in exposures)
+    if len(planes) != len(exps):
+        raise ValueError(
+            f"got {len(planes)} planes but {len(exps)} exposures"
+        )
+    if not planes:
+        raise ValueError("reduce_passes needs at least one plane")
+    ref = np.asarray(planes[0])
+    if ref.ndim != 3 or ref.shape[2] != 3:
+        raise ValueError(f"expected HxWx3 planes, got {ref.shape}")
+    if len(planes) == 1:
+        rgb = np.clip(planes[0], 0.0, _FULL_SCALE).astype(np.uint16)
+        return NPassFuseResult(
+            rgb=rgb,
+            exposures=exps,
+            base_exposure=int(exps[0]),
+            per_pass_mean_weight=(1.0,),
+            zero_weight_fraction=0.0,
+            mean_gate=1.0,
+        )
+    if len(planes) == 2:
+        long_u = np.asarray(planes[1])
+        # Preserve the classic short→long ordering for the 2-pass path.
+        if exps[0] <= exps[1]:
+            short, long, expo_s, expo_l = planes[0], long_u, exps[0], exps[1]
+        else:
+            short, long, expo_s, expo_l = long_u, planes[0], exps[1], exps[0]
+        res = merge_exposures_result(
+            np.asarray(short),
+            np.asarray(long),
+            exposure_short=expo_s,
+            exposure_long=expo_l,
+            alpha=alpha,
+            beta=beta,
+        )
+        fs = res.fusion_stats
+        total_w = (
+            (fs.mean_short_weight + fs.mean_long_weight) if fs is not None else 0.0
+        )
+        if total_w > 0 and fs is not None:
+            # Report in the caller's plane order (may be reversed vs short/long).
+            if exps[0] <= exps[1]:
+                pp = (fs.mean_short_weight / total_w, fs.mean_long_weight / total_w)
+            else:
+                pp = (fs.mean_long_weight / total_w, fs.mean_short_weight / total_w)
+        else:
+            pp = (0.5, 0.5)
+        return NPassFuseResult(
+            rgb=res.rgb,
+            exposures=exps,
+            base_exposure=int(min(exps)),
+            per_pass_mean_weight=pp,
+            zero_weight_fraction=fs.zero_weight_fraction if fs is not None else 0.0,
+            mean_gate=float(fs.mean_residual_confidence)
+            if fs is not None and fs.mean_residual_confidence is not None
+            else 1.0,
+        )
+
+    merger = NPassMerger(
+        ref.shape,
+        exps,
+        alpha=alpha,
+        beta=beta,
+        disp_lo=disp_lo,
+        disp_hi=disp_hi,
+    )
+    for plane, exp in zip(planes, exps):
+        merger.add_pass(np.asarray(plane), exp)
+    return merger.finalize()
