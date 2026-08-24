@@ -3,11 +3,12 @@
 PyQt6 bring-up GUI for exercising `pyopticfilm` without NegPy.
 
 Scan Lab is **repo-only** (not shipped on PyPI). Use it to try mock USB for any
-known OpticFilm model, or a real OpticFilm 8200i SE when one is plugged in.
+known OpticFilm model, or real scan-ready hardware (8200i SE or 8100 V2) when
+plugged in.
 
-It does **not** flip `scan_ready`. Non-SE models stay scan-locked on real USB
-unless you explicitly enable **Override safety HW gate** (lab bring-up only).
-The mock path is the usual way to drive those pipelines without hardware.
+It does **not** flip `scan_ready`. Non-scan-ready models stay scan-locked on
+real USB unless you explicitly enable **Override safety HW gate** (lab bring-up
+only). The mock path is the usual way to drive those pipelines without hardware.
 
 ## Requirements
 
@@ -43,26 +44,29 @@ Mock frames are **not** film. The fake USB layer fills RGB16 with a deterministi
 pattern (`R=x`, `G=y`, `B=x XOR y`) so the pipeline and UI can be checked without
 a scanner.
 
-## Quick start (real 8200i SE)
+## Quick start (real scan-ready: 8200i SE or 8100 V2)
 
 1. Bind the scanner for libusb (Windows: WinUSB via Zadig — see windows-setup).
-2. Click **Refresh devices**. A connected SE should appear with `— connected`.
+2. Click **Refresh devices**. A connected scan-ready unit should appear with
+   `— connected` (SE `07b3:1825` or 8100 V2 `07b3:1824`).
 3. Select that device.
 4. **Uncheck** **Run against MOCK**.
 5. **Prescan** at 1200 dpi (full safe window), drag a crop if you want, then
    **Scan** at the PPI you care about.
-6. With **IR pass** enabled, Scan Lab runs colour then infrared. The IR tab shows
-   a grayscale plane (green CCD channel, host-flattened), not a magenta RGB
-   preview.
+6. With **IR pass** enabled (8200i SE only — 8100 V2 has no IR), Scan Lab runs
+   colour then infrared. The IR tab shows a grayscale plane (green CCD channel,
+   host-flattened), not a magenta RGB preview.
 
-Real non-SE OpticFilms can appear as connected, but the library will refuse to
-scan them until that model is hardware-validated (`scan_ready`) — unless you
-check **Override safety HW gate** (warning dialog; motors/lamp can run).
+Real non-scan-ready OpticFilms can appear as connected, but the library will
+refuse to scan them until that model is hardware-validated (`scan_ready`) —
+unless you check **Override safety HW gate** (warning dialog; motors/lamp can
+run).
 
-## Quick start (real non-SE bring-up, e.g. 8100)
+## Quick start (real non-scan-ready bring-up, e.g. GL845 8100)
 
-Lesson from early 8100 HW: override unlocks the gate; it does **not** make
-full-TA high-PPI Scan safe.
+Lesson from early GL845 8100 HW (`07b3:130c`): override unlocks the gate; it
+does **not** make full-TA high-PPI Scan safe. Do not confuse this with the
+scan-ready GL128 **8100 (V2)** (`07b3:1824`).
 
 1. Uncheck **Run against MOCK**, check **Override safety HW gate** (accept warning).
 2. Leave **Apply calib** on (default). Use **Clear calib cache** if you change film or lamp.
@@ -90,9 +94,9 @@ full-TA high-PPI Scan safe.
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
 | **PPI** | Resolutions from the selected model’s `resolutions_dpi` (Scan only; Prescan uses a fixed low dpi). |
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
-| **Multi-exposure (ME)** | GL128 / 8200i SE: short+long colour passes; host SNR/IVW merge into ``rgb``. Bracket planes on ``Scanner.last_me_debug`` (not ``ScanImage``). |
-| **Prescan** | Low-res preview (SE: 1200 dpi safe window; non-SE: lowest dpi + short Y strip). |
-| **Scan** | Colour scan at the chosen PPI; optional IR and/or ME. Uses the prescan crop when one is set (clamped on non-SE). |
+| **Multi-exposure (ME)** | GL128 / hardware-tested models: short+long colour passes; host SNR/IVW merge into ``rgb``. Bracket planes on ``Scanner.last_me_debug`` (not ``ScanImage``). |
+| **Prescan** | Low-res preview (GL128: 1200 dpi safe window; non-scan-ready: lowest dpi + short Y strip). |
+| **Scan** | Colour scan at the chosen PPI; optional IR and/or ME. Uses the prescan crop when one is set (clamped on non-scan-ready). |
 | **Open capture…** | Open a USBPcap ``.pcap`` / ``.pcapng``. Decodes the largest bulk IN through the selected model’s image pipeline and diffs FEEDL / LINCNT / DPISET vs Lab geometry (Capture tab). |
 | **Cancel** | Sets the scan cancel event (busy scans only). |
 
@@ -145,11 +149,11 @@ Passive analysis of a USBPcap recording (VueScan / SilverFast / SANE / Lab):
 2. **Open capture…** and choose a `.pcapng` / `.pcap` from USBPcap/Wireshark.
 3. The **Scan** tab shows the decoded image. Lab finds the SilverFast
    ``VALUE_BUFFER`` preamble (``wIndex=0x08``), carves that many bulk-IN bytes,
-   and for **8200i SE** decodes as 16-bit chunky RGB using capture
-   STRPIXEL/ENDPIXEL/LINCNT/DPISET (Lab PPI is ignored for decode — a mismatch
-   shears the image). Use **USB planar RGB** only if rainbow-striped. Select
-   **8200i SE** for SE captures. The **Capture** tab reports preamble size and
-   register diffs.
+   and for **GL128** (8200i SE / 8100 V2) decodes as 16-bit chunky RGB using
+   capture STRPIXEL/ENDPIXEL/LINCNT/DPISET (Lab PPI is ignored for decode — a
+   mismatch shears the image). Use **USB planar RGB** only if rainbow-striped.
+   Select the matching GL128 model for those captures. The **Capture** tab
+   reports preamble size and register diffs.
 4. The **Capture** tab lists FEEDL / LINCNT / DPISET from the capture versus what
    Lab would program at the current PPI / crop — useful for motor-grind diagnosis.
 
@@ -170,7 +174,7 @@ Progress for the active pass is shown in the status bar.
 
 ## Geometry notes
 
-### 8200i SE
+### GL128 (8200i SE and 8100 V2)
 
 - Prescan / uncropped Scan use the capture-safe **preview** window (feed2 at
   the top of the TA window), not a raw full-TA `area=None` request that can
@@ -181,11 +185,12 @@ Progress for the active pass is shown in the status bar.
   motor creep continuous at 7200 (no fixed pause before each USB chunk).
   Uncheck for fastest/loudest drain. **Slow image slope** is an optional acoustic
   probe (feeds stay fast).
+- 8100 V2 has no IR; leave **IR pass** off on that model.
 
-### Unvalidated non-SE (8100 / GL845 aliases, …)
+### Unvalidated non-scan-ready (GL845 8100 / aliases, …)
 
 - Prescan and uncropped Scan use a **short Y strip** (~5 mm / ≤18% of TA), never
-  full TA — full-frame high PPI was observed to grind the motor on an 8100.
+  full TA — full-frame high PPI was observed to grind the motor on a GL845 8100.
 - Tall rubber-band crops are clamped to that same height budget.
 - High-PPI Scan (≥2400) with override on prompts a warning before the clamped move.
 - Prefer **Apply calib** off and **USB planar RGB** experiments before long travels.
@@ -204,7 +209,7 @@ bring-up:
    **SilverFast**) before using Scan Lab or pyopticfilm again.
 
 This recovery sequence has only been **tested on the OpticFilm 8200i SE**. Treat
-it as a starting point on other models (8100, etc.); keep a hand near power and
+it as a starting point on 8100 V2 and other models; keep a hand near power and
 do not force the carriage by hand.
 
 ## What Scan Lab is not
@@ -222,7 +227,7 @@ For protocol / support levels, see
 tools/scanlab/
   __main__.py   # uv run python -m tools.scanlab
   app.py        # main window
-  backend.py    # device list, open real/mock, SE geometry helpers
+  backend.py    # device list, open real/mock, GL128 geometry helpers
   capture_pcap.py  # USBPcap parse + bulk decode / register diff
   preview.py    # numpy downsample / auto-level (no Qt)
   worker.py     # QThread scan worker + USB log dividers

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""GL128 driver for the OpticFilm 8200i SE.
+"""GL128 driver for OpticFilm 8200i SE and 8100 (V2).
 
 SANE genesys has no GL128 command set, so none of this is ported from SANE.
 Every register write below replays what the Windows driver does in the USB
-captures under ``captures/8200i-se/``; the model tables it uses live in
-``pyopticfilm.device.model_8200i_se``.
+captures under ``captures/8200i-se/``; the model tables live in
+``pyopticfilm.device.model_8200i_se`` (8100 V2 subclasses those tables; no IR).
 
 Differences from :class:`~pyopticfilm.asic.gl845.Gl845` that matter here:
 
@@ -86,8 +86,8 @@ IR_AFE_HEALTHY_MEAN = 8000
 #: Colour peg fallback uses mid-probe gains; keep dichotomy offsets.
 
 BRINGUP_HINT = (
-    "GL128 (OpticFilm 8200i SE) support is derived from USB captures of the "
-    "Windows driver rather than from SANE — see docs/gl128-bringup.md."
+    "GL128 (OpticFilm 8200i SE / 8100 V2) support is derived from USB captures "
+    "of the Windows driver rather than from SANE — see docs/gl128-bringup.md."
 )
 
 #: Raised when code deliberately disarms the motor (e.g. stationary shading).
@@ -95,7 +95,7 @@ MOTOR_GATED_HINT = (
     "GL128 motor moves are temporarily disabled on this handle "
     "(disarmed for safety). Re-enable with Scanner.arm_bringup_motor() after "
     "stationary calib, or open a fresh Scanner (motor is on by default for "
-    "scan-ready SE)."
+    "scan-ready GL128)."
 )
 
 MM_PER_INCH = 25.4
@@ -179,7 +179,7 @@ DEFAULT_IMAGE_USB_PACE_S = 0.003
 
 
 class Gl128:
-    """GL128 chip operations for the OpticFilm 8200i SE."""
+    """GL128 chip operations for OpticFilm 8200i SE and 8100 (V2)."""
 
     def __init__(
         self,
@@ -192,7 +192,7 @@ class Gl128:
         self._initialized = False
         self._reg_cache: dict[int, int] = {}
         self._scan_method: ScanMethod = "transparency"
-        #: On for scan-ready SE; Lab/session may temporarily disarm for
+        #: On for scan-ready GL128; Lab/session may temporarily disarm for
         #: stationary shading (ASIC shade while armed caused motor grind).
         self._motor_moves_enabled = bool(getattr(model, "scan_ready", False))
         #: Whether the last SilverFast-style AGOHOME park completed.

@@ -2,9 +2,9 @@
 """Genesys register addresses and bit masks.
 
 ``Gl845Registers`` mirrors genesys ``gl846_registers.h``. ``Gl128Registers``
-covers the OpticFilm 8200i SE, whose map is GL124-family; every address and bit
-there is annotated with the capture that proves it (see
-``captures/8200i-se/*/NOTES.md``).
+covers GL128 OpticFilm (map proven on the 8200i SE; also used by 8100 V2),
+whose map is GL124-family; every address and bit there is annotated with the
+capture that proves it (see ``captures/8200i-se/*/NOTES.md``).
 """
 
 from __future__ import annotations
@@ -71,11 +71,12 @@ class Gl845Registers:
 
 @dataclass(frozen=True, slots=True)
 class Gl128Registers:
-    """OpticFilm 8200i SE (GL124-family) addresses confirmed from USB captures.
+    """GL128 (GL124-family) addresses confirmed from SE USB captures.
 
-    Status uses the same bit layout as GL845 register ``0x41`` but lives at the
-    high address ``0x101``; every value observed across the five capture
-    sessions decodes consistently under that layout (session 04 NOTES).
+    Also used by OpticFilm 8100 (V2). Status uses the same bit layout as GL845
+    register ``0x41`` but lives at the high address ``0x101``; every value
+    observed across the five capture sessions decodes consistently under that
+    layout (session 04 NOTES).
     """
 
     REG_0x01: int = 0x01

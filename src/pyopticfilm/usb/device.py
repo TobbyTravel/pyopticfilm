@@ -24,10 +24,10 @@ logger = get_logger(__name__)
 VID_PLUSTEK = 0x07B3
 PID_OPTICFILM_8200I = 0x130D
 
-# OpticFilm 8200i SE (GL128) — only scan-ready model in this release
+# OpticFilm 8200i SE (GL128) — scan-ready in this release
 PID_OPTICFILM_8200I_SE = 0x1825
 
-# OpticFilm 8100 V2 (GL128)
+# OpticFilm 8100 V2 (GL128) — scan-ready in this release (no IR)
 PID_OPTICFILM_8100_V2 = 0x1824
 
 # Other SANE genesys :complete OpticFilm PIDs (probe-only until validated)
@@ -230,7 +230,7 @@ def _map_usb_exception(exc: BaseException) -> Exception:
 
 
 def _pick_preferred_device(devices: list[UsbDeviceInfo]) -> UsbDeviceInfo:
-    """Prefer a scan-ready model (8200i SE) when several OpticFilms are present."""
+    """Prefer a scan-ready model when several OpticFilms are present."""
     from pyopticfilm.device.select import model_for_device, model_is_scan_ready
 
     ready: list[UsbDeviceInfo] = []
@@ -251,8 +251,9 @@ class UsbDeviceHandle:
         if not info.is_supported:
             raise UnsupportedDeviceError(
                 f"Device {info.device_id} is not a known OpticFilm. "
-                f"This release scans only OpticFilm 8200i SE (07b3:1825); "
-                f"other PIDs may open for probe/status only."
+                f"This release scans OpticFilm 8200i SE (07b3:1825) and "
+                f"OpticFilm 8100 (V2) (07b3:1824); other PIDs may open for "
+                f"probe/status only."
             )
         self.info = info
         self._dev = None
@@ -265,7 +266,7 @@ class UsbDeviceHandle:
 
     @classmethod
     def open(cls, device_id: str | None = None) -> UsbDeviceHandle:
-        """Open by ``device_id``, or prefer scan-ready SE among supported devices."""
+        """Open by ``device_id``, or prefer a scan-ready model among supported devices."""
         devices = find_devices(supported_only=True)
         if device_id is not None:
             match = next((d for d in devices if d.device_id == device_id), None)
@@ -280,8 +281,8 @@ class UsbDeviceHandle:
             if not devices:
                 raise DeviceNotFoundError(
                     "No OpticFilm found. This release scans OpticFilm 8200i SE "
-                    "(07b3:1825). Check cabling and WinUSB binding — see "
-                    "docs/windows-setup.md."
+                    "(07b3:1825) and OpticFilm 8100 (V2) (07b3:1824). Check "
+                    "cabling and WinUSB binding — see docs/windows-setup.md."
                 )
             handle = cls(_pick_preferred_device(devices))
         handle._open()

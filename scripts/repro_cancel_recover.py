@@ -18,7 +18,7 @@ import traceback
 from pyopticfilm import Scanner
 from pyopticfilm.exceptions import PlustekError, ScanCancelled
 from pyopticfilm.logging import enable_debug_logging, get_logger
-from pyopticfilm.scan.bringup import bringup_scan_geometry, is_opticfilm_8200i_se
+from pyopticfilm.scan.bringup import bringup_scan_geometry, is_gl128_opticfilm
 
 logger = get_logger("repro_cancel_recover")
 
@@ -26,7 +26,7 @@ logger = get_logger("repro_cancel_recover")
 def _scan_kwargs(scanner: Scanner, dpi: int) -> dict:
     """Use Lab preview_safe geometry on SE so LINCNT fits the feed2 window."""
     kwargs: dict = {"resolution": dpi, "mode": "color"}
-    if is_opticfilm_8200i_se(scanner.model):
+    if is_gl128_opticfilm(scanner.model):
         geo, _meta = bringup_scan_geometry(scanner.model, dpi, profile="preview_safe")
         kwargs["geometry"] = geo
         print(f"  using preview_safe geometry lincnt={geo.lincnt_register} travel={geo.travel_mm:.1f}mm")

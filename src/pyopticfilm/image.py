@@ -22,10 +22,11 @@ class ScanImage:
     All arrays are **linear film-negative measurements** (bright sensor values
     correspond to dense emulsion). Positive conversion is the host app's job.
 
-    Multi-exposure (8200i SE): the SNR/IVW-merged deliverable with film-base
-    makeup is in ``rgb``. Bracket planes and fusion stats are **not** on
-    ``ScanImage`` — use :attr:`~pyopticfilm.scanner.Scanner.last_me_debug`
-    for Scan Lab / bring-up inspection.
+    Multi-exposure (GL128 hardware-tested models): the SNR/IVW-merged
+    deliverable with film-base makeup is in ``rgb``. Bracket planes and fusion
+    stats are **not** on ``ScanImage`` — use
+    :attr:`~pyopticfilm.scanner.Scanner.last_me_debug` for Scan Lab / bring-up
+    inspection.
     """
 
     rgb: np.ndarray

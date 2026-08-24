@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Scan session for the OpticFilm 8200i SE (GL128).
+"""Scan session for GL128 OpticFilm (8200i SE and 8100 V2).
 
 Only the chip-specific steps are overridden; run/assemble/calibration lookup
 stay in :class:`~pyopticfilm.scan.session.ScanSession`. What differs from GL845:
@@ -10,8 +10,8 @@ stay in :class:`~pyopticfilm.scan.session.ScanSession`. What differs from GL845:
   there is no ``zmod`` calculation;
 * feeding is a separate, synchronous move before the scan starts;
 * the image is streamed with USB-sized ``VALUE_BUFFER`` announces (a single
-  full-image preamble was louder on real SE hardware); source is selected with
-  ``wIndex`` — RAM for calibration, live stream for a scan.
+  full-image preamble was louder on real GL128 hardware); source is selected
+  with ``wIndex`` — RAM for calibration, live stream for a scan.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ except ImportError:  # pragma: no cover
 
 
 class Gl128ScanSession(ScanSession):
-    """GL128 scan state machine for the 8200i SE."""
+    """GL128 scan state machine for OpticFilm 8200i SE and 8100 (V2)."""
 
     def __init__(
         self,

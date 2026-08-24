@@ -2,8 +2,9 @@
 """Minimal interactive OpticFilm scan example.
 
 Enumerate connected scanners, pick one, choose PPI, optionally enable
-multi-exposure (ME) and infrared (IR) on GL128 / 8200i SE hardware, and
-write 16-bit TIFF files to a folder.
+multi-exposure (ME) and infrared (IR) on scan-ready GL128 hardware
+(8200i SE; IR on SE only — 8100 V2 has no IR), and write 16-bit TIFF
+files to a folder.
 
 Requires WinUSB/libusb binding and ``pip install tifffile`` for TIFF output::
 
@@ -99,19 +100,19 @@ def main() -> int:
     if not model_is_scan_ready(model):
         print(
             f"{model.model} is not scan-ready in this release; "
-            "only the OpticFilm 8200i SE can scan.",
+            "only the OpticFilm 8200i SE and OpticFilm 8100 (V2) can scan.",
             file=sys.stderr,
         )
         return 1
 
     dpi = _prompt_ppi(model.resolutions_dpi)
 
-    supports_me_ir = model.asic == "GL128"
     multi_exposure = False
     infrared = False
-    if supports_me_ir:
+    if model.asic == "GL128":
         multi_exposure = _prompt_yes_no("Enable multi-exposure (ME)?")
-        infrared = _prompt_yes_no("Enable infrared dust plane (IR)?")
+        if getattr(model, "supports_infrared", False):
+            infrared = _prompt_yes_no("Enable infrared dust plane (IR)?")
 
     if args.out is not None:
         out = args.out

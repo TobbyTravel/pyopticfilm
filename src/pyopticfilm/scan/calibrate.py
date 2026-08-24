@@ -584,7 +584,7 @@ class Calibrator:
         # Force the calib strip to match scan startx/pixels so shading applies
         # 1:1. Everything else — line count, stagger, oversampling — stays as
         # the calibration geometry computed it. USB calib depth stays 16-bit
-        # even when the image stream is 8-bit (8200i SE).
+        # even when the image stream is 8-bit (GL128).
         calib_depth = int(getattr(self.model, "usb_calib_depth", calib_geo.depth))
         from pyopticfilm.device.sensor_lookup import (
             dummy_pixel_for,

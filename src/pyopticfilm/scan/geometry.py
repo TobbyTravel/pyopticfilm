@@ -38,10 +38,10 @@ class ScanGeometry:
     dummy_pixel: int = 20
     disable_buffer_full_move: bool = False
     #: Value programmed into ``LINCNT``. May differ from ``optical_line_count``
-    #: on the 8200i SE image path (16-bit wire sized as ``LINCNT * width * 3``).
+    #: on the GL128 image path (16-bit wire sized as ``LINCNT * width * 3``).
     register_lincnt: int = 0
-    #: ``LINCNT`` register units per *output* line. GL845 writes one; the 8200i
-    #: SE image path writes four — LINCNT tracks the programmed dpi rather than
+    #: ``LINCNT`` register units per *output* line. GL845 writes one; the GL128
+    #: image path writes four — LINCNT tracks the programmed dpi rather than
     #: 7200, and Y is sampled at twice that dpi (two buffer rows per line).
     lincnt_per_line: int = 1
     #: Native lines the ASIC covers per output line at ``asic_dpi``. Used for
@@ -188,7 +188,7 @@ def _geometry_from_mm(
     host_downsample = max(1, asic_dpi // int(resolution))
 
     pixels = int((width_mm * asic_dpi) / MM_PER_INCH)
-    # GL845: align to 16 when xres==yres and xres>1200. The 8200i SE captures
+    # GL845: align to 16 when xres==yres and xres>1200. The GL128 SE captures
     # show unaligned widths (2478 at 1800 dpi, 4956 at 3600), so models can opt
     # out via ``pixel_alignment``.
     alignment = int(getattr(model, "pixel_alignment", 16))
