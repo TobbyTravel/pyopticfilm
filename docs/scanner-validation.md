@@ -6,17 +6,19 @@ without a physical device, and how that differs from hardware bring-up.
 Protocol tests **do not** prove that a physical scanner works. Motor timing,
 lamp/AFE analogue behaviour, firmware quirks, and real USB races are out of
 scope. `scan_ready` stays `False` for every model except the OpticFilm 8200i SE
-until that model has produced a real image and a successful park.
+and OpticFilm 8100 (V2) until that model has produced a real image and a
+successful park.
 
 ## Support levels
 
 | Level | Meaning |
 |-------|---------|
-| **Hardware tested** | Live scan + park on physical hardware. Only the 8200i SE. |
+| **Hardware tested** | Live scan + park on physical hardware. Currently the 8200i SE and 8100 (V2). |
 | **Protocol validated** | Python USB traffic for a documented setup matches a golden trace, and optical registers match independently computed geometry. A SANE genesys register dump, when present, is an additional oracle. |
 | **Experimental** | Tables and session code exist; `scan()`, `home()`, `park()`, and `calibrate()` stay locked. |
 
-The 8200i SE is capture-derived (not a SANE port). SANE is not an oracle for it.
+The GL128 models (8200i SE and 8100 V2) are capture-derived (not a SANE port).
+SANE is not an oracle for them. The 8100 V2 shares SE tables but has no IR.
 
 ## Architecture
 
@@ -49,7 +51,7 @@ Helpers:
 | `tools/dump_python_setup_trace.py` | Regenerate a Python golden trace |
 | `tools/compare_scanner_trace.py` | Compare two JSON traces |
 | `tools/sane_debug_to_trace.py` | Convert a SANE debug log to JSON |
-| `tools/scanlab/` | PyQt6 bring-up GUI (mock or real SE); [user guide](../tools/scanlab/README.md) |
+| `tools/scanlab/` | PyQt6 bring-up GUI (mock or real scan-ready hardware); [user guide](../tools/scanlab/README.md) |
 
 ## Current golden: OpticFilm 8200i, 1800 dpi, RGB16
 
@@ -161,7 +163,8 @@ Flip `MODEL_8200I.scan_ready` only after a successful image + park on hardware.
 - Firmware-specific behaviour
 - Real USB timing and disconnect races
 
-## 8200i SE
+## GL128 (8200i SE and 8100 V2)
 
 Use USB captures → golden traces when converting existing PCAP/PCAPNG files.
-Do not compare the SE path to SANE genesys (there is no GL128 command set).
+Do not compare the GL128 path to SANE genesys (there is no GL128 command set).
+The 8100 V2 is a capture-derived sibling of the 8200i SE (shared tables; no IR).

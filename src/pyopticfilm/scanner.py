@@ -31,7 +31,7 @@ ScanMode = Literal["color", "infrared", "gray"]
 
 
 class Scanner:
-    """User-facing entry point for OpticFilm scanners (8200i SE supported)."""
+    """User-facing entry point for OpticFilm scanners (hardware-tested GL128)."""
 
     def __init__(
         self,
@@ -70,7 +70,7 @@ class Scanner:
         *,
         calib_cache: Path | None = None,
     ) -> Self:
-        """Open a scan-ready SE when present, else the first matching OpticFilm."""
+        """Open a scan-ready device when present, else the first matching OpticFilm."""
         handle = UsbDeviceHandle.open(device_id)
         scanner = cls(handle, calib_cache=calib_cache)
         logger.info(
@@ -269,7 +269,7 @@ class Scanner:
         return image
 
     def arm_bringup_motor(self) -> None:
-        """Enable GL128 motor moves (default on for scan-ready SE).
+        """Enable GL128 motor moves (default on for scan-ready GL128).
 
         Lab also uses this to re-arm after :meth:`disarm_bringup_motor` around
         stationary IR shading.
@@ -294,8 +294,9 @@ class Scanner:
         if not model_is_scan_ready(self._model):
             raise AsicError(
                 f"{self._model.model} ({self._model.asic}) is locked out in this "
-                "release: only OpticFilm 8200i SE (07b3:1825) is validated for "
-                "scanning. Open, status, lamp and register dumps still work."
+                "release: only OpticFilm 8200i SE (07b3:1825) and OpticFilm 8100 "
+                "(V2) (07b3:1824) are validated for scanning. Open, status, lamp "
+                "and register dumps still work."
             )
 
     def _ensure_open(self) -> None:

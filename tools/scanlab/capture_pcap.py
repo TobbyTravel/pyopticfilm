@@ -830,7 +830,7 @@ def optical_snapshot(
 ) -> dict[str, int | None]:
     """Key optical / motor registers from a write snapshot.
 
-    GL128 (8200i SE) uses 24-bit ``STRPIXEL``/``ENDPIXEL`` at ``0x82``/``0x85``.
+    GL128 (8200i SE / 8100 V2) uses 24-bit ``STRPIXEL``/``ENDPIXEL`` at ``0x82``/``0x85``.
     GL845-family tables use 16-bit values at ``0x30``/``0x32``.
     """
     asic_u = (asic or "").upper()
@@ -876,7 +876,7 @@ def capture_looks_gl128(analysis: CaptureAnalysis) -> bool:
 
 
 def model_for_capture_decode(analysis: CaptureAnalysis, selected: FilmModel) -> FilmModel:
-    """Prefer 8200i SE tables when the capture is clearly GL128."""
+    """Prefer GL128 (SE / 8100 V2) tables when the capture is clearly GL128."""
     if capture_looks_gl128(analysis):
         from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 
@@ -962,7 +962,7 @@ def geometry_for_capture_decode(
     endp = snap["endpixel"]
     lincnt = snap["lincnt"]
 
-    # --- GL128 (8200i SE): host sizes as LINCNT×width×3, wire is 16-bit chunky ---
+    # --- GL128: host sizes as LINCNT×width×3, wire is 16-bit chunky ---
     if asic_u in {"GL128", "GL124"} and strp is not None and endp is not None and endp > strp:
         factor = max(1, _GL128_NATIVE_DPI // max(1, use_dpi))
         span_w = (int(endp) - int(strp)) // factor

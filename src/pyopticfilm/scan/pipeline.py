@@ -57,10 +57,10 @@ class ImagePipeline:
     ) -> np.ndarray:
         """Decode USB RGB optical buffer → uint16 HxWx3.
 
-        8-bit USB image streams (8200i SE colour/IR) are upsampled to 16-bit
+        8-bit USB image streams (GL128 colour/IR) are upsampled to 16-bit
         host samples (``value * 257``). Calib/shading buffers stay native 16-bit.
 
-        Layout is model-dependent: GL845 and 8200i SE film images are chunky
+        Layout is model-dependent: GL845 and GL128 film images are chunky
         ``RGBRGB…`` per line (SE session 11). Pass ``planar`` to override.
         AFE strip probes may differ; do not confuse them with image layout.
         """
@@ -103,7 +103,7 @@ class ImagePipeline:
         """Average USB rows down to ``geometry.lines``.
 
         Only the group size actually present in the buffer is collapsed:
-        ``optical_line_count // lines``. The 8200i SE image path samples Y at
+        ``optical_line_count // lines``. The GL128 image path samples Y at
         twice the programmed dpi and delivers ``LINCNT/2`` rows for ``LINCNT/4``
         lines, so pairs are averaged here — without it the image comes out
         stretched 2x vertically. Shading passes average ``y_oversample`` rows
@@ -155,7 +155,7 @@ class ImagePipeline:
 
         Height is ``lines + num_staggered_lines`` when the buffer carries the
         extra ``max_shift`` lines (GL845). Models that size ``LINCNT`` for the
-        crop alone — the 8200i SE, which has no travel to spare — lose
+        crop alone — GL128 OpticFilm, which has no travel to spare — lose
         ``max_shift`` lines off the bottom instead.
         """
         shifts = (geometry.shift_r, geometry.shift_g, geometry.shift_b)

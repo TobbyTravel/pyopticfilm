@@ -4,13 +4,15 @@ This document maps every OpticFilm model in pyopticfilm to the SANE `genesys`
 backend. Scan / home / park / calibrate remain **gated** (`scan_ready=False`)
 until a model is **hardware-tested**. Protocol-validated traces (see
 [scanner-validation.md](scanner-validation.md)) do not flip that gate. The
-8200i SE is capture-derived and is not completed from SANE.
+GL128 models (8200i SE and 8100 V2) are capture-derived and are not completed
+from SANE.
 
 ## Model → ASIC → SANE sources
 
 | pyopticfilm model | USB ID | ASIC | SANE sensor id | Command set |
 |-------------------|--------|------|----------------|-------------|
 | OpticFilm 8200i SE | `07b3:1825` | GL128 | *(none)* | capture / `Gl128` |
+| OpticFilm 8100 (V2) | `07b3:1824` | GL128 | *(none)* | capture / `Gl128` (no IR) |
 | OpticFilm 8200i | `07b3:130d` | GL845 | `CCD_PLUSTEK_OPTICFILM_8200I` | `CommandSetGl846` (`gl846.cpp`) |
 | OpticFilm 8100 | `07b3:130c` | GL845 | same sensor as 7400/8200i family | `gl846.cpp` |
 | OpticFilm 7600i v2 | `07b3:0c3b` bcd `0x0605` | GL845 | alias of 8200i tables | `gl846.cpp` |
@@ -47,9 +49,9 @@ until a model is **hardware-tested**. Protocol-validated traces (see
 | GL845/GL846 scan session | `src/pyopticfilm/scan/session.py` |
 | GL843 scan session | `src/pyopticfilm/scan/session_gl843.py` |
 | GL842 scan session | `src/pyopticfilm/scan/session_gl842.py` |
-| GL128 (SE) scan session | `src/pyopticfilm/scan/session_gl128.py` |
+| GL128 scan session | `src/pyopticfilm/scan/session_gl128.py` |
 | Host dark/white calib | `src/pyopticfilm/scan/calibrate.py` (non-GL128 branch) |
-| ASIC DVDSET shading | `src/pyopticfilm/scan/calib_gl128.py` (**SE only**) |
+| ASIC DVDSET shading | `src/pyopticfilm/scan/calib_gl128.py` (GL128: SE and 8100 V2) |
 
 ## MAXWD unit differences (SANE)
 
@@ -65,22 +67,23 @@ These matter when sizing the ASIC line buffer:
 - Grayscale / lineart modes
 - Sheet-fed document detect
 - Non-Plustek genesys scanners
-- Any GL128 / 8200i SE behaviour (use captures instead)
+- Any GL128 / 8200i SE / 8100 V2 behaviour (use captures instead)
 - GL845 `send_shading_data` DVDSET shading (host stretch first; revisit after 8200i HW)
 
 ## Bring-up policy
 
-1. Keep `scan_ready=False` (enforced by `tests/test_multi_model.py::test_scan_ready_se_only`).
+1. Keep `scan_ready=False` except for the hardware-tested set (enforced by `tests/test_multi_model.py::test_scan_ready_validate_set`).
 2. Hardwareless protocol traces may be added per [scanner-validation.md](scanner-validation.md); they change the documented support level, not `scan_ready`.
 3. Lab sequence for GL845 8200i: `tools/bringup_gl845_8200i.py` (open → status → lamp → home → tiny scan → park → host calib → IR). Requires `--allow-unvalidated`; does **not** flip the gate.
 4. Flip **that** model’s `scan_ready` only after a successful image + park on real hardware.
-5. Sibling order after 8200i: GL845 aliases (8100, 7400 v2, 7600i v2) → GL843 (incl. `swap_16bit_data` decode for 7200i) → GL842.
+5. Sibling order after the GL128 pair (8200i SE, 8100 V2): GL845 aliases (8100, 7400 v2, 7600i v2) → GL843 (incl. `swap_16bit_data` decode for 7200i) → GL842.
 
 ## Experimental models (honest status)
 
 | Model | Protocol golden | Host calib path | `scan_ready` |
 |-------|-----------------|-----------------|--------------|
 | 8200i SE | capture-derived | ASIC shading | **True** |
+| 8100 (V2) | capture-derived (SE sibling; no IR) | ASIC shading | **True** |
 | 8200i (GL845) | setup USB golden | wired | False until HW image+park |
 | Other GL845 aliases | share 8200i session | wired | False |
 | GL843 / GL842 | tables only | wired | False |

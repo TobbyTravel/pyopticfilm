@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Open real SE or mock scanners with a recording USB wrapper."""
+"""Open real scan-ready or mock scanners with a recording USB wrapper."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from pyopticfilm.scan.bringup import (
     crop_adjustment_message,
     crop_scan_geometry,
     image_crop_to_scan_area,
-    is_opticfilm_8200i_se,
+    is_gl128_opticfilm,
 )
 from pyopticfilm.scanner import Scanner
 from pyopticfilm.usb.device import UsbDeviceInfo, list_devices
@@ -144,7 +144,7 @@ def lab_scan_needs_motor_warning(
     crop_norm: Area | None,
 ) -> bool:
     """True when a Scan would have been a long high-PPI move before clamping."""
-    if is_opticfilm_8200i_se(model) or model_is_scan_ready(model):
+    if is_gl128_opticfilm(model) or model_is_scan_ready(model):
         return False
     if int(dpi) < HIGH_PPI_WARN_DPI:
         return False
@@ -155,7 +155,7 @@ def lab_scan_needs_motor_warning(
 
 
 def prescan_resolution(model: FilmModel) -> int:
-    if is_opticfilm_8200i_se(model):
+    if is_gl128_opticfilm(model):
         return PRESCAN_DPI
     return min(int(d) for d in model.resolutions_dpi)
 
@@ -173,7 +173,7 @@ def lab_scan_kwargs(
     non-SE models never get full-TA ``area=None`` — Lab uses a short Y strip
     (and clamps rubber-band crops) so high-PPI Scan cannot grind the carriage.
     """
-    if is_opticfilm_8200i_se(model):
+    if is_gl128_opticfilm(model):
         if kind == "prescan" or crop_norm is None:
             geometry, _ = bringup_scan_geometry(model, dpi, profile="preview_safe")
         else:
@@ -201,8 +201,8 @@ def lab_crop_scan_meta(
     dpi: int,
     crop_norm: tuple[float, float, float, float],
 ) -> dict | None:
-    """Crop geometry meta for Scan Lab status (SE cropped scans only)."""
-    if not is_opticfilm_8200i_se(model):
+    """Crop geometry meta for Scan Lab status (GL128 cropped scans only)."""
+    if not is_gl128_opticfilm(model):
         return None
     area = image_crop_to_scan_area(model, crop_norm)
     _geometry, meta = crop_scan_geometry(model, dpi, area)

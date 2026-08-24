@@ -223,9 +223,9 @@ class GenesysUsbProtocol:
         self.write_register(0x3B, value & 0xFF)
 
     def write_fe_register_gl124(self, address: int, value: int) -> None:
-        """Write analog frontend register (GL124 path, used by the 8200i SE).
+        """Write analog frontend register (GL124 path, used by GL128 OpticFilm).
 
-        The SE's AFE is 16-bit and reached through ``0x5D`` (high) / ``0x5E``
+        The GL128 AFE is 16-bit and reached through ``0x5D`` (high) / ``0x5E``
         (low) rather than GL845's ``0x3A`` / ``0x3B`` — confirmed by every
         frontend write in the SE captures following a ``0x51`` index write.
         """
@@ -287,7 +287,7 @@ class GenesysUsbProtocol:
     ) -> None:
         """Announce a single bulk transfer of ``size`` bytes and stop.
 
-        The 8200i SE sends one preamble for a whole image (tens or hundreds of
+        The GL128 path sends one preamble for a whole image (tens or hundreds of
         megabytes) and then streams it, instead of GL845's header-per-chunk. It
         also selects the source with ``wIndex``: ``0x00`` reads scanner RAM
         (used for shading/calibration passes) and ``0x08`` reads the live image

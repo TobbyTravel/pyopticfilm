@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""SE full-window / PPI-ladder scan geometry (Lab ``preview_safe`` parity).
+"""GL128 full-window / PPI-ladder scan geometry (Lab ``preview_safe`` parity).
 
 Both profiles pin ``LINCNT`` to a value the captures prove safe for the second
 feed they use. ``LINCNT`` is in ASIC-dpi units (four per output line), so a
@@ -22,14 +22,14 @@ MM_PER_INCH = 25.4
 PRESCAN_DPI = 1200
 
 
-def is_opticfilm_8200i_se(model: Any) -> bool:
-    """True for OpticFilm 8200i SE (GL128)."""
+def is_gl128_opticfilm(model: Any) -> bool:
+    """True for GL128 OpticFilm models (8200i SE and 8100 V2)."""
     asic = getattr(model, "asic", None)
     pid = getattr(model, "usb_product_id", None)
     if str(asic or "") == "GL128":
         return True
     try:
-        return int(pid) == 0x1825
+        return int(pid) in {0x1825, 0x1824}
     except (TypeError, ValueError):
         return False
 
