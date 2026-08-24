@@ -17,6 +17,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Multi-pass ME (N=3..9)** for GL128 colour scans (8200i SE; 8100 V2 inherits).
+  Replicates the validated short/long exposure pair for incremental per-side SNR
+  — no new pixel-clock bins are reached, so the hardware-risk surface is
+  unchanged versus the classic 2-pass bracket.
+  * `Scanner.scan(..., passes=N | exposures=[...])` alongside the
+    back-compatible `multi_exposure=True` flag.
+  * `Model8200iSE.max_exposure` / `min_passes` / `max_passes` and
+    `exposure_ladder(n)` / `validate_exposures(...)` helpers.
+  * Streaming `NPassMerger` in `exposure_merge.py` (float64 running moments,
+    O(1) memory in N) with a cross-pass dispersion gate; `reduce_passes(...)`
+    dispatches to the byte-identical 2-pass path for N=2 and to the new
+    N-pass path for N>=3.
+  * `NPassDebug` (same `Scanner.last_me_debug` slot) with `rgb_short` /
+    `rgb_long` / `exposure_short` / `exposure_long` properties mirroring
+    `MeScanDebug` so existing consumers keep working.
+
 - **OpticFilm 8100 (V2)** (`07b3:1824`) support: GL128 sibling of the 8200i SE, hardware-validated for single-pass and multi-exposure colour scans. The 8100 V2 has no infrared channel / iSRD, so `infrared=True` and `mode="infrared"` raise a clear `ScanError` (multi-exposure short+long bracket remains available).
 - `Model8100V2` / `MODEL_8100_V2` (subclass of `Model8200iSE`; register tables, geometry and motor clamps inherited from the capture-validated SE).
 - IR capability guard in `Gl128ScanSession.run` for models with `supports_infrared=False`.
