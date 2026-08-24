@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal, Self
 
@@ -244,9 +244,27 @@ class Scanner:
         cancel: threading.Event | None = None,
         apply_calib: bool = True,
         multi_exposure: bool = False,
+        passes: int | None = None,
+        exposures: Sequence[int] | None = None,
         infrared: bool = False,
         align_passes: bool = True,
     ) -> ScanImage:
+        """Scan film; GL128 session handles ME / IR internally.
+
+        Parameters
+        ----------
+        multi_exposure:
+            Classic 2-pass ME (short + long).  Back-compat with NegPy.
+        passes:
+            Number of colour passes for multi-pass ME.  ``2`` = classic
+            ME; ``>= 3`` replicates the short/long pair for incremental
+            SNR.  ``exposures`` takes precedence if both are given.
+        exposures:
+            Explicit per-pass exposure list (e.g. ``[14000, 14000, 42000, 42000]``).
+            Each value must be within the model's validated range.
+        infrared:
+            Include an IR pass (8200i SE only; 8100 V2 has no IR channel).
+        """
         self._ensure_scan_ready()
         self._ensure_open()
         if not self._asic._initialized:
@@ -290,6 +308,8 @@ class Scanner:
             cancel=cancel,
             apply_calib=apply_calib,
             multi_exposure=multi_exposure,
+            passes=passes,
+            exposures=exposures,
             infrared=infrared,
             align_passes=align_passes,
         )
