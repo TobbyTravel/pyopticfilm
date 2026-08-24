@@ -310,13 +310,6 @@ class Gl128ScanSession(ScanSession):
         exp_short = int(getattr(model, "exposure_short", model.exposure_lperiod))
         exp_long = int(getattr(model, "exposure_long", exp_short * 3))
 
-        # Resolve the colour-pass ladder. Precedence:
-        #   exposures (explicit) > passes (count) > multi_exposure (bool) > plain
-        if exposures is not None:
-            colour_ladder = list(model.validate_exposures(exposures))
-        elif passes is not None:
-            colour_ladder = list(model.exposure_ladder(passes))
-
         if not self.asic._initialized:
             self.asic.init()
 
@@ -326,9 +319,11 @@ class Gl128ScanSession(ScanSession):
             geometry = compute_geometry(resolution, model=model, area=area)
 
         # --- Build the colour pass ladder --------------------------------
-        # Precedence: explicit exposures > pass count > multi_exposure bool > plain
+        # Precedence: explicit exposures > pass count > multi_exposure bool > plain.
+        # The ladder is kept ascending (short → long) so neither the baseline
+        # reference nor the 2-pass merge has to assume the caller's ordering.
         if exposures is not None:
-            colour_ladder = list(model.validate_exposures(exposures))
+            colour_ladder = sorted(int(e) for e in model.validate_exposures(exposures))
         elif passes is not None:
             colour_ladder = list(model.exposure_ladder(passes))
         elif multi_exposure:
@@ -346,11 +341,13 @@ class Gl128ScanSession(ScanSession):
         # Acquisition order preserves the legacy physical sequence:
         #   baseline colour → IR → remaining colour passes.
         # (The classic order was short → IR → long.)
-        baseline = exp_short
+        baseline = int(colour_ladder[0])
         remeasured: set[int] = {baseline}
         pass_specs: list[tuple[str, int, bool]] = []  # (kind, exposure, remeasure)
-        # 1) baseline colour pass (the alignment reference)
-        pass_specs.append(("color", baseline, False))
+        # 1) baseline colour pass (the alignment reference). It reuses the
+        #    cached *short* shading only when it *is* the short bin (the classic
+        #    case); otherwise it re-measures like any new exposure.
+        pass_specs.append(("color", baseline, baseline != exp_short))
         # 2) IR pass, if requested (matches the classic short→IR→long ordering)
         if infrared:
             pass_specs.append(("ir", exp_short, False))
@@ -475,12 +472,13 @@ class Gl128ScanSession(ScanSession):
         elif n_colors == 2:
             alpha = float(getattr(model, "me_noise_alpha", 1.0))
             beta = float(getattr(model, "me_noise_beta", 4096.0))
+            expo_s, expo_l = int(colour_ladder[0]), int(colour_ladder[1])
             shift = color_align_shifts[0] if (align_passes and color_align_shifts) else (0.0, 0.0)
             merged = merge_exposures_result(
                 ref_plane,
                 color_planes[1],
-                exposure_short=exp_short,
-                exposure_long=exp_long,
+                exposure_short=expo_s,
+                exposure_long=expo_l,
                 align_shift=shift,
                 alpha=alpha,
                 beta=beta,
@@ -489,8 +487,8 @@ class Gl128ScanSession(ScanSession):
             self.last_me_debug = MeScanDebug(
                 rgb_short=ref_plane,
                 rgb_long=color_planes[1],
-                exposure_short=exp_short,
-                exposure_long=exp_long,
+                exposure_short=expo_s,
+                exposure_long=expo_l,
                 fusion_stats=merged.fusion_stats,
                 align_shift_long=color_align_shifts[0] if align_passes else None,
                 align_shift_ir=align_shift_ir,
