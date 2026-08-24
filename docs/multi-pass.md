@@ -130,6 +130,12 @@ Per pixel, `NPassMerger` holds 5 float64 accumulator planes
   into `--outdir` (default `/home/tobby/Pictures`). Uses the same scene and
   noise model as the tests, with deliberately visible grain so a human can
   eyeball the single vs 2-pass vs N-pass difference in the dense-shadow region.
+* `tools/multipass_real_compare.py` — the same idea on **real hardware**: scans
+  the film currently loaded in the scanner twice (once N=1, once N=N) at a given
+  DPI and area, then writes 16-bit TIFFs, a side-by-side PNG, a full-resolution
+  centre-crop PNG, and a metrics CSV. Noise is reported as a high-frequency RMS
+  proxy in DN (per-pixel residual against a 9x9 box blur, so it measures grain /
+  shot noise rather than scene contrast).
 
 To re-generate the validation images:
 
@@ -137,6 +143,34 @@ To re-generate the validation images:
 env -u PYTHONPATH uv run --all-groups --with pillow \
     python -m tools.multipass_compatibility \
     --outdir /home/tobby/Pictures --seed 20260824
+```
+
+### Measured on real hardware
+
+OpticFilm 8100 (V2), 7200 dpi, central 20% of the scan area (3196x4636 px),
+colour negative loaded in the holder, N=1 vs N=4:
+
+| panel | N | exposure ladder | scan time | HF-RMS full | HF-RMS crop | mean DN |
+|---|---|---|---|---|---|---|
+| single | 1 | 14000 | 65.2 s | 849.31 | 686.60 | 17255.2 |
+| N-pass | 4 | 14000+14000+42000+42000 | 443.3 s | 441.92 | 344.95 | 15764.8 |
+
+Noise drops **1.92x** over the full area and **1.99x** on the centre crop.
+Ideal shot-noise averaging over 4 passes predicts `sqrt(4) = 2.00x`, so the
+merge is doing real statistical averaging rather than smoothing. The full-frame
+figure lands slightly under ideal because the frame edges include the holder
+gate, where inter-pass registration is weakest. The lower mean DN is the
+short+long ladder recovering shadow density instead of clipping it.
+
+The cost is the expected `sqrt(N)` trade: ~6.8x the wall-clock time for ~2x the
+SNR.
+
+Reproduce with:
+
+```bash
+env -u PYTHONPATH uv run --all-groups --with pillow \
+    python -m tools.multipass_real_compare \
+    --dpi 7200 --n 4 --area-pct 20 --outdir /home/tobby/Pictures
 ```
 
 ## Upstream notes

@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `tools/multipass_real_compare.py` — real-hardware multi-pass validation harness.
+  Scans the loaded film twice (N=1 and N=N) at a chosen DPI and area, then writes
+  16-bit TIFFs, a side-by-side PNG, a full-resolution centre-crop PNG, and a
+  metrics CSV with a high-frequency RMS noise proxy in DN.
+- `docs/multi-pass.md` now records measured hardware results: on an OpticFilm
+  8100 (V2) at 7200 dpi, N=4 reduces high-frequency noise **1.99x** on the centre
+  crop (ideal `sqrt(4)` = 2.00x) for ~6.8x the scan time.
+
 ### Changed
 
 - PyPI development status classifier is now **5 - Production/Stable** (was **3 - Alpha**).
