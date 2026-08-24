@@ -6,15 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-24
+
 ### Added
 
 - **OpticFilm 8100 (V2)** (`07b3:1824`) support: GL128 sibling of the 8200i SE, hardware-validated for single-pass and multi-exposure colour scans. The 8100 V2 has no infrared channel / iSRD, so `infrared=True` and `mode="infrared"` raise a clear `ScanError` (multi-exposure short+long bracket remains available).
 - `Model8100V2` / `MODEL_8100_V2` (subclass of `Model8200iSE`; register tables, geometry and motor clamps inherited from the capture-validated SE).
 - IR capability guard in `Gl128ScanSession.run` for models with `supports_infrared=False`.
+- `examples/scan.py`: barebones interactive Python CLI example for enumerating scanners, selecting a device, choosing PPI, optionally enabling ME / IR where supported, and saving 16-bit TIFF output.
 
 ### Changed
 
 - Scan validation set is now **8200i SE + 8100 (V2)**; tests updated from "SE only" to the two-model validated set.
+- README hardware support docs now cover the newly validated 8100 V2 path.
+
+### Contributors
+
+- [@TobbyTravel](https://github.com/TobbyTravel) for the OpticFilm 8100 (V2) enablement, validation updates, version bump, and release documentation polish.
 
 ## [1.1.2] - 2026-08-22
 

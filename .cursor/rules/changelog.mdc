@@ -10,3 +10,17 @@ alwaysApply: true
 - Do not add an "Unreleased" section or version bump prose proactively after ordinary tasks.
 - When the user **does** request a changelog update: follow [Keep a Changelog](https://keepachangelog.com/) style, match existing section headings (`Added`, `Fixed`, `Changed`, …), and place new release blocks **above** older versions.
 - Bumping `src/pyopticfilm/_version.py` is separate; only change it when the user asks for a version or release prep.
+
+## Contributor credits
+
+When writing a changelog entry, credit **external** contributors where it is appropriate (merged PRs, hardware enablement, substantial patches).
+
+- **Do not** credit the maintainer **jboneng**.
+- Put credits under a `### Contributors` heading in that release block.
+- Format each name as a markdown link to that person’s GitHub profile: `[@username](https://github.com/username)`.
+
+```markdown
+### Contributors
+
+- [@TobbyTravel](https://github.com/TobbyTravel) for OpticFilm 8100 (V2) support.
+```
