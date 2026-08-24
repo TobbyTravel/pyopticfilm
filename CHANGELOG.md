@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - PyPI development status classifier is now **5 - Production/Stable** (was **3 - Alpha**).
+- README now points the "Latest release" link at [v1.2.0](https://github.com/jboneng/pyopticfilm/releases/tag/v1.2.0).
 
 ## [1.2.0] - 2026-08-24
 
