@@ -36,7 +36,8 @@ Other OpticFilm models **enumerate and open**: you can read status, turn the lam
 
 - Color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host; infrared is available only on supported hardware)
 - Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour; 8200i SE only among the hardware-tested set)
-- Multi-exposure (ME) on GL128 hardware-tested models (8200i SE and 8100 V2): short + long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
+- **Multi-exposure (ME)** on the GL128 hardware-tested models (8200i SE and 8100 V2): short + long colour passes fused with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
+- **Multi-pass ME (N=3..9):** replicate the validated short/long bracket N times for incremental per-side SNR (`passes=N` or explicit `exposures=[…]`); same two capture-validated exposures, so the hardware risk surface is unchanged — see [docs/multi-pass.md](docs/multi-pass.md)
 - Optional crop via normalized `area` (`x1, y1, x2, y2` in 0–1)
 - Dark/white shading calibration with on-disk cache (`~/.cache/pyopticfilm/calib_v2.json`)
 - GL128 ASIC shading path (AFE codes + shading blob) aligned with SilverFast capture order
@@ -140,6 +141,41 @@ with Scanner.open() as scanner:
         save_rgb16_tiff(debug.rgb_long, "long.tif", dpi=image.dpi)
         print(debug.exposure_short, debug.exposure_long)  # e.g. 14000, 42000
 ```
+
+**Multi-pass ME (N=3..9, 8200i SE / 8100 V2).** Replicate the validated
+short/long bracket N times for incremental per-side SNR. Every pass is at one
+of the two *capture-validated* exposures, so the hardware risk surface is
+unchanged versus the classic 2-pass bracket — multi-pass is a pure merge-level
+SNR gain. ``passes=N`` (or an explicit ``exposures=[…]``) routes to the same
+public path as ``multi_exposure=True`` and sets
+:attr:`~pyopticfilm.scanner.Scanner.last_me_debug` to an
+:class:`~pyopticfilm.scan.me_debug.NPassDebug`.
+
+```python
+with Scanner.open() as scanner:
+    scanner.warmup()
+    # 4 colour passes: 2 short + 2 long
+    image = scanner.scan(resolution=1800, mode="color", passes=4)
+    image.save_tiff("n4.tif")
+
+    # Or an explicit ladder (any value within the model's validated range)
+    image = scanner.scan(
+        resolution=1800,
+        mode="color",
+        exposures=[14000, 14000, 42000],
+    )
+
+    # For N>=3, bracket planes live on `planes` (all colour passes); the
+    # classic fields (`.rgb_short`, `.rgb_long`, `.exposure_short/_long`) are
+    # still exposed for existing consumers.
+    dbg = scanner.last_me_debug
+    if dbg is not None and hasattr(dbg, "planes"):
+        print(len(dbg.planes), "passes", dbg.exposures)
+```
+
+See [docs/multi-pass.md](docs/multi-pass.md) for the model, the merge
+algorithm, the dispersion gate, and the synthetic verification harness
+(``tools/multipass_compatibility.py``).
 
 Colour + IR in one call (8200i SE; IR after the colour / ME passes):
 

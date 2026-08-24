@@ -43,8 +43,12 @@ class NPassDebug:
     contract.
 
     Field parity with :class:`MeScanDebug`: ``rgb_short`` / ``rgb_long`` and
-    ``exposure_short`` / ``exposure_long`` point to the first pass of each
-    class so existing consumers that only read those two fields keep working.
+    ``exposure_short`` / ``exposure_long`` identify the first pass of the
+    short-exposure class (minimum exposure) and the long-exposure class
+    (maximum exposure) respectively, so existing consumers that only read those
+    two fields keep working regardless of pass ordering. When every pass shares
+    one exposure (e.g. replicate-a-single-bracket at one bin), both point to the
+    same first plane and both readings equal that exposure.
     """
 
     planes: tuple[np.ndarray, ...]
@@ -56,17 +60,27 @@ class NPassDebug:
     zero_weight_fraction: float | None = None
 
     @property
+    def exposure_short(self) -> int:
+        return int(min(self.exposures))
+
+    @property
+    def exposure_long(self) -> int:
+        return int(max(self.exposures))
+
+    @property
     def rgb_short(self) -> np.ndarray:
+        """First pass at the short-exposure class (minimum exposure)."""
+        target = int(min(self.exposures))
+        for plane, exp in zip(self.planes, self.exposures):
+            if int(exp) == target:
+                return plane
         return self.planes[0]
 
     @property
     def rgb_long(self) -> np.ndarray:
+        """First pass at the long-exposure class (maximum exposure)."""
+        target = int(max(self.exposures))
+        for plane, exp in zip(self.planes, self.exposures):
+            if int(exp) == target:
+                return plane
         return self.planes[-1]
-
-    @property
-    def exposure_short(self) -> int:
-        return int(self.exposures[0])
-
-    @property
-    def exposure_long(self) -> int:
-        return int(self.exposures[-1])
