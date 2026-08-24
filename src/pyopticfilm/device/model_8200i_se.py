@@ -36,7 +36,7 @@ every PPI including 7200.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from pyopticfilm.device.protocol import DEFAULT_GL845_MOTOR, MotorProfile
@@ -379,6 +379,15 @@ class Model8200iSE:
     #: Long ME image exposure (exactly 3× short in SilverFast session 14).
     exposure_long: int = 42000
     multi_exposure_factor: int = 3
+    #: Validated ceiling for any image-pass exposure. Never emit a value above
+    #: this — the SE pixel-clock table (0x01 at 1440–7200 dpi) is only captured
+    #: for the short / long bins, so mid-values would silently borrow the short
+    #: clock, and anything beyond ``exposure_long`` is unverified.
+    max_exposure: int = 42000
+    #: UI-facing pass-count bounds (NegPy spin range). N=2 = classic ME
+    #: short+long; N>2 replicates that pair for extra per-side SNR.
+    min_passes: int = 2
+    max_passes: int = 9
     #: GL845-shaped ``starty`` base only. The SE never feeds ``geometry.starty``;
     #: FEEDL steps use :attr:`feed_steps_per_inch` instead.
     motor_base_ydpi: int = 7200
@@ -517,6 +526,49 @@ class Model8200iSE:
     def image_exposure(self, *, long_exposure: bool = False) -> int:
         """``REG_EXPOSURE`` for short or long ME bracket."""
         return int(self.exposure_long if long_exposure else self.exposure_short)
+
+    def exposure_ladder(self, n_passes: int) -> tuple[int, ...]:
+        """Build the validated exposure ladder for ``n_passes`` colour passes.
+
+        Every value is guaranteed to be one of the two *captured* exposures
+        (``exposure_short`` / ``exposure_long``), so no unvalidated pixel-clock
+        bin is ever reached. ``n_passes=2`` is the classic ME bracket; ``N>2``
+        replicates that pair (roughly half short, half long) for extra
+        per-side SNR.
+
+        Clamps to ``[min_passes, max_passes]`` and always includes short and
+        (for ``n_passes >= 2``) at least one long pass.
+        """
+        n = int(n_passes)
+        n = max(int(self.min_passes), min(int(self.max_passes), n))
+        if n <= 1:  # defensive: a single pass is not multi-exposure
+            return (int(self.exposure_short),)
+        n_short = (n + 1) // 2
+        n_long = n - n_short
+        return (int(self.exposure_short),) * n_short + (int(self.exposure_long),) * n_long
+
+    def validate_exposures(self, exposures: Sequence[int]) -> tuple[int, ...]:
+        """Validate a user-supplied exposure list against the hardware ceiling.
+
+        Every value must be ``> 0`` and ``<= max_exposure``; the set is returned
+        as a tuple. Raises :class:`pyopticfilm.exceptions.ScanError` (imported
+        lazily to avoid a cycle) on an out-of-range value, with the offending
+        value and the ceiling named.
+        """
+        from pyopticfilm.exceptions import ScanError
+
+        out: list[int] = []
+        for e in exposures:
+            value = int(e)
+            if value <= 0 or value > int(self.max_exposure):
+                raise ScanError(
+                    f"exposure {value} is outside the validated range "
+                    f"[1, {self.max_exposure}] (max_exposure={self.max_exposure})"
+                )
+            out.append(value)
+        if not out:
+            raise ScanError("exposures must not be empty")
+        return tuple(out)
 
     def feed_to_scan_steps_for_area(
         self,
