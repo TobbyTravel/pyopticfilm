@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - PyPI development status classifier is now **5 - Production/Stable** (was **3 - Alpha**).
 - README now points the "Latest release" link at [v1.2.0](https://github.com/jboneng/pyopticfilm/releases/tag/v1.2.0).
+- README and `docs/` now document the hardware-tested set as **8200i SE + 8100 (V2)** (and distinguish GL845 8100 `07b3:130c` from GL128 8100 V2 `07b3:1824`).
 
 ## [1.2.0] - 2026-08-24
 

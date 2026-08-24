@@ -6,7 +6,7 @@ The library talks directly to the scanner’s Genesys ASIC (GL842, GL843, GL845,
 
 ## Supported hardware
 
-**Only the OpticFilm 8200i SE and OpticFilm 8100 (V2) is hardware-tested for scanning in this release.**
+**Only the OpticFilm 8200i SE and OpticFilm 8100 (V2) are hardware-tested for scanning in this release.**
 
 Support is one of:
 
@@ -17,7 +17,7 @@ Support is one of:
 | Model | USB ID | ASIC | Support |
 |-------|--------|------|---------|
 | OpticFilm 8200i SE | `07b3:1825` | GL128 | **Hardware tested** |
-| OpticFilm 8100 (V2) | `07b3:1824` | GL128 | **Hardware tested** |
+| OpticFilm 8100 (V2) | `07b3:1824` | GL128 | **Hardware tested** (no IR) |
 | OpticFilm 8200i | `07b3:130d` | GL845 | Protocol validated (setup traces; scan locked) |
 | OpticFilm 8100 | `07b3:130c` | GL845 | Experimental |
 | OpticFilm 7600i (v1 / v2) | `07b3:0c3b` | GL845 / GL843 | Experimental |
@@ -26,15 +26,17 @@ Support is one of:
 | OpticFilm 7300 | `07b3:0c12` | GL843 | Experimental |
 | OpticFilm 7200i / 7200 | `07b3:0c04`, `07b3:0807`, `07b3:0c07` | GL843 / GL842 | Experimental |
 
+The GL845 **OpticFilm 8100** (`07b3:130c`) is a different product from the GL128 **8100 (V2)** (`07b3:1824`).
+
 Other OpticFilm models **enumerate and open**: you can read status, turn the lamp on/off (where implemented), and dump registers for bring-up. **`scan()`, `calibrate()`, `home()`, and `park()` stay gated** until a model is hardware-tested—calling them raises `AsicError` rather than risking carriage or lamp damage. Protocol validation does **not** flip that gate. See [docs/scanner-validation.md](docs/scanner-validation.md).
 
-`Scanner.open()` prefers a scan-ready 8200i SE when several Plustek film scanners are connected.
+`Scanner.open()` prefers a scan-ready device (8200i SE or 8100 V2) when several Plustek film scanners are connected.
 
 ## Features 
 
-- Color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host; infrared is available only on supported hardware))
-- Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour)
-- Multi-exposure (ME): short + long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
+- Color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host; infrared is available only on supported hardware)
+- Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour; 8200i SE only among the hardware-tested set)
+- Multi-exposure (ME) on GL128 hardware-tested models (8200i SE and 8100 V2): short + long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
 - Optional crop via normalized `area` (`x1, y1, x2, y2` in 0–1)
 - Dark/white shading calibration with on-disk cache (`~/.cache/pyopticfilm/calib_v2.json`)
 - GL128 ASIC shading path (AFE codes + shading blob) aligned with SilverFast capture order
@@ -115,7 +117,7 @@ with Scanner.open() as scanner:
     ir = scanner.scan(resolution=1800, mode="infrared")
 ```
 
-Multi-exposure (8200i SE / GL128): short then long colour passes (3× exposure).
+Multi-exposure (GL128 / hardware-tested models): short then long colour passes (3× exposure).
 The SNR/IVW-merged deliverable with film-base makeup is in ``rgb``. Bracket
 planes and fusion stats are on :attr:`~pyopticfilm.scanner.Scanner.last_me_debug`
 (Scan Lab / audit tooling only — not part of the NegPy-facing ``ScanImage``).
@@ -139,7 +141,7 @@ with Scanner.open() as scanner:
         print(debug.exposure_short, debug.exposure_long)  # e.g. 14000, 42000
 ```
 
-Colour + IR in one call (IR after the colour / ME passes):
+Colour + IR in one call (8200i SE; IR after the colour / ME passes):
 
 ```python
 image = scanner.scan(
@@ -190,11 +192,12 @@ Bracket planes live on `Scanner.last_me_debug`, not on `ScanImage`.
 
 Scan modes: `"color"`, `"infrared"`. `"gray"` is not implemented.
 
-`scan(..., multi_exposure=True)` is GL128 / 8200i SE only. When ME is on, `rgb`
-is always SNR/IVW-merged (per-channel clip confidence, soft highlight roll-off
-from ~80–95% FS; optional `model.me_noise_alpha` / `me_noise_beta`). Pass
-`infrared=True` with `mode="color"` for a dust/IR plane on the same `ScanImage`.
-Inspect short/long via `scanner.last_me_debug` after the scan.
+`scan(..., multi_exposure=True)` is GL128 / hardware-tested models only (8200i SE
+and 8100 V2). When ME is on, `rgb` is always SNR/IVW-merged (per-channel clip
+confidence, soft highlight roll-off from ~80–95% FS; optional
+`model.me_noise_alpha` / `me_noise_beta`). Pass `infrared=True` with
+`mode="color"` for a dust/IR plane on the same `ScanImage` (8200i SE; the 8100
+V2 has no IR). Inspect short/long via `scanner.last_me_debug` after the scan.
 
 Audit a saved bracket (and optional SilverFast ME TIFF)::
 
@@ -220,12 +223,12 @@ The cache key includes resolution, crop geometry, and scan method (transparency 
 
 Code for additional OpticFilm variants is included so enumeration, model selection, SANE-derived geometry tables, and hardwareless USB traces can be exercised without hardware. These paths are **deliberately locked** for motor moves and image acquisition:
 
-- `model.scan_ready` is `False` for every model except the 8200i SE
-- `Scanner._ensure_scan_ready()` blocks scan, calibrate, home, and park
+- `model.scan_ready` is `True` only for the 8200i SE and 8100 (V2); all other models stay `False`
+- `Scanner._ensure_scan_ready()` blocks scan, calibrate, home, and park on non-scan-ready models
 - GL128 motor moves stay disabled unless the model is scan-ready
 - Protocol-validated (currently OpticFilm 8200i setup traces) is not hardware support
 
-If you have a non-SE OpticFilm and want to help validate scanning, open an issue with your exact USB IDs (`bcdDevice` matters for some models) and we can work through capture-based bring-up. How traces are recorded and compared is in [docs/scanner-validation.md](docs/scanner-validation.md).
+If you have a non-scan-ready OpticFilm and want to help validate scanning, open an issue with your exact USB IDs (`bcdDevice` matters for some models) and we can work through capture-based bring-up. How traces are recorded and compared is in [docs/scanner-validation.md](docs/scanner-validation.md).
 
 ## Development
 
