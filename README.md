@@ -17,6 +17,7 @@ Support is one of:
 | Model | USB ID | ASIC | Support |
 |-------|--------|------|---------|
 | OpticFilm 8200i SE | `07b3:1825` | GL128 | **Hardware tested** |
+| OpticFilm 8100 (V2) | `07b3:1824` | GL128 | **Hardware tested** (no IR / iSRD) |
 | OpticFilm 8200i | `07b3:130d` | GL845 | Protocol validated (setup traces; scan locked) |
 | OpticFilm 8100 | `07b3:130c` | GL845 | Experimental |
 | OpticFilm 7600i (v1 / v2) | `07b3:0c3b` | GL845 / GL843 | Experimental |
