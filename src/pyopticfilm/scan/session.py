@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from pyopticfilm.asic.motor import (
     SLOPE_TABLE_AHB,
@@ -70,13 +70,15 @@ class ScanSession:
         cancel: threading.Event | None = None,
         apply_calib: bool = True,
         multi_exposure: bool = False,
+        passes: int | None = None,
+        exposures: Sequence[int] | None = None,
         infrared: bool = False,
         align_passes: bool = True,
     ) -> ScanImage:
-        if multi_exposure or infrared:
+        if multi_exposure or infrared or passes is not None or exposures is not None:
             raise NotImplementedError(
-                f"Multi-exposure / combined IR scans are not implemented for "
-                f"{getattr(self.model, 'asic', '?')}"
+                f"Multi-exposure / multi-pass / combined IR scans are not "
+                f"implemented for {getattr(self.model, 'asic', '?')}"
             )
         if mode == "gray":
             raise ValueError("Grayscale is experimental / not implemented yet")

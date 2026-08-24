@@ -18,11 +18,14 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from typing import cast
+
+import numpy as np
 
 from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
 from pyopticfilm.asic.registers import Gl128Registers
-from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
+from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE, Model8200iSE
 from pyopticfilm.device.protocol import AsicDriver, FilmModel
 from pyopticfilm.exceptions import AsicError, ScanCancelled, ScanError
 from pyopticfilm.logging import get_logger
@@ -77,6 +80,8 @@ class Gl128ScanSession(ScanSession):
         self,
         *args,
         multi_exposure: bool = False,
+        passes: int | None = None,
+        exposures: Sequence[int] | None = None,
         infrared: bool = False,
         align_passes: bool = True,
         **kwargs,
@@ -84,7 +89,8 @@ class Gl128ScanSession(ScanSession):
         """Refuse unless the ASIC explicitly arms motor moves."""
         if not getattr(self.asic, "_motor_moves_enabled", False):
             raise AsicError(_MOTOR_GATED_HINT)
-        if multi_exposure or (infrared and kwargs.get("mode", "color") == "color"):
+        me_requested = bool(multi_exposure) or passes is not None or exposures is not None
+        if me_requested or (infrared and kwargs.get("mode", "color") == "color"):
             if infrared and not getattr(self.model, "supports_infrared", False):
                 raise ScanError(
                     f"{self.model.model} has no infrared channel: IR scans are "
@@ -93,7 +99,9 @@ class Gl128ScanSession(ScanSession):
                 )
             return self._run_multi_pass(
                 *args,
-                multi_exposure=multi_exposure,
+                multi_exposure=me_requested,
+                passes=passes,
+                exposures=exposures,
                 infrared=infrared,
                 align_passes=align_passes,
                 **kwargs,
@@ -278,21 +286,36 @@ class Gl128ScanSession(ScanSession):
         cancel: threading.Event | None = None,
         apply_calib: bool = True,
         multi_exposure: bool = False,
+        passes: int | None = None,
+        exposures: Sequence[int] | None = None,
         infrared: bool = False,
         align_passes: bool = True,
     ):
         from pyopticfilm.image import ScanImage
-        from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift, warn_if_align_unavailable
-        from pyopticfilm.scan.exposure_merge import merge_exposures_result
+        from pyopticfilm.pass_align import (
+            align_pass_to_reference,
+            estimate_pass_shift,
+            warn_if_align_unavailable,
+        )
+        from pyopticfilm.scan.exposure_merge import merge_exposures_result, reduce_passes
         from pyopticfilm.scan.geometry import compute_geometry
-        from pyopticfilm.scan.me_debug import MeScanDebug
+        from pyopticfilm.scan.me_debug import MeScanDebug, NPassDebug
 
         if mode == "infrared":
             raise ValueError("Use mode='color' with infrared=True for colour+IR scans")
 
-        model = self.model
+        # GL128 session is SE-family only: both GL128 models expose the
+        # short/long exposure + validated ceiling; narrow the protocol type.
+        model = cast("Model8200iSE", self.model)
         exp_short = int(getattr(model, "exposure_short", model.exposure_lperiod))
         exp_long = int(getattr(model, "exposure_long", exp_short * 3))
+
+        # Resolve the colour-pass ladder. Precedence:
+        #   exposures (explicit) > passes (count) > multi_exposure (bool) > plain
+        if exposures is not None:
+            colour_ladder = list(model.validate_exposures(exposures))
+        elif passes is not None:
+            colour_ladder = list(model.exposure_ladder(passes))
 
         if not self.asic._initialized:
             self.asic.init()
@@ -302,28 +325,58 @@ class Gl128ScanSession(ScanSession):
         if geometry is None:
             geometry = compute_geometry(resolution, model=model, area=area)
 
-        passes: list[tuple[str, str, int, bool]] = [
-            ("color_short", "transparency", exp_short, False),
-        ]
-        if infrared:
-            passes.append(("ir", "infrared", exp_short, False))
-        if multi_exposure:
-            passes.append(("color_long", "transparency", exp_long, True))
+        # --- Build the colour pass ladder --------------------------------
+        # Precedence: explicit exposures > pass count > multi_exposure bool > plain
+        if exposures is not None:
+            colour_ladder = list(model.validate_exposures(exposures))
+        elif passes is not None:
+            colour_ladder = list(model.exposure_ladder(passes))
+        elif multi_exposure:
+            colour_ladder = [exp_short, exp_long]
+        else:
+            colour_ladder = [exp_short]
 
+        # Calibrator: ASIC shading is exposure-dependent, so a pass at a new
+        # exposure re-measures the shading table.  The classic 2-pass path
+        # re-measures on the *long* pass only (short reuses the cache); this
+        # generalisation keeps that exact behaviour — reference pass reuses the
+        # existing short shading, the first pass at each other exposure
+        # re-measures.
+        #
+        # Acquisition order preserves the legacy physical sequence:
+        #   baseline colour → IR → remaining colour passes.
+        # (The classic order was short → IR → long.)
+        baseline = exp_short
+        remeasured: set[int] = {baseline}
+        pass_specs: list[tuple[str, int, bool]] = []  # (kind, exposure, remeasure)
+        # 1) baseline colour pass (the alignment reference)
+        pass_specs.append(("color", baseline, False))
+        # 2) IR pass, if requested (matches the classic short→IR→long ordering)
+        if infrared:
+            pass_specs.append(("ir", exp_short, False))
+        # 3) the remaining colour passes
+        for exposure in colour_ladder[1:]:
+            remeasure = exposure not in remeasured
+            if remeasure:
+                remeasured.add(exposure)
+            pass_specs.append(("color", exposure, remeasure))
+
+        total_passes = len(pass_specs)
         logger.info(
-            "GL128 multi-pass %ddpi passes=%d me=%s ir=%s",
+            "GL128 %d color-pass%s %ddpi (ir=%s) ladder=%s",
+            len(colour_ladder),
+            "es" if len(colour_ladder) != 1 else "",
             geometry.resolution,
-            len(passes),
-            multi_exposure,
             infrared,
+            colour_ladder,
         )
 
-        rgb_short = None
-        rgb_long = None
-        ir_plane = None
-        n_pass = len(passes)
+        # --- Acquire all passes -------------------------------------------
+        color_planes: list[np.ndarray] = []
+        ir_plane: np.ndarray | None = None
+        n_pass = total_passes
 
-        for idx, (key, method, exposure, remeasure) in enumerate(passes):
+        for idx, (kind, exposure, remeasure) in enumerate(pass_specs):
 
             def _prog(p: float, _i: int = idx) -> None:
                 if progress is not None:
@@ -331,7 +384,7 @@ class Gl128ScanSession(ScanSession):
 
             calib = None
             if apply_calib and self.calibrator is not None:
-                if method == "transparency":
+                if kind == "color":
                     if remeasure:
                         self.asic.asic_shading_ready = False  # type: ignore[attr-defined]
                         calib = self.calibrator.measure_colour_asic_shading(geometry)
@@ -339,19 +392,18 @@ class Gl128ScanSession(ScanSession):
                         calib = self.calibrator.ensure_colour_asic_shading(geometry)
                 else:
                     calib = self.calibrator.find_for_scan(
-                        method=method, geometry=geometry
+                        method="infrared", geometry=geometry
                     )
                     if calib is None:
                         logger.warning(
-                            "No calib cache for method=%s dpi=%d — scanning uncalibrated.",
-                            method,
+                            "No calib cache for method=infrared dpi=%d — scanning uncalibrated.",
                             geometry.resolution,
                         )
 
             self._pass_exposure = exposure
             raw = self.acquire_raw(
                 geometry,
-                method=method,
+                method="infrared" if kind == "ir" else "transparency",
                 lamp_on=True,
                 start_motor=True,
                 progress=_prog,
@@ -375,49 +427,58 @@ class Gl128ScanSession(ScanSession):
                 dark=dark,
                 white=white,
                 planar=bool(planar),
-                # Keep ME colour (and IR) planes linear — per-plane expose_film_base
-                # collapses the ~3× short/long ratio (SF USB oracle). Makeup runs
-                # once on the final deliverable below.
-                expose_base=False,
+                expose_base=False,  # keep planes linear for IVW
             )
-
-            if key == "color_short":
-                rgb_short = rgb
-            elif key == "color_long":
-                rgb_long = rgb
-            elif key == "ir":
+            if kind == "color":
+                color_planes.append(rgb)
+            else:
                 ir_plane = self._infrared_plane(rgb)
 
-        assert rgb_short is not None
-        align_shift_long: tuple[float, float] | None = None
+        ref_plane = color_planes[0]
+        n_colors = len(color_planes)
         align_shift_ir: tuple[float, float] | None = None
+        color_align_shifts: list[tuple[float, float]] = []
+        aligned_planes: list[np.ndarray] = [ref_plane]  # [0] = reference
 
-        if align_passes and rgb_long is not None:
-            warn_if_align_unavailable("ME long")
-            align_shift_long = estimate_pass_shift(rgb_short, rgb_long)
-            logger.info(
-                "ME long pass shift (dx, dy)=(%.3f, %.3f)",
-                align_shift_long[0],
-                align_shift_long[1],
-            )
+        # --- Alignment -----------------------------------------------------
         if align_passes and ir_plane is not None:
             warn_if_align_unavailable("IR")
-            ir_plane, align_shift_ir = align_pass_to_reference(rgb_short, ir_plane)
-            logger.info(
-                "IR pass shift (dx, dy)=(%.3f, %.3f)",
-                align_shift_ir[0],
-                align_shift_ir[1],
-            )
+            ir_plane, align_shift_ir = align_pass_to_reference(ref_plane, ir_plane)
+            logger.info("IR pass shift (dx, dy)=(%.3f, %.3f)", align_shift_ir[0], align_shift_ir[1])
 
-        primary = rgb_short
-        fusion_stats = None
-        if multi_exposure and rgb_long is not None:
-            shift = align_shift_long if align_passes else (0.0, 0.0)
+        if n_colors > 1:
+            if n_colors == 2:
+                # Classic ME: keep the original alignment path byte-identical.
+                if align_passes:
+                    warn_if_align_unavailable("ME long")
+                    color_align_shifts.append(estimate_pass_shift(ref_plane, color_planes[1]))
+                    logger.info(
+                        "ME long pass shift (dx, dy)=(%.3f, %.3f)",
+                        *color_align_shifts[0],
+                    )
+                    aligned_planes.append(color_planes[1])  # warping applied inside merge below
+            else:
+                # N≥3: warp each secondary pass onto the reference explicitly.
+                for p in color_planes[1:]:
+                    shift = (0.0, 0.0)
+                    if align_passes:
+                        warn_if_align_unavailable("ME N-pass")
+                        shift = estimate_pass_shift(ref_plane, p)
+                        logger.info("ME N-pass shift (dx, dy)=(%.3f, %.3f)", shift[0], shift[1])
+                    aligned_planes.append(align_pass_to_reference(ref_plane, p, shift)[0])
+                    color_align_shifts.append(shift)
+
+        # --- Fusion ---------------------------------------------------------
+        primary: np.ndarray = ref_plane
+        if n_colors == 1:
+            pass
+        elif n_colors == 2:
             alpha = float(getattr(model, "me_noise_alpha", 1.0))
             beta = float(getattr(model, "me_noise_beta", 4096.0))
+            shift = color_align_shifts[0] if (align_passes and color_align_shifts) else (0.0, 0.0)
             merged = merge_exposures_result(
-                rgb_short,
-                rgb_long,
+                ref_plane,
+                color_planes[1],
                 exposure_short=exp_short,
                 exposure_long=exp_long,
                 align_shift=shift,
@@ -425,19 +486,33 @@ class Gl128ScanSession(ScanSession):
                 beta=beta,
             )
             primary = merged.rgb
-            fusion_stats = merged.fusion_stats
             self.last_me_debug = MeScanDebug(
-                rgb_short=rgb_short,
-                rgb_long=rgb_long,
+                rgb_short=ref_plane,
+                rgb_long=color_planes[1],
                 exposure_short=exp_short,
                 exposure_long=exp_long,
-                fusion_stats=fusion_stats,
-                align_shift_long=align_shift_long,
+                fusion_stats=merged.fusion_stats,
+                align_shift_long=color_align_shifts[0] if align_passes else None,
+                align_shift_ir=align_shift_ir,
+            )
+        else:
+            alpha = float(getattr(model, "me_noise_alpha", 1.0))
+            beta = float(getattr(model, "me_noise_beta", 4096.0))
+            fused = reduce_passes(
+                aligned_planes,
+                colour_ladder,
+                alpha=alpha,
+                beta=beta,
+            )
+            primary = fused.rgb
+            self.last_me_debug = NPassDebug(
+                planes=tuple(color_planes),
+                exposures=tuple(colour_ladder),
+                align_shifts=tuple(color_align_shifts) if align_passes else None,
                 align_shift_ir=align_shift_ir,
             )
 
         # Single film-base makeup on the deliverable only (not on bracket planes).
-        # Headroom cap keeps IVW highlight recovery from being crushed to white.
         primary = self.pipeline.expose_film_base(
             primary, source="me deliverable", preserve_headroom=True
         )
