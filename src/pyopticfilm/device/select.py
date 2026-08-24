@@ -111,7 +111,7 @@ def model_for_device(product_id: int, bcd_device: int = 0) -> FilmModel:
 
 
 def model_is_scan_ready(model: FilmModel) -> bool:
-    """True for models validated for scan (8200i SE, 8100 V2)."""
+    """True for models validated for scan."""
     return bool(getattr(model, "scan_ready", False))
 
 
