@@ -27,7 +27,7 @@ PID_OPTICFILM_8200I = 0x130D
 # OpticFilm 8200i SE (GL128) — only scan-ready model in this release
 PID_OPTICFILM_8200I_SE = 0x1825
 
-# OpticFilm 8100 V2 (GL128, no IR/iSRD) — capture-alias of the 8200i SE
+# OpticFilm 8100 V2 (GL128)
 PID_OPTICFILM_8100_V2 = 0x1824
 
 # Other SANE genesys :complete OpticFilm PIDs (probe-only until validated)
