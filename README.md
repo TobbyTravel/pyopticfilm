@@ -6,7 +6,7 @@ The library talks directly to the scanner’s Genesys ASIC (GL842, GL843, GL845,
 
 ## Supported hardware
 
-**Only the OpticFilm 8200i SE is hardware-tested for scanning in this release.**
+**Only the OpticFilm 8200i SE and OpticFilm 8100 (V2) is hardware-tested for scanning in this release.**
 
 Support is one of:
 
@@ -17,6 +17,7 @@ Support is one of:
 | Model | USB ID | ASIC | Support |
 |-------|--------|------|---------|
 | OpticFilm 8200i SE | `07b3:1825` | GL128 | **Hardware tested** |
+| OpticFilm 8100 (V2) | `07b3:1824` | GL128 | **Hardware tested** |
 | OpticFilm 8200i | `07b3:130d` | GL845 | Protocol validated (setup traces; scan locked) |
 | OpticFilm 8100 | `07b3:130c` | GL845 | Experimental |
 | OpticFilm 7600i (v1 / v2) | `07b3:0c3b` | GL845 / GL843 | Experimental |
@@ -29,9 +30,9 @@ Other OpticFilm models **enumerate and open**: you can read status, turn the lam
 
 `Scanner.open()` prefers a scan-ready 8200i SE when several Plustek film scanners are connected.
 
-## Features (8200i SE)
+## Features 
 
-- Color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host)
+- Color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host; infrared is available only on supported hardware))
 - Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour)
 - Multi-exposure (ME): short + long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
 - Optional crop via normalized `area` (`x1, y1, x2, y2` in 0–1)

@@ -59,8 +59,12 @@ def test_bcd_disambiguation_7400_and_7600i():
 
 
 def test_simple_pid_aliases():
+    from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
+    from pyopticfilm.usb.device import PID_OPTICFILM_8100_V2
+
     assert model_for_device(PID_OPTICFILM_8200I) is MODEL_8200I
     assert model_for_device(PID_OPTICFILM_8100) is MODEL_8100
+    assert model_for_device(PID_OPTICFILM_8100_V2) is MODEL_8100_V2
     assert model_for_device(PID_OPTICFILM_7200I) is MODEL_7200I
     assert model_for_device(PID_OPTICFILM_7200_V2) is MODEL_7200_V2
     assert model_for_device(PID_OPTICFILM_7300) is MODEL_7300
@@ -79,11 +83,14 @@ def test_create_asic_routing():
     assert isinstance(create_asic(proto, MODEL_7200), Gl842)  # type: ignore[arg-type]
 
 
-def test_scan_ready_se_only():
+def test_scan_ready_validate_set():
+    from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
     from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 
+    scan_ready_models = {id(m) for m in KNOWN_MODELS if m.scan_ready}
+    assert scan_ready_models == {id(MODEL_8200I_SE), id(MODEL_8100_V2)}
     for m in KNOWN_MODELS:
-        if m is MODEL_8200I_SE:
+        if m is MODEL_8200I_SE or m is MODEL_8100_V2:
             assert m.scan_ready is True
             continue
         assert m.scan_ready is False, f"{m.model} must stay locked out"

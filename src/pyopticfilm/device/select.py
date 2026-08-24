@@ -14,6 +14,7 @@ from pyopticfilm.device.model_7200i import MODEL_7200_V2, MODEL_7200I
 from pyopticfilm.device.model_7300 import MODEL_7300, MODEL_7400_V1
 from pyopticfilm.device.model_7400 import MODEL_7400, MODEL_8100
 from pyopticfilm.device.model_7500i import MODEL_7500I, MODEL_7600I_V1
+from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
 from pyopticfilm.device.model_8200i import MODEL_8200I
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.device.protocol import FilmModel
@@ -27,6 +28,7 @@ from pyopticfilm.usb.device import (
     PID_OPTICFILM_7500I,
     PID_OPTICFILM_7600I,
     PID_OPTICFILM_8100,
+    PID_OPTICFILM_8100_V2,
     PID_OPTICFILM_8200I,
     PID_OPTICFILM_8200I_SE,
 )
@@ -52,6 +54,7 @@ KNOWN_MODELS: tuple[FilmModel, ...] = (
     MODEL_7300,
     MODEL_7200,
     MODEL_8200I_SE,
+    MODEL_8100_V2,
 )
 
 __all__ = [
@@ -102,11 +105,13 @@ def model_for_device(product_id: int, bcd_device: int = 0) -> FilmModel:
         if bcd_device == 0x0400:
             return MODEL_7600I_V1
         return MODEL_7600I_V2
+    if product_id == PID_OPTICFILM_8100_V2:
+        return MODEL_8100_V2
     raise UnsupportedDeviceError(f"No model mapping for product_id=0x{product_id:04x}")
 
 
 def model_is_scan_ready(model: FilmModel) -> bool:
-    """True only for models validated for scan in this release (8200i SE)."""
+    """True for models validated for scan."""
     return bool(getattr(model, "scan_ready", False))
 
 
