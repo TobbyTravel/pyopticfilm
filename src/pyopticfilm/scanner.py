@@ -62,6 +62,9 @@ class Scanner:
         #: When True, scan/home/park are allowed even if ``scan_ready`` is False.
         #: Set only by :meth:`open_fake` (mock USB). Real hardware stays gated.
         self._allow_unvalidated_scan = False
+        #: GL128's first image pass after open establishes the repeatable AGOHOME
+        #: park position. It is discarded before the first user-visible scan.
+        self._gl128_primed = False
 
     @classmethod
     def open(
@@ -251,6 +254,31 @@ class Scanner:
             if not self._asic.is_at_home():
                 self._asic.home()
         from pyopticfilm.scan.session import create_session
+
+        run_kwargs = {
+            "resolution": resolution,
+            "mode": mode,
+            "area": area,
+            "geometry": geometry,
+            "progress": progress,
+            "cancel": cancel,
+            "apply_calib": apply_calib,
+            "multi_exposure": multi_exposure,
+            "infrared": infrared,
+            "align_passes": align_passes,
+        }
+        if getattr(self._model, "asic", "") == "GL128" and not self._gl128_primed:
+            logger.info("GL128 priming pass: discard first image to establish AGOHOME park")
+            prime_kwargs = {
+                **run_kwargs,
+                "progress": None,
+                "cancel": None,
+                "multi_exposure": False,
+                "infrared": False,
+            }
+            prime_session = create_session(self._asic, self._model, self._calibrator)
+            prime_session.run(**prime_kwargs)  # type: ignore[arg-type]
+            self._gl128_primed = True
 
         session = create_session(self._asic, self._model, self._calibrator)
         image = session.run(  # type: ignore[arg-type]

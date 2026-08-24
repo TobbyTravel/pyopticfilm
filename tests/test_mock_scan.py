@@ -82,6 +82,37 @@ def test_gl128_session_mock_scan():
     assert any(t.operation == "bulk_read" for t in usb.transactions)
 
 
+def test_gl128_scanner_primes_once_before_first_requested_scan(monkeypatch):
+    """A discarded initial pass gives GL128 its proven AGOHOME park cycle."""
+    import pyopticfilm.scan.session as session_module
+
+    scanner = Scanner.open_fake(MODEL_8200I_SE)
+    sentinel = object()
+    runs: list[dict[str, object]] = []
+
+    class FakeSession:
+        last_me_debug = None
+
+        def run(self, **kwargs):
+            runs.append(kwargs)
+            return sentinel
+
+    monkeypatch.setattr(session_module, "create_session", lambda *args: FakeSession())
+    try:
+        assert scanner.scan(resolution=150, area=_TINY, apply_calib=False) is sentinel
+        assert len(runs) == 2
+        assert runs[0]["progress"] is None
+        assert runs[0]["cancel"] is None
+        assert runs[0]["multi_exposure"] is False
+        assert runs[0]["infrared"] is False
+        assert runs[1]["resolution"] == 150
+
+        assert scanner.scan(resolution=150, area=_TINY, apply_calib=False) is sentinel
+        assert len(runs) == 3
+    finally:
+        scanner.close()
+
+
 def test_recording_transport_listener():
     lines: list[str] = []
 

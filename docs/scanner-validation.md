@@ -51,6 +51,30 @@ Helpers:
 | `tools/sane_debug_to_trace.py` | Convert a SANE debug log to JSON |
 | `tools/scanlab/` | PyQt6 bring-up GUI (mock or real SE); [user guide](../tools/scanlab/README.md) |
 
+## GL128 first-pass positioning
+
+The OpticFilm 8100 (V2) and 8200i SE use a GL128 feed sequence whose first
+image pass after opening the scanner can land at a different vertical position
+from later passes. This is a physical positioning issue, not image alignment:
+repeated 1200 dpi full-frame scans showed a roughly 46-pixel first-to-second
+pass displacement, while later passes stayed within approximately 2 pixels.
+
+The public `Scanner.scan()` path therefore performs one discarded, single-pass
+colour scan the first time a GL128 scanner is used. That pass completes the
+normal image-session shutdown, including the capture-proven `AGOHOME` return to
+home. The requested scan then runs after this priming cycle. Priming is tracked
+per `Scanner` instance and is not repeated for later scans from that instance.
+
+The priming pass deliberately disables caller progress/cancel callbacks and
+multi-exposure/infrared modes. It uses the requested scan geometry so the
+carriage follows the same positioning path as the real scan. If priming fails,
+the requested scan is not started and the scanner remains unprimed for a later
+retry.
+
+This adds one discarded image pass to the first scan of a GL128 session. The
+extra pass is intentional: a standalone reverse-home operation is not capture-
+proven on this hardware, whereas the image-pass `AGOHOME` park is.
+
 ## Current golden: OpticFilm 8200i, 1800 dpi, RGB16
 
 Phase recorded: ASIC `init()` + `ScanSession._configure()` (no home poll, no
