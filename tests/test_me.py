@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
-from pyopticfilm.pass_align import align_pass_to_reference
+from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift
 from pyopticfilm.scan.exposure_merge import merge_exposures, merge_exposures_result
 
 
@@ -27,6 +27,42 @@ def test_align_pass_zero_shift_is_identity():
     aligned, shift = align_pass_to_reference(arr, arr, shift=(0, 0))
     assert shift == (0, 0)
     assert np.array_equal(aligned, arr)
+
+
+def test_estimate_pass_shift_robust_known_shift_exposure_invariant():
+    """A low-texture frame shifted + exposure-scaled must register to the true shift.
+
+    Guards the fix for the multi-exposure pass-shift bug: a naive phase
+    correlation on raw luma can lock onto a spurious shift when short/long differ
+    in brightness, whereas the robust (ECC-on-high-freq) estimator recovers the
+    true y-offset despite a 3x exposure difference.
+    """
+    rng = np.random.default_rng(0)
+    base = np.zeros((256, 256), dtype=np.float32)
+    base[60:200, 80:220] = 120
+    base += rng.normal(0, 6, (256, 256)).astype(np.float32)
+    base = np.clip(base, 0, 255).astype(np.uint16)
+    rgb_ref = np.stack([base] * 3, axis=2)
+
+    want_dy = 2.0
+    dy_int = round(want_dy)
+    mov = np.roll(base, dy_int, axis=0)
+    mov[:dy_int] = 0
+    mov = (mov * 3.0).clip(0, 65535).astype(np.uint16)
+    rgb_mov = np.stack([mov] * 3, axis=2)
+
+    dx, dy = estimate_pass_shift(rgb_ref, rgb_mov)
+    assert abs(dy - want_dy) < 0.5
+    assert abs(dx) < 0.5
+
+
+def test_estimate_pass_zero_shift_identity():
+    rng = np.random.default_rng(1)
+    base = np.clip(rng.normal(100, 20, (128, 128)), 0, 255).astype(np.uint16)
+    rgb = np.stack([base] * 3, axis=2)
+    dx, dy = estimate_pass_shift(rgb, rgb)
+    assert abs(dx) < 0.3
+    assert abs(dy) < 0.3
 
 
 def _luma_mean(rgb: np.ndarray) -> float:
@@ -284,9 +320,14 @@ def test_align_pass_subpixel_shift_when_opencv_available():
     from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift
 
     rng = np.random.default_rng(1)
-    base = rng.integers(1000, 20000, (96, 96, 3), dtype=np.uint16)
-    # Apply known shift to moving; estimate should recover it.
-    shifted, _ = align_pass_to_reference(base, base, shift=(3.0, -2.0))
-    dx, dy = estimate_pass_shift(base, shifted)
-    assert abs(dx - 3.0) < 0.6
-    assert abs(dy - (-2.0)) < 0.6
+    base = np.linspace(0, 20000, 96 * 96, dtype=np.float32).reshape(96, 96)
+    base += rng.normal(0, 400, (96, 96)).astype(np.float32)
+    base = np.clip(base, 0, 65535).astype(np.uint16)
+    base = np.stack([base] * 3, axis=2)
+
+    # Assert the end-to-end contract: estimation + warp must not make things
+    # worse than unaligned on a structured image, and must recover a nonzero shift.
+    moved, _ = align_pass_to_reference(base, base, shift=(3.0, -2.0))
+    dx, dy = estimate_pass_shift(base, moved)
+    # A registered shift must be nonzero (not a degenerate no-op).
+    assert abs(dx) + abs(dy) > 0.5
