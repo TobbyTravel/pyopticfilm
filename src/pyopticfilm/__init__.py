@@ -21,6 +21,7 @@ from pyopticfilm.exceptions import (
     UsbError,
 )
 from pyopticfilm.image import ScanImage
+from pyopticfilm.scan.exposure_calibrate import CalibStepStats, ExposurePlan
 from pyopticfilm.scanner import Scanner
 
 __all__ = [
@@ -29,9 +30,11 @@ __all__ = [
     "MODEL_8200I",
     "MODEL_8200I_SE",
     "AsicError",
+    "CalibStepStats",
     "CalibrationError",
     "DeviceNotFoundError",
     "DriverBindingError",
+    "ExposurePlan",
     "Model8100V2",
     "Model8200i",
     "Model8200iSE",

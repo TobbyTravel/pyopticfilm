@@ -379,6 +379,25 @@ class Model8200iSE:
     #: Long ME image exposure (exactly 3× short in SilverFast session 14).
     exposure_long: int = 42000
     multi_exposure_factor: int = 3
+
+    # --- adaptive ME exposure calibration (defaults, model-overridable) ---
+    #: Low-exposure candidates for the short ME pass, ascending. The probe
+    #: film rejected 7000 (frame spans <1 density) and accepted 14000.
+    exposure_short_candidates: tuple[int, ...] = (7000, 14000)
+    #: High-exposure candidates for the long ME pass. 42k is the capture
+    #: default, 58k/64k/70k are the decision range; 100k is a diagnostic
+    #: high-end marker (0.5 % clip gate never selects it on measured film).
+    exposure_long_candidates: tuple[int, ...] = (42000, 58000, 64000, 70000, 100000)
+    #: Resolution of the calibration passes.
+    me_calib_resolution: int = 1200
+    #: Normalized (x1, y1, x2, y2) calibration crop — central 20 %. Must be a
+    #: geometry the GL128 motor guard accepts; the small crop is probe-validated
+    #: while larger prime geometries can fail with "Invalid scan area".
+    me_calib_area: tuple[float, float, float, float] = (0.4, 0.4, 0.6, 0.6)
+    #: Max fraction of pixels (any channel) at/above 92 % FS for clip cleanliness.
+    me_calib_clip_threshold: float = 0.005
+    #: Min ``p90/p05`` luma contrast for a short-candidate to be usable.
+    me_calib_min_short_contrast: float = 3.0
     #: GL845-shaped ``starty`` base only. The SE never feeds ``geometry.starty``;
     #: FEEDL steps use :attr:`feed_steps_per_inch` instead.
     motor_base_ydpi: int = 7200
