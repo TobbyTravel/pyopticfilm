@@ -34,6 +34,10 @@ def is_gl128_opticfilm(model: Any) -> bool:
         return False
 
 
+# Compat alias for pre-1.2.0 consumers (NegPy plustek_backend pre-rename).
+is_opticfilm_8200i_se = is_gl128_opticfilm
+
+
 def _window_end_steps(model: Any) -> int:
     return int(getattr(model, "scan_window_end_steps", 0) or getattr(model, "feed_to_scan_bottom_steps", 0))
 
