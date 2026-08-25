@@ -34,6 +34,14 @@ def is_gl128_opticfilm(model: Any) -> bool:
         return False
 
 
+# Back-compat alias: pyopticfilm <=1.2.0 exported this model predicate as
+# ``is_opticfilm_8200i_se``; it was renamed to ``is_gl128_opticfilm`` on main.
+# Downstream consumers (e.g. NegPy's Plustek backend) still import the old
+# name, which would break ImportError on the next release. Keep an alias so the
+# rename is non-breaking across 1.2.0 -> 1.2.1.
+is_opticfilm_8200i_se = is_gl128_opticfilm
+
+
 def _window_end_steps(model: Any) -> int:
     return int(getattr(model, "scan_window_end_steps", 0) or getattr(model, "feed_to_scan_bottom_steps", 0))
 
