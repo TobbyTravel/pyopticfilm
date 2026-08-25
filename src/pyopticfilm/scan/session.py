@@ -72,6 +72,7 @@ class ScanSession:
         multi_exposure: bool = False,
         infrared: bool = False,
         align_passes: bool = True,
+        me_exposures: tuple[int, ...] | None = None,
     ) -> ScanImage:
         if multi_exposure or infrared:
             raise NotImplementedError(

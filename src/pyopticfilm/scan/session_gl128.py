@@ -79,6 +79,7 @@ class Gl128ScanSession(ScanSession):
         multi_exposure: bool = False,
         infrared: bool = False,
         align_passes: bool = True,
+        me_exposures: tuple[int, ...] | None = None,
         **kwargs,
     ):  # type: ignore[no-untyped-def]
         """Refuse unless the ASIC explicitly arms motor moves."""
@@ -96,6 +97,7 @@ class Gl128ScanSession(ScanSession):
                 multi_exposure=multi_exposure,
                 infrared=infrared,
                 align_passes=align_passes,
+                me_exposures=me_exposures,
                 **kwargs,
             )
         return super().run(*args, **kwargs)
@@ -280,6 +282,7 @@ class Gl128ScanSession(ScanSession):
         multi_exposure: bool = False,
         infrared: bool = False,
         align_passes: bool = True,
+        me_exposures: tuple[int, ...] | None = None,
     ):
         from pyopticfilm.image import ScanImage
         from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift, warn_if_align_unavailable
@@ -293,6 +296,17 @@ class Gl128ScanSession(ScanSession):
         model = self.model
         exp_short = int(getattr(model, "exposure_short", model.exposure_lperiod))
         exp_long = int(getattr(model, "exposure_long", exp_short * 3))
+        if me_exposures is not None:
+            if len(me_exposures) != 2:
+                raise ScanError(
+                    f"GL128 multi-exposure supports exactly 2 exposures in this "
+                    f"release, got {len(me_exposures)}: {tuple(int(e) for e in me_exposures)}"
+                )
+            exp_short, exp_long = (int(e) for e in me_exposures)
+            if exp_short <= 0 or exp_long <= 0:
+                raise ScanError(f"ME exposures must be positive, got ({exp_short}, {exp_long})")
+            if exp_long <= exp_short:
+                raise ScanError(f"ME long exposure must exceed short, got ({exp_short}, {exp_long})")
 
         if not self.asic._initialized:
             self.asic.init()
@@ -311,11 +325,13 @@ class Gl128ScanSession(ScanSession):
             passes.append(("color_long", "transparency", exp_long, True))
 
         logger.info(
-            "GL128 multi-pass %ddpi passes=%d me=%s ir=%s",
+            "GL128 multi-pass %ddpi passes=%d me=%s ir=%s exposures=(%d, %d)",
             geometry.resolution,
             len(passes),
             multi_exposure,
             infrared,
+            exp_short,
+            exp_long,
         )
 
         rgb_short = None

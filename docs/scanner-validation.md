@@ -71,13 +71,17 @@ The priming pass deliberately disables caller progress/cancel callbacks and
 multi-exposure/infrared modes. It does not need to match the requested scan:
 the `AGOHOME` park at the end of any completed image pass establishes the same
 repeatable home regardless of PPI or area. Measured on the OpticFilm 8100 V2,
-one discarded 600 dpi pass over a small top crop (about 5 s, constant) makes
-the first retained scan land within ~1 px of the steady-state position, versus
-~30 px with no prime, whereas a full-frame prime costs about 24 s at 1200 dpi
-and scales with the requested PPI (~71 s at 3600, ~150 s at 7200). The default
-prime is therefore the small 600 dpi crop; `POF_GL128_PRIME` can override it
-(`full` for the legacy full pass at the requested PPI, or
-`<dpi>:x0,y0,x1,y1` for a custom pass).
+one discarded pass over a small crop (about 5 s, constant) makes the first
+retained scan land within ~1 px of the steady-state position, versus ~30 px
+with no prime, whereas a full-frame prime costs about 24 s at 1200 dpi and
+scales with the requested PPI (~71 s at 3600, ~150 s at 7200). The default
+prime is therefore the small central crop — the same geometry the adaptive
+multi-exposure calibration uses (`me_calib_resolution` / `me_calib_area` on
+the model, 1200 dpi over `(0.4, 0.4, 0.6, 0.6)`); the small crop is
+probe-validated while larger prime geometries can fail with
+`ValueError: Invalid scan area`. `POF_GL128_PRIME` can override it (`full`
+for the legacy full pass at the requested PPI, or `<dpi>:x0,y0,x1,y1` for a
+custom pass).
 
 If priming fails, the requested scan is not started and the scanner remains
 unprimed for a later retry.

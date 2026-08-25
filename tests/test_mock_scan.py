@@ -102,9 +102,10 @@ def test_gl128_scanner_primes_once_before_first_requested_scan(monkeypatch):
     try:
         assert scanner.scan(resolution=150, area=_TINY, apply_calib=False) is sentinel
         assert len(runs) == 2
-        # Default prime: fixed small pass, independent of requested PPI/area.
-        assert runs[0]["resolution"] == 600
-        assert runs[0]["area"] == (0.0, 0.0, 1.0, 0.12)
+        # Default prime: the model's small ME-calibration geometry (1200 dpi,
+        # central 20% crop), independent of the requested PPI/area.
+        assert runs[0]["resolution"] == MODEL_8200I_SE.me_calib_resolution
+        assert runs[0]["area"] == MODEL_8200I_SE.me_calib_area
         assert runs[0]["progress"] is None
         assert runs[0]["cancel"] is None
         assert runs[0]["multi_exposure"] is False
