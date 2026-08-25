@@ -82,6 +82,78 @@ def test_gl128_session_mock_scan():
     assert any(t.operation == "bulk_read" for t in usb.transactions)
 
 
+def test_gl128_scanner_primes_once_before_first_requested_scan(monkeypatch):
+    """A discarded initial pass gives GL128 its proven AGOHOME park cycle."""
+    import pyopticfilm.scan.session as session_module
+
+    scanner = Scanner.open_fake(MODEL_8200I_SE)
+    sentinel = object()
+    runs: list[dict[str, object]] = []
+
+    class FakeSession:
+        last_me_debug = None
+
+        def run(self, **kwargs):
+            runs.append(kwargs)
+            return sentinel
+
+    monkeypatch.setattr(session_module, "create_session", lambda *args: FakeSession())
+    monkeypatch.delenv("POF_GL128_PRIME", raising=False)
+    try:
+        assert scanner.scan(resolution=150, area=_TINY, apply_calib=False) is sentinel
+        assert len(runs) == 2
+        # Default prime: fixed small pass, independent of requested PPI/area.
+        assert runs[0]["resolution"] == 600
+        assert runs[0]["area"] == (0.0, 0.0, 1.0, 0.12)
+        assert runs[0]["progress"] is None
+        assert runs[0]["cancel"] is None
+        assert runs[0]["multi_exposure"] is False
+        assert runs[0]["infrared"] is False
+        assert runs[1]["resolution"] == 150
+        assert runs[1]["area"] == _TINY
+
+        assert scanner.scan(resolution=150, area=_TINY, apply_calib=False) is sentinel
+        assert len(runs) == 3
+    finally:
+        scanner.close()
+
+
+def test_gl128_prime_env_override_full_and_custom(monkeypatch):
+    """POF_GL128_PRIME selects the prime pass; 'full' keeps the requested geometry."""
+    import pyopticfilm.scan.session as session_module
+
+    def recorded_prime_kwargs() -> dict[str, object]:
+        scanner = Scanner.open_fake(MODEL_8200I_SE)  # type: ignore[arg-type]
+        runs: list[dict[str, object]] = []
+
+        class FakeSession:
+            last_me_debug = None
+
+            def run(self, **kwargs):
+                runs.append(kwargs)
+                return object()
+
+        monkeypatch.setattr(session_module, "create_session", lambda *args: FakeSession())
+        try:
+            scanner.scan(resolution=3600, area=None, apply_calib=False)
+        finally:
+            scanner.close()
+        return runs[0]
+
+    try:
+        monkeypatch.setenv("POF_GL128_PRIME", "full")
+        prime = recorded_prime_kwargs()
+        assert prime["resolution"] == 3600
+        assert prime["area"] is None
+
+        monkeypatch.setenv("POF_GL128_PRIME", "600:0.0,0.0,1.0,0.25")
+        prime = recorded_prime_kwargs()
+        assert prime["resolution"] == 600
+        assert prime["area"] == (0.0, 0.0, 1.0, 0.25)
+    finally:
+        monkeypatch.delenv("POF_GL128_PRIME", raising=False)
+
+
 def test_recording_transport_listener():
     lines: list[str] = []
 

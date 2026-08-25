@@ -53,6 +53,42 @@ Helpers:
 | `tools/sane_debug_to_trace.py` | Convert a SANE debug log to JSON |
 | `tools/scanlab/` | PyQt6 bring-up GUI (mock or real scan-ready hardware); [user guide](../tools/scanlab/README.md) |
 
+## GL128 first-pass positioning
+
+The OpticFilm 8100 (V2) and 8200i SE use a GL128 feed sequence whose first
+image pass after opening the scanner can land at a different vertical position
+from later passes. This is a physical positioning issue, not image alignment:
+repeated 1200 dpi full-frame scans showed a roughly 46-pixel first-to-second
+pass displacement, while later passes stayed within approximately 2 pixels.
+
+The public `Scanner.scan()` path therefore performs one discarded, single-pass
+colour scan the first time a GL128 scanner is used. That pass completes the
+normal image-session shutdown, including the capture-proven `AGOHOME` return to
+home. The requested scan then runs after this priming cycle. Priming is tracked
+per `Scanner` instance and is not repeated for later scans from that instance.
+
+The priming pass deliberately disables caller progress/cancel callbacks and
+multi-exposure/infrared modes. It does not need to match the requested scan:
+the `AGOHOME` park at the end of any completed image pass establishes the same
+repeatable home regardless of PPI or area. Measured on the OpticFilm 8100 V2,
+one discarded 600 dpi pass over a small top crop (about 5 s, constant) makes
+the first retained scan land within ~1 px of the steady-state position, versus
+~30 px with no prime, whereas a full-frame prime costs about 24 s at 1200 dpi
+and scales with the requested PPI (~71 s at 3600, ~150 s at 7200). The default
+prime is therefore the small 600 dpi crop; `POF_GL128_PRIME` can override it
+(`full` for the legacy full pass at the requested PPI, or
+`<dpi>:x0,y0,x1,y1` for a custom pass).
+
+If priming fails, the requested scan is not started and the scanner remains
+unprimed for a later retry.
+
+The discarded pass adds a fixed, small constant to the first scan of a GL128
+session. A standalone reverse-home operation is not capture-proven on this
+hardware; the image-pass `AGOHOME` park is. Note that aborting an image pass
+early (start-then-cancel) is not a substitute: the `AGOHOME` park has been
+observed to time out in that case, stranding the carriage mid-window with no
+capture-proven recovery short of a power cycle.
+
 ## Current golden: OpticFilm 8200i, 1800 dpi, RGB16
 
 Phase recorded: ASIC `init()` + `ScanSession._configure()` (no home poll, no

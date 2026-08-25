@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -26,6 +27,39 @@ from pyopticfilm.usb.fake import FakeDeviceHandle, MockScannerTransport
 from pyopticfilm.usb.protocol import GenesysUsbProtocol, UsbTransport
 
 logger = get_logger(__name__)
+
+# GL128 prime (discarded first image pass): fixed 600 dpi over a small top
+# crop for all GL128 models. Measured on the OpticFilm 8100 V2: one such pass
+# (~5 s, constant) lands the first retained scan within ~1 px @1200 of the
+# steady-state position, versus ~30 px with no prime. A full-frame prime
+# costs scale with the requested PPI (~24 s @1200, ~71 s @3600, ~150 s @7200);
+# the AGOHOME park does not.
+#
+# Override with POF_GL128_PRIME:
+#   unset/empty         -> default small pass (600 dpi, area (0, 0, 1, 0.12))
+#   full                -> full pass at the requested PPI and area
+#   <dpi>:x0,y0,x1,y1   -> custom pass, e.g. 600:0.0,0.0,1.0,0.12
+_PRIME_ENV = "POF_GL128_PRIME"
+_PRIME_DEFAULT = (600, (0.0, 0.0, 1.0, 0.12))
+
+
+def _gl128_prime_spec() -> tuple[int, tuple[float, float, float, float] | None]:
+    """(resolution, area) for the discarded GL128 prime pass.
+
+    A resolution of 0 or area of ``None`` means "use the requested values"
+    (full pass at the caller's PPI/area).
+    """
+    raw = os.environ.get(_PRIME_ENV, "").strip()
+    if not raw:
+        return _PRIME_DEFAULT
+    if raw.lower() == "full":
+        return 0, None
+    if ":" in raw:
+        dpi_part, area_part = raw.split(":", 1)
+        x0, y0, x1, y1 = (float(v) for v in area_part.split(","))
+        return int(dpi_part), (x0, y0, x1, y1)
+    raise ValueError(f"POF_GL128_PRIME must be 'full' or '<dpi>:x0,y0,x1,y1', got {raw!r}")
+
 
 ScanMode = Literal["color", "infrared", "gray"]
 
@@ -62,6 +96,9 @@ class Scanner:
         #: When True, scan/home/park are allowed even if ``scan_ready`` is False.
         #: Set only by :meth:`open_fake` (mock USB). Real hardware stays gated.
         self._allow_unvalidated_scan = False
+        #: GL128's first image pass after open establishes the repeatable AGOHOME
+        #: park position. It is discarded before the first user-visible scan.
+        self._gl128_primed = False
 
     @classmethod
     def open(
@@ -251,6 +288,42 @@ class Scanner:
             if not self._asic.is_at_home():
                 self._asic.home()
         from pyopticfilm.scan.session import create_session
+
+        run_kwargs = {
+            "resolution": resolution,
+            "mode": mode,
+            "area": area,
+            "geometry": geometry,
+            "progress": progress,
+            "cancel": cancel,
+            "apply_calib": apply_calib,
+            "multi_exposure": multi_exposure,
+            "infrared": infrared,
+            "align_passes": align_passes,
+        }
+        if getattr(self._model, "asic", "") == "GL128" and not self._gl128_primed:
+            prime_dpi, prime_area = _gl128_prime_spec()
+            if prime_area is None:
+                prime_area = area
+            if prime_dpi == 0:
+                prime_dpi = resolution
+            logger.info(
+                "GL128 priming pass (%s dpi, area=%s): discard first image to establish AGOHOME park",
+                prime_dpi,
+                prime_area,
+            )
+            prime_kwargs = {
+                **run_kwargs,
+                "resolution": prime_dpi,
+                "area": prime_area,
+                "progress": None,
+                "cancel": None,
+                "multi_exposure": False,
+                "infrared": False,
+            }
+            prime_session = create_session(self._asic, self._model, self._calibrator)
+            prime_session.run(**prime_kwargs)  # type: ignore[arg-type]
+            self._gl128_primed = True
 
         session = create_session(self._asic, self._model, self._calibrator)
         image = session.run(  # type: ignore[arg-type]
