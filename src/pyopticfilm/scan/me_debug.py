@@ -28,3 +28,7 @@ class MeScanDebug:
     fusion_stats: FusionStats | None = None
     align_shift_long: tuple[float, float] | None = None
     align_shift_ir: tuple[float, float] | None = None
+    #: Adaptive proposal before safety clamp (``None`` for fixed / legacy).
+    exposure_proposed: int | None = None
+    #: Why ``exposure_long`` was chosen (adaptive / clamped / fixed / fallback).
+    exposure_reason: str | None = None

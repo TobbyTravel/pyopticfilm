@@ -141,6 +141,14 @@ class ScanLabWindow(QMainWindow):
         self.me_pass = QCheckBox("Multi-exposure (ME)")
         form.addWidget(self.me_pass)
 
+        self.me_fixed_long = QCheckBox("Fixed 42k long (A/B)")
+        self.me_fixed_long.setToolTip(
+            "When ME is on, force SilverFast-style long exposure 42000 "
+            "instead of frame-adaptive selection (42k–85k)."
+        )
+        self.me_fixed_long.setEnabled(False)
+        form.addWidget(self.me_fixed_long)
+
         self.me_pass.toggled.connect(self._on_me_pass_toggled)
 
         self.banner = QLabel()
@@ -226,6 +234,7 @@ class ScanLabWindow(QMainWindow):
         self.ppi.currentIndexChanged.connect(self._on_ppi_changed)
 
         self._worker.progress.connect(self._on_progress)
+        self._worker.status_changed.connect(self._on_scan_status)
         self._worker.usb_line.connect(self._append_usb)
         self._worker.banner.connect(self.banner.setText)
         self._worker.prescan_ready.connect(self._on_prescan_ready)
@@ -282,6 +291,9 @@ class ScanLabWindow(QMainWindow):
         self.me_pass.setEnabled(is_gl128)
         if not is_gl128:
             self.me_pass.setChecked(False)
+        self.me_fixed_long.setEnabled(is_gl128 and self.me_pass.isChecked())
+        if not self.me_fixed_long.isEnabled():
+            self.me_fixed_long.setChecked(False)
         self._update_me_tabs_visible()
         self._refresh_banner()
         self.prescan_view.clear_crop()
@@ -374,6 +386,9 @@ class ScanLabWindow(QMainWindow):
         return msg
 
     def _on_me_pass_toggled(self, checked: bool) -> None:
+        self.me_fixed_long.setEnabled(bool(checked) and self.me_pass.isEnabled())
+        if not checked:
+            self.me_fixed_long.setChecked(False)
         self._update_me_tabs_visible()
 
     def _default_dpi(self) -> int:
@@ -807,10 +822,17 @@ class ScanLabWindow(QMainWindow):
             self.me_pass.isChecked(),
             crop,
             self.apply_calib.isChecked(),
+            "fixed" if self.me_fixed_long.isChecked() else "adaptive",
         )
 
     def _on_progress(self, value: float) -> None:
         self.progress.setValue(int(max(0.0, min(1.0, value)) * 1000))
+
+    def _on_scan_status(self, status: str) -> None:
+        if status == "priming":
+            self.statusBar().showMessage("Priming scanner…")
+        elif status == "scanning":
+            self.statusBar().showMessage("Scanning…")
 
     def _append_usb(self, line: str) -> None:
         self.usb_log.appendPlainText(line)
@@ -857,6 +879,20 @@ class ScanLabWindow(QMainWindow):
 
     def _on_me_debug_ready(self, debug) -> None:
         self._me_debug = debug
+        if debug is None:
+            return
+        proposed = getattr(debug, "exposure_proposed", None)
+        reason = getattr(debug, "exposure_reason", None) or ""
+        line = (
+            f"ME long exposure: short={debug.exposure_short} "
+            f"selected={debug.exposure_long}"
+        )
+        if proposed is not None:
+            line += f" proposed={proposed}"
+        if reason:
+            line += f" ({reason})"
+        self._append_usb(line)
+        self.statusBar().showMessage(line)
 
     def _on_scan_ready(self, image: ScanImage) -> None:
         self._last_scan = image
@@ -943,6 +979,9 @@ class ScanLabWindow(QMainWindow):
             and getattr(self._current_target().model, "asic", "") == "GL128"
         )
         self.me_pass.setEnabled(not busy and is_gl128)
+        self.me_fixed_long.setEnabled(
+            not busy and is_gl128 and self.me_pass.isChecked()
+        )
         self.run_mock.setEnabled(not busy)
         self.override_hw_gate.setEnabled(not busy)
         self.apply_calib.setEnabled(not busy)

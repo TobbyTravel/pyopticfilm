@@ -25,6 +25,7 @@ from tools.scanlab.backend import (
 
 class ScanWorker(QObject):
     progress = pyqtSignal(float)
+    status_changed = pyqtSignal(str)
     usb_line = pyqtSignal(str)
     banner = pyqtSignal(str)
     prescan_ready = pyqtSignal(object)
@@ -35,8 +36,8 @@ class ScanWorker(QObject):
     calib_cleared = pyqtSignal(str)
     #: target, apply_calib
     request_prescan = pyqtSignal(object, bool)
-    #: target, dpi, ir_pass, me_pass, crop_norm, apply_calib
-    request_scan = pyqtSignal(object, int, bool, bool, object, bool)
+    #: target, dpi, ir_pass, me_pass, crop_norm, apply_calib, me_exposure_mode
+    request_scan = pyqtSignal(object, int, bool, bool, object, bool, str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -52,6 +53,11 @@ class ScanWorker(QObject):
 
     def _progress(self, value: float) -> None:
         self.progress.emit(float(value))
+
+    def _on_status(self, status: str) -> None:
+        if status == "priming":
+            self._usb_divider("PRIMING")
+        self.status_changed.emit(status)
 
     def _usb_divider(self, title: str) -> None:
         self.usb_line.emit("")
@@ -120,6 +126,7 @@ class ScanWorker(QObject):
         me_pass: bool,
         crop_norm: tuple[float, float, float, float] | None,
         apply_calib: bool = False,
+        me_exposure_mode: str = "adaptive",
     ) -> None:
         self._run(
             target,
@@ -129,6 +136,7 @@ class ScanWorker(QObject):
             me=me_pass,
             crop=crop_norm,
             apply_calib=bool(apply_calib),
+            me_exposure_mode=str(me_exposure_mode or "adaptive"),
         )
 
     def _run(
@@ -141,6 +149,7 @@ class ScanWorker(QObject):
         me: bool,
         crop: tuple[float, float, float, float] | None,
         apply_calib: bool,
+        me_exposure_mode: str = "adaptive",
     ) -> None:
         self.busy_changed.emit(True)
         self._cancel.clear()
@@ -155,6 +164,7 @@ class ScanWorker(QObject):
                     mode="color",
                     progress=self._progress,
                     cancel=self._cancel,
+                    on_status=self._on_status,
                     apply_calib=apply_calib,
                     multi_exposure=me,
                     **scan_kw,
@@ -163,16 +173,20 @@ class ScanWorker(QObject):
             else:
                 self._usb_divider(f"SCAN {dpi} dpi")
                 if me:
-                    self._usb_divider("ME multi-pass")
+                    self._usb_divider(
+                        f"ME multi-pass ({me_exposure_mode})"
+                    )
                 if ir:
                     self._usb_divider("IR pass")
                 image: ScanImage = scanner.scan(
                     mode="color",
                     progress=self._progress,
                     cancel=self._cancel,
+                    on_status=self._on_status,
                     apply_calib=apply_calib,
                     multi_exposure=me,
                     infrared=ir,
+                    me_exposure_mode=me_exposure_mode,
                     **scan_kw,
                 )
                 self.me_debug_ready.emit(getattr(scanner, "last_me_debug", None))

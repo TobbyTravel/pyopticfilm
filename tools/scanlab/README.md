@@ -94,7 +94,8 @@ scan-ready GL128 **8100 (V2)** (`07b3:1824`).
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
 | **PPI** | Resolutions from the selected model’s `resolutions_dpi` (Scan only; Prescan uses a fixed low dpi). |
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
-| **Multi-exposure (ME)** | GL128 / hardware-tested models: short+long colour passes; host SNR/IVW merge into ``rgb``. Bracket planes on ``Scanner.last_me_debug`` (not ``ScanImage``). Colour-long exposure is clamped to 42000 at 7200 dpi, or 14000–85000 at other PPI. |
+| **Multi-exposure (ME)** | GL128 / hardware-tested models: short + adaptive long colour passes (42k–85k safety envelope, capped at 42000 at 7200 dpi; fallback 42000); host SNR/IVW merge into ``rgb``. Bracket planes on ``Scanner.last_me_debug`` (not ``ScanImage``). |
+| **Fixed 42k long (A/B)** | When ME is on: force SilverFast-style long exposure 42000 instead of adaptive selection. |
 | **Prescan** | Low-res preview (GL128: 1200 dpi safe window; non-scan-ready: lowest dpi + short Y strip). |
 | **Scan** | Colour scan at the chosen PPI; optional IR and/or ME. Uses the prescan crop when one is set (clamped on non-scan-ready). |
 | **Open capture…** | Open a USBPcap ``.pcap`` / ``.pcapng``. Decodes the largest bulk IN through the selected model’s image pipeline and diffs FEEDL / LINCNT / DPISET vs Lab geometry (Capture tab). |
@@ -166,11 +167,13 @@ Live truncated log of every control and bulk transfer through the recording
 USB wrapper. **Open capture…** also fills this tab from the pcap (identical
 line format; repeated bulk-IN lengths are collapsed as ``×N``).
 
-- Dividers mark `PRESCAN`, `SCAN`, `IR`, and `CAPTURE` sections.
+- Dividers mark `PRIMING`, `PRESCAN`, `SCAN`, `IR`, and `CAPTURE` sections.
 - **Jump** buttons scroll to those dividers when present.
 - **Clear USB log** empties the buffer (Prescan also clears the log).
 
-Progress for the active pass is shown in the status bar.
+Progress for the active pass is shown in the status bar. On the first scan
+after open (GL128), the status bar shows **Priming scanner…** while the
+discarded AGOHOME park pass runs, then **Scanning…**.
 
 ## Geometry notes
 

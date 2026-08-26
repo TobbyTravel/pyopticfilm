@@ -31,6 +31,7 @@ def test_run_scan_accepts_positional_signal_args():
         "me_pass",
         "crop_norm",
         "apply_calib",
+        "me_exposure_mode",
     ]
     assert keyword_only == []
 

@@ -90,6 +90,8 @@ class Gl128ScanSession(ScanSession):
         self._bulk_stream_active = False
         #: Image ``REG_EXPOSURE`` for the current pass (``None`` → short / 14000).
         self._pass_exposure: int | None = None
+        #: Explicit ME long-pass clocks (independent of numeric exposure).
+        self._pass_long_exposure: bool = False
         #: Lab-only ME bracket / IVW stats (not on :class:`~pyopticfilm.image.ScanImage`).
         self.last_me_debug = None
 
@@ -99,6 +101,7 @@ class Gl128ScanSession(ScanSession):
         multi_exposure: bool = False,
         infrared: bool = False,
         align_passes: bool = True,
+        me_exposure_mode: str = "adaptive",
         **kwargs,
     ):  # type: ignore[no-untyped-def]
         """Refuse unless the ASIC explicitly arms motor moves."""
@@ -116,6 +119,7 @@ class Gl128ScanSession(ScanSession):
                 multi_exposure=multi_exposure,
                 infrared=infrared,
                 align_passes=align_passes,
+                me_exposure_mode=me_exposure_mode,
                 **kwargs,
             )
         return super().run(*args, **kwargs)
@@ -135,14 +139,7 @@ class Gl128ScanSession(ScanSession):
         try:
             asic_dpi = model.asic_dpi_for(dpi)
             cache[0x2B] = model.dummy_by_dpi[asic_dpi]
-            exp_fn = getattr(model, "image_exposure", None)
-            if self._pass_exposure is not None:
-                exposure = int(self._pass_exposure)
-            elif callable(exp_fn):
-                exposure = int(exp_fn(long_exposure=False))
-            else:
-                exposure = int(model.exposure_lperiod)
-            long_pass = exposure >= int(getattr(model, "exposure_long", exposure * 2))
+            long_pass = bool(self._pass_long_exposure)
             clk_fn = getattr(model, "pixel_clock_for_image", None)
             if callable(clk_fn):
                 clk = int(clk_fn(dpi, long_exposure=long_pass))
@@ -208,6 +205,14 @@ class Gl128ScanSession(ScanSession):
                 if callable(exp_fn)
                 else int(model.exposure_lperiod)
             )
+        hw_max = getattr(model, "me_hardware_max_exposure", None)
+        if hw_max is not None and exposure_reg > int(hw_max):
+            logger.warning(
+                "REG_EXPOSURE %d above hardware max %d — clamping",
+                exposure_reg,
+                int(hw_max),
+            )
+            exposure_reg = int(hw_max)
         self._set24(cache, r.REG_EXPOSURE, exposure_reg)
         # Image/calib acquire with FEEDL=1; positioning is a separate feed pair.
         self._set24(cache, r.REG_FEEDL, 1)
@@ -300,12 +305,14 @@ class Gl128ScanSession(ScanSession):
         multi_exposure: bool = False,
         infrared: bool = False,
         align_passes: bool = True,
+        me_exposure_mode: str = "adaptive",
     ):
         from pyopticfilm.image import ScanImage
         from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift, warn_if_align_unavailable
         from pyopticfilm.scan.exposure_merge import merge_exposures_result
         from pyopticfilm.scan.geometry import compute_geometry
         from pyopticfilm.scan.me_debug import MeScanDebug
+        from pyopticfilm.scan.me_exposure import fixed_long_exposure, select_long_exposure
 
         if mode == "infrared":
             raise ValueError("Use mode='color' with infrared=True for colour+IR scans")
@@ -313,6 +320,11 @@ class Gl128ScanSession(ScanSession):
         model = self.model
         exp_short = int(getattr(model, "exposure_short", model.exposure_lperiod))
         exp_long = int(getattr(model, "exposure_long", exp_short * 3))
+        mode_norm = str(me_exposure_mode or "adaptive").strip().lower()
+        if mode_norm not in ("adaptive", "fixed"):
+            raise ValueError(
+                f"me_exposure_mode must be 'adaptive' or 'fixed', got {me_exposure_mode!r}"
+            )
 
         if not self.asic._initialized:
             self.asic.init()
@@ -322,39 +334,38 @@ class Gl128ScanSession(ScanSession):
         if geometry is None:
             geometry = compute_geometry(resolution, model=model, area=area)
 
-        if multi_exposure:
-            clamped = clamp_me_long_for_dpi(geometry.resolution, exp_long)
-            if clamped != exp_long:
-                logger.warning(
-                    "ME colour-long exposure clamped at %d dpi: %d → %d",
-                    geometry.resolution,
-                    exp_long,
-                    clamped,
-                )
-            exp_long = clamped
-
-        passes: list[tuple[str, str, int, bool]] = [
-            ("color_short", "transparency", exp_short, False),
+        # Short (+ optional IR) first; long exposure is chosen after short RGB.
+        early: list[tuple[str, str, int, bool, bool]] = [
+            ("color_short", "transparency", exp_short, False, False),
         ]
         if infrared:
-            passes.append(("ir", "infrared", exp_short, False))
-        if multi_exposure:
-            passes.append(("color_long", "transparency", exp_long, True))
+            early.append(("ir", "infrared", exp_short, False, False))
+        n_pass = len(early) + (1 if multi_exposure else 0)
 
         logger.info(
-            "GL128 multi-pass %ddpi passes=%d me=%s ir=%s",
+            "GL128 multi-pass %ddpi passes=%d me=%s ir=%s me_exposure_mode=%s",
             geometry.resolution,
-            len(passes),
+            n_pass,
             multi_exposure,
             infrared,
+            mode_norm,
         )
 
         rgb_short = None
         rgb_long = None
         ir_plane = None
-        n_pass = len(passes)
+        exposure_decision = None
 
-        for idx, (key, method, exposure, remeasure) in enumerate(passes):
+        def _acquire_pass(
+            *,
+            idx: int,
+            key: str,
+            method: str,
+            exposure: int,
+            remeasure: bool,
+            long_pass: bool,
+        ):
+            nonlocal rgb_short, rgb_long, ir_plane
 
             def _prog(p: float, _i: int = idx) -> None:
                 if progress is not None:
@@ -380,15 +391,19 @@ class Gl128ScanSession(ScanSession):
                         )
 
             self._pass_exposure = exposure
-            raw = self.acquire_raw(
-                geometry,
-                method=method,
-                lamp_on=True,
-                start_motor=True,
-                progress=_prog,
-                cancel=cancel,
-            )
-            self._pass_exposure = None
+            self._pass_long_exposure = bool(long_pass)
+            try:
+                raw = self.acquire_raw(
+                    geometry,
+                    method=method,
+                    lamp_on=True,
+                    start_motor=True,
+                    progress=_prog,
+                    cancel=cancel,
+                )
+            finally:
+                self._pass_exposure = None
+                self._pass_long_exposure = False
 
             use_host = (
                 calib is not None
@@ -407,8 +422,7 @@ class Gl128ScanSession(ScanSession):
                 white=white,
                 planar=bool(planar),
                 # Keep ME colour (and IR) planes linear — per-plane expose_film_base
-                # collapses the ~3× short/long ratio (SF USB oracle). Makeup runs
-                # once on the final deliverable below.
+                # collapses the short/long ratio. Makeup runs once on the deliverable.
                 expose_base=False,
             )
 
@@ -419,7 +433,87 @@ class Gl128ScanSession(ScanSession):
             elif key == "ir":
                 ir_plane = self._infrared_plane(rgb)
 
+        for idx, (key, method, exposure, remeasure, long_pass) in enumerate(early):
+            _acquire_pass(
+                idx=idx,
+                key=key,
+                method=method,
+                exposure=exposure,
+                remeasure=remeasure,
+                long_pass=long_pass,
+            )
+
         assert rgb_short is not None
+
+        if multi_exposure:
+            # DPI-aware ME long ceiling (7200 → 42k; other PPI → 85k).
+            dpi_adaptive_max = clamp_me_long_for_dpi(
+                geometry.resolution,
+                int(getattr(model, "me_adaptive_max_exposure", exp_long)),
+            )
+            dpi_hardware_max = clamp_me_long_for_dpi(
+                geometry.resolution,
+                int(getattr(model, "me_hardware_max_exposure", exp_long)),
+            )
+            if mode_norm == "fixed":
+                exposure_decision = fixed_long_exposure(
+                    clamp_me_long_for_dpi(geometry.resolution, exp_long),
+                    short_rgb=rgb_short,
+                    short_exposure=exp_short,
+                    black_level=float(getattr(model, "me_black_level", 0.0)),
+                )
+            else:
+                exposure_decision = select_long_exposure(
+                    rgb_short,
+                    exp_short,
+                    black_level=float(getattr(model, "me_black_level", 0.0)),
+                    dense_percentile=float(getattr(model, "me_dense_percentile", 5.0)),
+                    target_dense_dn=float(getattr(model, "me_target_dense_dn", 10000.0)),
+                    adaptive_min=int(
+                        getattr(model, "me_adaptive_min_exposure", exp_long)
+                    ),
+                    adaptive_max=dpi_adaptive_max,
+                    hardware_max=dpi_hardware_max,
+                    max_ratio=float(getattr(model, "me_max_exposure_ratio", 5.0)),
+                    default_long=clamp_me_long_for_dpi(geometry.resolution, exp_long),
+                )
+            exp_long = int(exposure_decision.selected)
+            clamped = clamp_me_long_for_dpi(geometry.resolution, exp_long)
+            if clamped != exp_long:
+                logger.warning(
+                    "ME colour-long exposure clamped at %d dpi: %d → %d",
+                    geometry.resolution,
+                    exp_long,
+                    clamped,
+                )
+                exp_long = clamped
+            p05 = exposure_decision.dense_p05
+            clips = exposure_decision.predicted_clip
+            logger.info(
+                "ME long exposure: short=%d  R/G/B p05=(%.0f, %.0f, %.0f)  "
+                "proposed=%d  predicted clip R/G/B=(%.2f%%, %.2f%%, %.2f%%)  "
+                "safety_max=%d  selected=%d  reason=%s",
+                exp_short,
+                p05[0],
+                p05[1],
+                p05[2],
+                exposure_decision.proposed,
+                clips[0] * 100.0,
+                clips[1] * 100.0,
+                clips[2] * 100.0,
+                dpi_hardware_max,
+                exp_long,
+                exposure_decision.reason,
+            )
+            _acquire_pass(
+                idx=len(early),
+                key="color_long",
+                method="transparency",
+                exposure=exp_long,
+                remeasure=True,
+                long_pass=True,
+            )
+
         align_shift_long: tuple[float, float] | None = None
         align_shift_ir: tuple[float, float] | None = None
 
@@ -465,6 +559,12 @@ class Gl128ScanSession(ScanSession):
                 fusion_stats=fusion_stats,
                 align_shift_long=align_shift_long,
                 align_shift_ir=align_shift_ir,
+                exposure_proposed=(
+                    None if exposure_decision is None else exposure_decision.proposed
+                ),
+                exposure_reason=(
+                    None if exposure_decision is None else exposure_decision.reason
+                ),
             )
 
         # Single film-base makeup on the deliverable only (not on bracket planes).

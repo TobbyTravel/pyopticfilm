@@ -36,7 +36,7 @@ Other OpticFilm models **enumerate and open**: you can read status, turn the lam
 
 - Color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host; infrared is available only on supported hardware)
 - Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour; 8200i SE only among the hardware-tested set)
-- Multi-exposure (ME) on GL128 hardware-tested models (8200i SE and 8100 V2): short + long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
+- Multi-exposure (ME) on GL128 hardware-tested models (8200i SE and 8100 V2): short + adaptive long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
 - Optional crop via normalized `area` (`x1, y1, x2, y2` in 0–1)
 - Dark/white shading calibration with on-disk cache (`~/.cache/pyopticfilm/calib_v2.json`)
 - GL128 ASIC shading path (AFE codes + shading blob) aligned with SilverFast capture order
@@ -117,7 +117,9 @@ with Scanner.open() as scanner:
     ir = scanner.scan(resolution=1800, mode="infrared")
 ```
 
-Multi-exposure (GL128 / hardware-tested models): short then long colour passes (3× exposure).
+Multi-exposure (GL128 / hardware-tested models): short colour pass, then a
+**frame-adaptive** long pass (default; safety envelope 42k–85k, fallback 42000).
+Use ``me_exposure_mode="fixed"`` for the SilverFast-style fixed 3× long exposure.
 The SNR/IVW-merged deliverable with film-base makeup is in ``rgb``. Bracket
 planes and fusion stats are on :attr:`~pyopticfilm.scanner.Scanner.last_me_debug`
 (Scan Lab / audit tooling only — not part of the NegPy-facing ``ScanImage``).
@@ -138,7 +140,8 @@ with Scanner.open() as scanner:
 
         save_rgb16_tiff(debug.rgb_short, "short.tif", dpi=image.dpi)
         save_rgb16_tiff(debug.rgb_long, "long.tif", dpi=image.dpi)
-        print(debug.exposure_short, debug.exposure_long)  # e.g. 14000, 42000
+        print(debug.exposure_short, debug.exposure_long)  # e.g. 14000, 42000…85000
+        print(debug.exposure_proposed, debug.exposure_reason)
 ```
 
 Colour + IR in one call (8200i SE; IR after the colour / ME passes):
