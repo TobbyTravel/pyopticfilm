@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- GL128 multi-exposure colour-long `REG_EXPOSURE` is clamped by PPI (8200i SE + 8100 V2): max **42000** at 7200 dpi (SilverFast known-good); **14000–85000** at other resolutions.
 - PyPI development status classifier is now **4 - Beta** (was **3 - Alpha**).
 - README now points the "Latest release" link at [v1.2.0](https://github.com/jboneng/pyopticfilm/releases/tag/v1.2.0).
 - README and `docs/` now document the hardware-tested set as **8200i SE + 8100 (V2)** (and distinguish GL845 8100 `07b3:130c` from GL128 8100 V2 `07b3:1824`).

@@ -6,9 +6,20 @@ from __future__ import annotations
 from pyopticfilm.asic.gl128 import Gl128
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.scan.geometry import compute_geometry
-from pyopticfilm.scan.session_gl128 import Gl128ScanSession
+from pyopticfilm.scan.session_gl128 import Gl128ScanSession, clamp_me_long_for_dpi
 from pyopticfilm.usb.fake import MockScannerTransport
 from pyopticfilm.usb.protocol import GenesysUsbProtocol
+
+
+def test_clamp_me_long_for_dpi_bounds():
+    assert clamp_me_long_for_dpi(7200, 85000) == 42000
+    assert clamp_me_long_for_dpi(7200, 42000) == 42000
+    assert clamp_me_long_for_dpi(7200, 14000) == 14000
+    assert clamp_me_long_for_dpi(7200, 10000) == 14000
+    assert clamp_me_long_for_dpi(3600, 85000) == 85000
+    assert clamp_me_long_for_dpi(3600, 90000) == 85000
+    assert clamp_me_long_for_dpi(1800, 10000) == 14000
+    assert clamp_me_long_for_dpi(1200, 42000) == 42000
 
 
 def test_gl128_configure_long_exposure_registers():
