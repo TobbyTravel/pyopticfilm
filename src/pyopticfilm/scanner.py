@@ -20,7 +20,7 @@ from pyopticfilm.device.select import (
     model_for_device,
     model_is_scan_ready,
 )
-from pyopticfilm.exceptions import AsicError, PlustekError, ScanError
+from pyopticfilm.exceptions import AsicError, PlustekError, ScanCancelled, ScanError
 from pyopticfilm.image import ScanImage
 from pyopticfilm.logging import get_logger
 from pyopticfilm.scan.calibrate import CalibEntry, Calibrator, default_cache_path
@@ -297,6 +297,7 @@ class Scanner:
         resolution: int | None = None,
         area: tuple[float, float, float, float] | None = None,
         progress: Callable[[float], None] | None = None,
+        cancel: threading.Event | None = None,
     ) -> ExposurePlan:
         """Measure the loaded film and choose the two ME exposures.
 
@@ -389,6 +390,7 @@ class Scanner:
                     method="transparency",
                     lamp_on=True,
                     start_motor=True,
+                    cancel=cancel,
                 )
             finally:
                 session._pass_exposure = None
@@ -408,23 +410,25 @@ class Scanner:
                 planar=bool(getattr(self._model, "usb_planar_rgb", False)),
                 expose_base=False,  # keep the plane linear — that is the point
             )
-            stat = step_stats(
+            step = step_stats(
                 int(exposure),
                 np.asarray(plane, dtype=np.uint16),
                 clip_threshold=clip_threshold,
             )
-            steps.append(stat)
+            steps.append(step)
             logger.info(
                 "  exposure=%d mean=%.0f p05=%.0f p90=%.0f p99=%.0f clip92_max=%.3f%% n=%.2f %s",
-                exposure,
-                stat.mean_dn,
-                stat.p05,
-                stat.p90,
-                stat.p99,
-                100.0 * stat.clip_92_max,
-                stat.noise_ratio,
-                "usable" if stat.usable else "REJECTED",
+                step.exposure,
+                step.mean_dn,
+                step.p05,
+                step.p90,
+                step.p99,
+                100.0 * step.clip_92_max,
+                step.noise_ratio,
+                "usable" if step.usable else "REJECTED",
             )
+            if cancel is not None and cancel.is_set():
+                raise ScanCancelled("cancelled during exposure calibration")
 
         # Pick short: lowest usable short candidate; model default as safe fallback.
         short_picked, short_reasons = pick_short(
