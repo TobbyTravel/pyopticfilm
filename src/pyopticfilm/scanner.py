@@ -344,19 +344,7 @@ class Scanner:
         if on_status is not None:
             on_status("scanning")
         session = create_session(self._asic, self._model, self._calibrator)
-        image = session.run(  # type: ignore[arg-type]
-            resolution=resolution,
-            mode=mode,
-            area=area,
-            geometry=geometry,  # type: ignore[arg-type]
-            progress=progress,
-            cancel=cancel,
-            apply_calib=apply_calib,
-            multi_exposure=multi_exposure,
-            infrared=infrared,
-            align_passes=align_passes,
-            me_exposure_mode=me_exposure_mode,
-        )
+        image = session.run(**run_kwargs)  # type: ignore[arg-type]
         self._last_me_debug = getattr(session, "last_me_debug", None)
         return image
 
