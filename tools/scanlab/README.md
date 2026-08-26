@@ -167,11 +167,13 @@ Live truncated log of every control and bulk transfer through the recording
 USB wrapper. **Open capture…** also fills this tab from the pcap (identical
 line format; repeated bulk-IN lengths are collapsed as ``×N``).
 
-- Dividers mark `PRESCAN`, `SCAN`, `IR`, and `CAPTURE` sections.
+- Dividers mark `PRIMING`, `PRESCAN`, `SCAN`, `IR`, and `CAPTURE` sections.
 - **Jump** buttons scroll to those dividers when present.
 - **Clear USB log** empties the buffer (Prescan also clears the log).
 
-Progress for the active pass is shown in the status bar.
+Progress for the active pass is shown in the status bar. On the first scan
+after open (GL128), the status bar shows **Priming scanner…** while the
+discarded AGOHOME park pass runs, then **Scanning…**.
 
 ## Geometry notes
 

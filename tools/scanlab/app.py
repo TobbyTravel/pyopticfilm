@@ -234,6 +234,7 @@ class ScanLabWindow(QMainWindow):
         self.ppi.currentIndexChanged.connect(self._on_ppi_changed)
 
         self._worker.progress.connect(self._on_progress)
+        self._worker.status_changed.connect(self._on_scan_status)
         self._worker.usb_line.connect(self._append_usb)
         self._worker.banner.connect(self.banner.setText)
         self._worker.prescan_ready.connect(self._on_prescan_ready)
@@ -826,6 +827,12 @@ class ScanLabWindow(QMainWindow):
 
     def _on_progress(self, value: float) -> None:
         self.progress.setValue(int(max(0.0, min(1.0, value)) * 1000))
+
+    def _on_scan_status(self, status: str) -> None:
+        if status == "priming":
+            self.statusBar().showMessage("Priming scanner…")
+        elif status == "scanning":
+            self.statusBar().showMessage("Scanning…")
 
     def _append_usb(self, line: str) -> None:
         self.usb_log.appendPlainText(line)

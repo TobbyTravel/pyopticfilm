@@ -25,6 +25,7 @@ from tools.scanlab.backend import (
 
 class ScanWorker(QObject):
     progress = pyqtSignal(float)
+    status_changed = pyqtSignal(str)
     usb_line = pyqtSignal(str)
     banner = pyqtSignal(str)
     prescan_ready = pyqtSignal(object)
@@ -52,6 +53,11 @@ class ScanWorker(QObject):
 
     def _progress(self, value: float) -> None:
         self.progress.emit(float(value))
+
+    def _on_status(self, status: str) -> None:
+        if status == "priming":
+            self._usb_divider("PRIMING")
+        self.status_changed.emit(status)
 
     def _usb_divider(self, title: str) -> None:
         self.usb_line.emit("")
@@ -158,6 +164,7 @@ class ScanWorker(QObject):
                     mode="color",
                     progress=self._progress,
                     cancel=self._cancel,
+                    on_status=self._on_status,
                     apply_calib=apply_calib,
                     multi_exposure=me,
                     **scan_kw,
@@ -175,6 +182,7 @@ class ScanWorker(QObject):
                     mode="color",
                     progress=self._progress,
                     cancel=self._cancel,
+                    on_status=self._on_status,
                     apply_calib=apply_calib,
                     multi_exposure=me,
                     infrared=ir,

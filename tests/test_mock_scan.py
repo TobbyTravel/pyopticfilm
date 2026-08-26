@@ -89,6 +89,7 @@ def test_gl128_scanner_primes_once_before_first_requested_scan(monkeypatch):
     scanner = Scanner.open_fake(MODEL_8200I_SE)
     sentinel = object()
     runs: list[dict[str, object]] = []
+    statuses: list[str] = []
 
     class FakeSession:
         last_me_debug = None
@@ -100,20 +101,81 @@ def test_gl128_scanner_primes_once_before_first_requested_scan(monkeypatch):
     monkeypatch.setattr(session_module, "create_session", lambda *args: FakeSession())
     monkeypatch.delenv("POF_GL128_PRIME", raising=False)
     try:
-        assert scanner.scan(resolution=150, area=_TINY, apply_calib=False) is sentinel
+        assert (
+            scanner.scan(
+                resolution=150,
+                area=_TINY,
+                apply_calib=False,
+                on_status=statuses.append,
+            )
+            is sentinel
+        )
         assert len(runs) == 2
         # Default prime: fixed small pass, independent of requested PPI/area.
         assert runs[0]["resolution"] == 600
         assert runs[0]["area"] == (0.0, 0.0, 1.0, 0.12)
+        assert runs[0]["geometry"] is None
+        assert runs[0]["apply_calib"] is False
+        assert runs[0]["mode"] == "color"
         assert runs[0]["progress"] is None
         assert runs[0]["cancel"] is None
         assert runs[0]["multi_exposure"] is False
         assert runs[0]["infrared"] is False
         assert runs[1]["resolution"] == 150
         assert runs[1]["area"] == _TINY
+        assert statuses == ["priming", "scanning"]
 
-        assert scanner.scan(resolution=150, area=_TINY, apply_calib=False) is sentinel
+        statuses.clear()
+        assert (
+            scanner.scan(
+                resolution=150,
+                area=_TINY,
+                apply_calib=False,
+                on_status=statuses.append,
+            )
+            is sentinel
+        )
         assert len(runs) == 3
+        assert statuses == ["scanning"]
+    finally:
+        scanner.close()
+
+
+def test_gl128_prime_ignores_caller_geometry_and_calib(monkeypatch):
+    """Caller geometry/apply_calib must not stretch the discarded AGOHOME pass."""
+    import pyopticfilm.scan.session as session_module
+    from pyopticfilm.scan.geometry import compute_geometry
+
+    scanner = Scanner.open_fake(MODEL_8200I_SE)
+    runs: list[dict[str, object]] = []
+
+    class FakeSession:
+        last_me_debug = None
+
+        def run(self, **kwargs):
+            runs.append(kwargs)
+            return object()
+
+    monkeypatch.setattr(session_module, "create_session", lambda *args: FakeSession())
+    monkeypatch.delenv("POF_GL128_PRIME", raising=False)
+    caller_geo = compute_geometry(3600, model=MODEL_8200I_SE, area=None)
+    try:
+        scanner.scan(
+            resolution=3600,
+            geometry=caller_geo,
+            apply_calib=True,
+            mode="infrared",
+            infrared=True,
+        )
+        assert len(runs) == 2
+        assert runs[0]["resolution"] == 600
+        assert runs[0]["area"] == (0.0, 0.0, 1.0, 0.12)
+        assert runs[0]["geometry"] is None
+        assert runs[0]["apply_calib"] is False
+        assert runs[0]["mode"] == "color"
+        assert runs[0]["infrared"] is False
+        assert runs[1]["geometry"] is caller_geo
+        assert runs[1]["apply_calib"] is True
     finally:
         scanner.close()
 
@@ -145,6 +207,8 @@ def test_gl128_prime_env_override_full_and_custom(monkeypatch):
         prime = recorded_prime_kwargs()
         assert prime["resolution"] == 3600
         assert prime["area"] is None
+        assert prime["geometry"] is None
+        assert prime["apply_calib"] is False
 
         monkeypatch.setenv("POF_GL128_PRIME", "600:0.0,0.0,1.0,0.25")
         prime = recorded_prime_kwargs()

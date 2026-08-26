@@ -21,7 +21,7 @@ from pyopticfilm.exceptions import (
     UsbError,
 )
 from pyopticfilm.image import ScanImage
-from pyopticfilm.scanner import Scanner
+from pyopticfilm.scanner import Scanner, ScanStatus
 
 __all__ = [
     "KNOWN_MODELS",
@@ -40,6 +40,7 @@ __all__ = [
     "ScanCancelled",
     "ScanError",
     "ScanImage",
+    "ScanStatus",
     "Scanner",
     "UnsupportedDeviceError",
     "UsbError",
