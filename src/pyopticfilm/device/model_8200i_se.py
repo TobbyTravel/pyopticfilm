@@ -381,10 +381,11 @@ class Model8200iSE:
     multi_exposure_factor: int = 3
     #: Phase-1 adaptive ME long-pass envelope (see ``scan.me_exposure``).
     me_adaptive_min_exposure: int = 42000
-    me_adaptive_max_exposure: int = 64000
+    me_adaptive_max_exposure: int = 85000
     #: Independent hard ceiling enforced again when writing ``REG_EXPOSURE``.
-    me_hardware_max_exposure: int = 64000
-    me_max_exposure_ratio: float = 5.0
+    me_hardware_max_exposure: int = 85000
+    #: Must allow at least ``me_hardware_max_exposure / exposure_short`` (≈6.07).
+    me_max_exposure_ratio: float = 7.0
     #: Provisional target dense-region DN at ``me_dense_percentile`` (tunable).
     me_target_dense_dn: float = 10000.0
     me_dense_percentile: float = 5.0

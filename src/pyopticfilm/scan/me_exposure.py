@@ -145,9 +145,9 @@ def select_long_exposure(
     dense_percentile: float = 5.0,
     target_dense_dn: float = 10000.0,
     adaptive_min: int = 42000,
-    adaptive_max: int = 64000,
-    hardware_max: int = 64000,
-    max_ratio: float = 5.0,
+    adaptive_max: int = 85000,
+    hardware_max: int = 85000,
+    max_ratio: float = 7.0,
     default_long: int = 42000,
 ) -> MeExposureDecision:
     """Choose and clamp a long exposure; fall back to ``default_long`` on error."""

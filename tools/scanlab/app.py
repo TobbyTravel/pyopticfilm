@@ -144,7 +144,7 @@ class ScanLabWindow(QMainWindow):
         self.me_fixed_long = QCheckBox("Fixed 42k long (A/B)")
         self.me_fixed_long.setToolTip(
             "When ME is on, force SilverFast-style long exposure 42000 "
-            "instead of frame-adaptive selection (42k–64k)."
+            "instead of frame-adaptive selection (42k–85k)."
         )
         self.me_fixed_long.setEnabled(False)
         form.addWidget(self.me_fixed_long)

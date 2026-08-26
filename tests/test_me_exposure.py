@@ -38,14 +38,14 @@ def test_choose_long_thin_frame_low_ratio():
 
 def test_clamp_above_hardware_max():
     selected, reason = clamp_long_exposure(
-        90000,
+        100000,
         short_exposure=14000,
         adaptive_min=42000,
-        adaptive_max=64000,
-        hardware_max=64000,
-        max_ratio=5.0,
+        adaptive_max=85000,
+        hardware_max=85000,
+        max_ratio=7.0,
     )
-    assert selected == 64000
+    assert selected == 85000
     assert "hardware" in reason
 
 
@@ -54,42 +54,43 @@ def test_clamp_below_adaptive_min():
         20000,
         short_exposure=14000,
         adaptive_min=42000,
-        adaptive_max=64000,
-        hardware_max=64000,
-        max_ratio=5.0,
+        adaptive_max=85000,
+        hardware_max=85000,
+        max_ratio=7.0,
     )
     assert selected == 42000
     assert "minimum" in reason
 
 
 def test_clamp_respects_max_ratio():
-    # short*5 = 70000 but adaptive_max/hardware = 64000 wins
+    # short*5 = 70000 caps before adaptive/hardware 85000
     selected, reason = clamp_long_exposure(
-        80000,
+        100000,
         short_exposure=14000,
         adaptive_min=42000,
-        adaptive_max=64000,
-        hardware_max=64000,
+        adaptive_max=85000,
+        hardware_max=85000,
         max_ratio=5.0,
     )
-    assert selected == 64000
+    assert selected == 70000
     assert "hardware" in reason
 
 
 def test_select_dense_rises_toward_max():
-    short = _rgb(1765.0)
+    # Very dense: p05=1000 → proposed ≈ 140000 → clamp to 85000
+    short = _rgb(1000.0)
     decision = select_long_exposure(
         short,
         14000,
         target_dense_dn=10000.0,
         adaptive_min=42000,
-        adaptive_max=64000,
-        hardware_max=64000,
-        max_ratio=5.0,
+        adaptive_max=85000,
+        hardware_max=85000,
+        max_ratio=7.0,
         default_long=42000,
     )
-    assert decision.proposed > 64000
-    assert decision.selected == 64000
+    assert decision.proposed > 85000
+    assert decision.selected == 85000
     assert decision.reason.startswith("clamped")
 
 
@@ -100,9 +101,9 @@ def test_select_thin_stays_at_adaptive_min():
         14000,
         target_dense_dn=10000.0,
         adaptive_min=42000,
-        adaptive_max=64000,
-        hardware_max=64000,
-        max_ratio=5.0,
+        adaptive_max=85000,
+        hardware_max=85000,
+        max_ratio=7.0,
         default_long=42000,
     )
     assert decision.selected == 42000
@@ -116,9 +117,9 @@ def test_select_nan_fallback():
         14000,
         default_long=42000,
         adaptive_min=42000,
-        adaptive_max=64000,
-        hardware_max=64000,
-        max_ratio=5.0,
+        adaptive_max=85000,
+        hardware_max=85000,
+        max_ratio=7.0,
     )
     assert decision.selected == 42000
     assert decision.reason == "fallback"
@@ -142,7 +143,7 @@ def test_fixed_long_exposure():
 def test_model_adaptive_envelope_defaults():
     assert MODEL_8200I_SE.exposure_long == 42000
     assert MODEL_8200I_SE.me_adaptive_min_exposure == 42000
-    assert MODEL_8200I_SE.me_adaptive_max_exposure == 64000
-    assert MODEL_8200I_SE.me_hardware_max_exposure == 64000
-    assert MODEL_8200I_SE.me_max_exposure_ratio == 5.0
+    assert MODEL_8200I_SE.me_adaptive_max_exposure == 85000
+    assert MODEL_8200I_SE.me_hardware_max_exposure == 85000
+    assert MODEL_8200I_SE.me_max_exposure_ratio == 7.0
     assert MODEL_8200I_SE.me_target_dense_dn == 10000.0

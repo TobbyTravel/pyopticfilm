@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Adaptive ME long exposure** (GL128): after the short colour pass, choose a frame-specific long `REG_EXPOSURE` from RGB dense percentiles, then clamp through a separate safety envelope (42k–64k, max ratio 5×). Failures fall back to fixed 42000. Opt out with `me_exposure_mode="fixed"`.
+- **Adaptive ME long exposure** (GL128): after the short colour pass, choose a frame-specific long `REG_EXPOSURE` from RGB dense percentiles, then clamp through a separate safety envelope (42k–85k, max ratio 7×). Failures fall back to fixed 42000. Opt out with `me_exposure_mode="fixed"`.
 - Scan Lab **Fixed 42k long (A/B)** checkbox; USB/status log shows proposed / selected long exposure and clamp reason.
 - `MeScanDebug.exposure_proposed` / `exposure_reason` for lab observability.
 

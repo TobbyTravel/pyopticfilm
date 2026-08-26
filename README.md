@@ -118,7 +118,7 @@ with Scanner.open() as scanner:
 ```
 
 Multi-exposure (GL128 / hardware-tested models): short colour pass, then a
-**frame-adaptive** long pass (default; safety envelope 42k–64k, fallback 42000).
+**frame-adaptive** long pass (default; safety envelope 42k–85k, fallback 42000).
 Use ``me_exposure_mode="fixed"`` for the SilverFast-style fixed 3× long exposure.
 The SNR/IVW-merged deliverable with film-base makeup is in ``rgb``. Bracket
 planes and fusion stats are on :attr:`~pyopticfilm.scanner.Scanner.last_me_debug`
@@ -140,7 +140,7 @@ with Scanner.open() as scanner:
 
         save_rgb16_tiff(debug.rgb_short, "short.tif", dpi=image.dpi)
         save_rgb16_tiff(debug.rgb_long, "long.tif", dpi=image.dpi)
-        print(debug.exposure_short, debug.exposure_long)  # e.g. 14000, 42000…64000
+        print(debug.exposure_short, debug.exposure_long)  # e.g. 14000, 42000…85000
         print(debug.exposure_proposed, debug.exposure_reason)
 ```
 

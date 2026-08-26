@@ -94,7 +94,7 @@ scan-ready GL128 **8100 (V2)** (`07b3:1824`).
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
 | **PPI** | Resolutions from the selected model’s `resolutions_dpi` (Scan only; Prescan uses a fixed low dpi). |
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
-| **Multi-exposure (ME)** | GL128 / hardware-tested models: short + adaptive long colour passes (42k–64k safety envelope; fallback 42000); host SNR/IVW merge into ``rgb``. Bracket planes on ``Scanner.last_me_debug`` (not ``ScanImage``). |
+| **Multi-exposure (ME)** | GL128 / hardware-tested models: short + adaptive long colour passes (42k–85k safety envelope; fallback 42000); host SNR/IVW merge into ``rgb``. Bracket planes on ``Scanner.last_me_debug`` (not ``ScanImage``). |
 | **Fixed 42k long (A/B)** | When ME is on: force SilverFast-style long exposure 42000 instead of adaptive selection. |
 | **Prescan** | Low-res preview (GL128: 1200 dpi safe window; non-scan-ready: lowest dpi + short Y strip). |
 | **Scan** | Colour scan at the chosen PPI; optional IR and/or ME. Uses the prescan crop when one is set (clamped on non-scan-ready). |
