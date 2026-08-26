@@ -280,6 +280,7 @@ class Scanner:
         multi_exposure: bool = False,
         infrared: bool = False,
         align_passes: bool = True,
+        me_exposure_mode: str = "adaptive",
     ) -> ScanImage:
         self._ensure_scan_ready()
         self._ensure_open()
@@ -300,6 +301,7 @@ class Scanner:
             "multi_exposure": multi_exposure,
             "infrared": infrared,
             "align_passes": align_passes,
+            "me_exposure_mode": me_exposure_mode,
         }
         if getattr(self._model, "asic", "") == "GL128" and not self._gl128_primed:
             prime_dpi, prime_area = _gl128_prime_spec()
@@ -337,6 +339,7 @@ class Scanner:
             multi_exposure=multi_exposure,
             infrared=infrared,
             align_passes=align_passes,
+            me_exposure_mode=me_exposure_mode,
         )
         self._last_me_debug = getattr(session, "last_me_debug", None)
         return image

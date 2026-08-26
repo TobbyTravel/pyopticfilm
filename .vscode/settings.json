@@ -1,0 +1,15 @@
+{
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/.git/logs/**": true,
+    "**/.git/FETCH_HEAD": true,
+    "**/.git/HEAD": true,
+    "**/.git/ORIG_HEAD": true,
+    "**/.git/refs/**": true,
+    "**/.git/index": true,
+    "**/.git/*.lock": true
+  },
+  "git.autofetch": false,
+  "git.autorefresh": false
+}

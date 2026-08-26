@@ -376,9 +376,20 @@ class Model8200iSE:
     exposure_lperiod: int = 14000
     #: Short (normal) image exposure — session 14 ME bracket.
     exposure_short: int = 14000
-    #: Long ME image exposure (exactly 3× short in SilverFast session 14).
+    #: Default / fallback long ME image exposure (exactly 3× short in SF session 14).
     exposure_long: int = 42000
     multi_exposure_factor: int = 3
+    #: Phase-1 adaptive ME long-pass envelope (see ``scan.me_exposure``).
+    me_adaptive_min_exposure: int = 42000
+    me_adaptive_max_exposure: int = 64000
+    #: Independent hard ceiling enforced again when writing ``REG_EXPOSURE``.
+    me_hardware_max_exposure: int = 64000
+    me_max_exposure_ratio: float = 5.0
+    #: Provisional target dense-region DN at ``me_dense_percentile`` (tunable).
+    me_target_dense_dn: float = 10000.0
+    me_dense_percentile: float = 5.0
+    #: Subtracted before dense stats; 0 when host calib already dark-subtracted.
+    me_black_level: float = 0.0
     #: GL845-shaped ``starty`` base only. The SE never feeds ``geometry.starty``;
     #: FEEDL steps use :attr:`feed_steps_per_inch` instead.
     motor_base_ydpi: int = 7200
