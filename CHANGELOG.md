@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - README and `docs/` now document the hardware-tested set as **8200i SE + 8100 (V2)** (and distinguish GL845 8100 `07b3:130c` from GL128 8100 V2 `07b3:1824`).
 - Comments, docstrings, and user-facing errors now describe the two-model scan-ready set; Scan Lab README matches. Internal bring-up helper renamed `is_opticfilm_8200i_se` → `is_gl128_opticfilm`.
 
+### Contributors
+
+- [@TobbyTravel](https://github.com/TobbyTravel) for OpticFilm 8100 (V2) exposure-ladder research showing `REG_EXPOSURE` has no hardware ceiling and that the multi-exposure long bin should be raised toward film-dependent ~56–64k targets (not a 42k limit).
+
 ## [1.2.0] - 2026-08-24
 
 ### Added
