@@ -20,6 +20,7 @@ def test_gl128_configure_long_exposure_registers():
     session = Gl128ScanSession(asic, MODEL_8200I_SE)
     geo = compute_geometry(1200, model=MODEL_8200I_SE)
     session._pass_exposure = MODEL_8200I_SE.exposure_long
+    session._pass_long_exposure = True
     session._configure(geo)
 
     exp = (
@@ -32,6 +33,7 @@ def test_gl128_configure_long_exposure_registers():
     assert usb.registers.get(0xAB) == 0x01
 
     session._pass_exposure = MODEL_8200I_SE.exposure_short
+    session._pass_long_exposure = False
     session._configure(geo)
     exp_short = (
         (usb.registers.get(0x7D, 0) << 16)
@@ -40,6 +42,48 @@ def test_gl128_configure_long_exposure_registers():
     )
     assert exp_short == 14000
     assert usb.registers.get(0xA5) == 0x02
+
+
+def test_gl128_configure_adaptive_long_uses_long_clocks():
+    """Adaptive long exposure (e.g. 50000) still gets long ME pixel clocks."""
+    usb = MockScannerTransport()
+    proto = GenesysUsbProtocol(usb)
+    asic = Gl128(proto, MODEL_8200I_SE)
+    asic._motor_moves_enabled = False
+    asic.init()
+    session = Gl128ScanSession(asic, MODEL_8200I_SE)
+    geo = compute_geometry(1200, model=MODEL_8200I_SE)
+    session._pass_exposure = 50000
+    session._pass_long_exposure = True
+    session._configure(geo)
+    exp = (
+        (usb.registers.get(0x7D, 0) << 16)
+        | (usb.registers.get(0x7E, 0) << 8)
+        | usb.registers.get(0x7F, 0)
+    )
+    assert exp == 50000
+    assert usb.registers.get(0xA5) == 0x01
+    assert usb.registers.get(0xAB) == 0x01
+
+
+def test_gl128_configure_clamps_above_hardware_max():
+    usb = MockScannerTransport()
+    proto = GenesysUsbProtocol(usb)
+    asic = Gl128(proto, MODEL_8200I_SE)
+    asic._motor_moves_enabled = False
+    asic.init()
+    session = Gl128ScanSession(asic, MODEL_8200I_SE)
+    geo = compute_geometry(1200, model=MODEL_8200I_SE)
+    session._pass_exposure = 100000
+    session._pass_long_exposure = True
+    session._configure(geo)
+    exp = (
+        (usb.registers.get(0x7D, 0) << 16)
+        | (usb.registers.get(0x7E, 0) << 8)
+        | usb.registers.get(0x7F, 0)
+    )
+    assert exp == MODEL_8200I_SE.me_hardware_max_exposure
+    assert usb.registers.get(0xA5) == 0x01
 
 
 def test_gl128_acquire_reannounces_usb_sized_blocks():

@@ -286,6 +286,7 @@ class Scanner:
         multi_exposure: bool = False,
         infrared: bool = False,
         align_passes: bool = True,
+        me_exposure_mode: str = "adaptive",
     ) -> ScanImage:
         self._ensure_scan_ready()
         self._ensure_open()
@@ -295,6 +296,19 @@ class Scanner:
                 self._asic.home()
         from pyopticfilm.scan.session import create_session
 
+        run_kwargs = {
+            "resolution": resolution,
+            "mode": mode,
+            "area": area,
+            "geometry": geometry,
+            "progress": progress,
+            "cancel": cancel,
+            "apply_calib": apply_calib,
+            "multi_exposure": multi_exposure,
+            "infrared": infrared,
+            "align_passes": align_passes,
+            "me_exposure_mode": me_exposure_mode,
+        }
         if getattr(self._model, "asic", "") == "GL128" and not self._gl128_primed:
             prime_dpi, prime_area = _gl128_prime_spec()
             if prime_area is None:
@@ -330,18 +344,7 @@ class Scanner:
         if on_status is not None:
             on_status("scanning")
         session = create_session(self._asic, self._model, self._calibrator)
-        image = session.run(  # type: ignore[arg-type]
-            resolution=resolution,
-            mode=mode,
-            area=area,
-            geometry=geometry,  # type: ignore[arg-type]
-            progress=progress,
-            cancel=cancel,
-            apply_calib=apply_calib,
-            multi_exposure=multi_exposure,
-            infrared=infrared,
-            align_passes=align_passes,
-        )
+        image = session.run(**run_kwargs)  # type: ignore[arg-type]
         self._last_me_debug = getattr(session, "last_me_debug", None)
         return image
 
