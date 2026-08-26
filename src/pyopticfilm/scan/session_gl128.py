@@ -47,6 +47,26 @@ IMAGE_USB_PACE_S = DEFAULT_IMAGE_USB_PACE_S
 #: Scale ASIC ``LPERIOD`` register to approximate output-line duration (seconds).
 _LINE_PERIOD_TO_SECONDS = 1.0 / 4_500_000.0
 
+#: ME colour-long ``REG_EXPOSURE`` floor (short bin / SilverFast ME short).
+_ME_LONG_MIN = 14_000
+#: ME colour-long ceiling at non-7200 PPI (dynamic / raised longs).
+_ME_LONG_MAX = 85_000
+#: ME colour-long ceiling at 7200 dpi (SilverFast known-good colour-long).
+_ME_LONG_MAX_AT_7200 = 42_000
+
+
+def clamp_me_long_for_dpi(resolution: int, exp_long: int) -> int:
+    """Clamp ME colour-long exposure for the requested PPI.
+
+    At 7200 dpi the long bin is capped at 42000 (SilverFast parity / HW-safe).
+    At other PPI the allowed range is 14000–85000.
+    """
+    value = int(exp_long)
+    if int(resolution) == 7200:
+        return min(max(value, _ME_LONG_MIN), _ME_LONG_MAX_AT_7200)
+    return min(max(value, _ME_LONG_MIN), _ME_LONG_MAX)
+
+
 try:
     from pyopticfilm.asic.gl128 import MOTOR_GATED_HINT as _MOTOR_GATED_HINT
 except ImportError:  # pragma: no cover
@@ -426,9 +446,18 @@ class Gl128ScanSession(ScanSession):
         assert rgb_short is not None
 
         if multi_exposure:
+            # DPI-aware ME long ceiling (7200 → 42k; other PPI → 85k).
+            dpi_adaptive_max = clamp_me_long_for_dpi(
+                geometry.resolution,
+                int(getattr(model, "me_adaptive_max_exposure", exp_long)),
+            )
+            dpi_hardware_max = clamp_me_long_for_dpi(
+                geometry.resolution,
+                int(getattr(model, "me_hardware_max_exposure", exp_long)),
+            )
             if mode_norm == "fixed":
                 exposure_decision = fixed_long_exposure(
-                    exp_long,
+                    clamp_me_long_for_dpi(geometry.resolution, exp_long),
                     short_rgb=rgb_short,
                     short_exposure=exp_short,
                     black_level=float(getattr(model, "me_black_level", 0.0)),
@@ -443,16 +472,21 @@ class Gl128ScanSession(ScanSession):
                     adaptive_min=int(
                         getattr(model, "me_adaptive_min_exposure", exp_long)
                     ),
-                    adaptive_max=int(
-                        getattr(model, "me_adaptive_max_exposure", exp_long)
-                    ),
-                    hardware_max=int(
-                        getattr(model, "me_hardware_max_exposure", exp_long)
-                    ),
+                    adaptive_max=dpi_adaptive_max,
+                    hardware_max=dpi_hardware_max,
                     max_ratio=float(getattr(model, "me_max_exposure_ratio", 5.0)),
-                    default_long=exp_long,
+                    default_long=clamp_me_long_for_dpi(geometry.resolution, exp_long),
                 )
             exp_long = int(exposure_decision.selected)
+            clamped = clamp_me_long_for_dpi(geometry.resolution, exp_long)
+            if clamped != exp_long:
+                logger.warning(
+                    "ME colour-long exposure clamped at %d dpi: %d → %d",
+                    geometry.resolution,
+                    exp_long,
+                    clamped,
+                )
+                exp_long = clamped
             p05 = exposure_decision.dense_p05
             clips = exposure_decision.predicted_clip
             logger.info(
@@ -467,7 +501,7 @@ class Gl128ScanSession(ScanSession):
                 clips[0] * 100.0,
                 clips[1] * 100.0,
                 clips[2] * 100.0,
-                int(getattr(model, "me_hardware_max_exposure", exp_long)),
+                dpi_hardware_max,
                 exp_long,
                 exposure_decision.reason,
             )

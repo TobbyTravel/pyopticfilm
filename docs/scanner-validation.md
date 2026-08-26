@@ -96,6 +96,18 @@ early (start-then-cancel) is not a substitute: the `AGOHOME` park has been
 observed to time out in that case, stranding the carriage mid-window with no
 capture-proven recovery short of a power cycle.
 
+## GL128 multi-exposure long exposure limits
+
+On OpticFilm 8200i SE and 8100 (V2), the ME colour-long `REG_EXPOSURE` is
+clamped by PPI before the long pass runs:
+
+- **7200 dpi:** 14000–42000 (42000 is the SilverFast known-good colour-long).
+- **Other PPI:** 14000–85000.
+
+The short bin is unchanged. Single-pass (non-ME) scans are not affected.
+Raised longs (model override / dynamic ME) are capped; stock `exposure_long`
+of 42000 is already within both ranges.
+
 ## Current golden: OpticFilm 8200i, 1800 dpi, RGB16
 
 Phase recorded: ASIC `init()` + `ScanSession._configure()` (no home poll, no
