@@ -8,14 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **GL128 first-scan priming**: before the first retained scan after open, run a discarded small pass (default **600 dpi**, area `(0, 0, 1, 0.12)`) so image-pass `AGOHOME` parks the carriage for repeatable start position. Override with `POF_GL128_PRIME` (`full` or `<dpi>:x0,y0,x1,y1`).
 - **Adaptive ME long exposure** (GL128): after the short colour pass, choose a frame-specific long `REG_EXPOSURE` from RGB dense percentiles, then clamp through a separate safety envelope (42k–85k, max ratio 7×). Failures fall back to fixed 42000. Opt out with `me_exposure_mode="fixed"`.
 - Scan Lab **Fixed 42k long (A/B)** checkbox; USB/status log shows proposed / selected long exposure and clamp reason.
 - `MeScanDebug.exposure_proposed` / `exposure_reason` for lab observability.
-- Optional `on_status` callback on `Scanner.scan` (`ScanStatus`: `"priming"` / `"scanning"`) so hosts can show GL128 priming; Scan Lab status bar and USB log surface it.
+- Optional `on_status` callback on `Scanner.scan` and exported `ScanStatus` (`"priming"` / `"scanning"`) so hosts can show GL128 priming; Scan Lab status bar and USB log surface it.
 
 ### Fixed
 
-- GL128 discarded priming pass now forces `geometry=None`, `apply_calib=False`, and `mode="color"`, so hosts that pass bring-up `geometry` (e.g. Scan Lab) no longer stretch the prime into a full request-PPI shading+scan cycle.
+- GL128 discarded priming pass always forces `geometry=None`, `apply_calib=False`, and `mode="color"`, so hosts that pass bring-up `geometry` (e.g. Scan Lab) no longer stretch the prime into a full request-PPI shading+scan cycle.
 
 ### Changed
 
@@ -28,7 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Contributors
 
-- [@TobbyTravel](https://github.com/TobbyTravel) for OpticFilm 8100 (V2) exposure-ladder research showing `REG_EXPOSURE` has no hardware ceiling and that the multi-exposure long bin should be raised toward film-dependent ~56–64k targets (not a 42k limit).
+- [@TobbyTravel](https://github.com/TobbyTravel) for GL128 first-scan priming and for OpticFilm 8100 (V2) exposure-ladder research showing `REG_EXPOSURE` has no hardware ceiling and that the multi-exposure long bin should be raised toward film-dependent ~56–64k targets (not a 42k limit).
 
 ## [1.2.0] - 2026-08-24
 
