@@ -35,6 +35,10 @@ logger = get_logger(__name__)
 # costs scale with the requested PPI (~24 s @1200, ~71 s @3600, ~150 s @7200);
 # the AGOHOME park does not.
 #
+# The discarded pass always forces geometry=None (so dpi/area take effect),
+# apply_calib=False, and mode=color — caller geometry/calib/mode must not
+# stretch the prime into a full request-PPI shading+scan cycle.
+#
 # Override with POF_GL128_PRIME:
 #   unset/empty         -> default small pass (600 dpi, area (0, 0, 1, 0.12))
 #   full                -> full pass at the requested PPI and area
@@ -62,6 +66,7 @@ def _gl128_prime_spec() -> tuple[int, tuple[float, float, float, float] | None]:
 
 
 ScanMode = Literal["color", "infrared", "gray"]
+ScanStatus = Literal["priming", "scanning"]
 
 
 class Scanner:
@@ -276,6 +281,7 @@ class Scanner:
         geometry: object | None = None,
         progress: Callable[[float], None] | None = None,
         cancel: threading.Event | None = None,
+        on_status: Callable[[ScanStatus], None] | None = None,
         apply_calib: bool = True,
         multi_exposure: bool = False,
         infrared: bool = False,
@@ -289,18 +295,6 @@ class Scanner:
                 self._asic.home()
         from pyopticfilm.scan.session import create_session
 
-        run_kwargs = {
-            "resolution": resolution,
-            "mode": mode,
-            "area": area,
-            "geometry": geometry,
-            "progress": progress,
-            "cancel": cancel,
-            "apply_calib": apply_calib,
-            "multi_exposure": multi_exposure,
-            "infrared": infrared,
-            "align_passes": align_passes,
-        }
         if getattr(self._model, "asic", "") == "GL128" and not self._gl128_primed:
             prime_dpi, prime_area = _gl128_prime_spec()
             if prime_area is None:
@@ -308,23 +302,33 @@ class Scanner:
             if prime_dpi == 0:
                 prime_dpi = resolution
             logger.info(
-                "GL128 priming pass (%s dpi, area=%s): discard first image to establish AGOHOME park",
+                "GL128 priming pass (%s dpi, area=%s): discard first image to establish AGOHOME park "
+                "(ignores caller geometry/calib/mode)",
                 prime_dpi,
                 prime_area,
             )
+            if on_status is not None:
+                on_status("priming")
+            # Do not spread caller kwargs: geometry= would ignore dpi/area, and
+            # apply_calib=True can add a cold shading cycle before the park.
             prime_kwargs = {
-                **run_kwargs,
                 "resolution": prime_dpi,
+                "mode": "color",
                 "area": prime_area,
+                "geometry": None,
                 "progress": None,
                 "cancel": None,
+                "apply_calib": False,
                 "multi_exposure": False,
                 "infrared": False,
+                "align_passes": align_passes,
             }
             prime_session = create_session(self._asic, self._model, self._calibrator)
             prime_session.run(**prime_kwargs)  # type: ignore[arg-type]
             self._gl128_primed = True
 
+        if on_status is not None:
+            on_status("scanning")
         session = create_session(self._asic, self._model, self._calibrator)
         image = session.run(  # type: ignore[arg-type]
             resolution=resolution,
