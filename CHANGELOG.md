@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Optional `on_status` callback on `Scanner.scan` (`ScanStatus`: `"priming"` / `"scanning"`) so hosts can show GL128 priming; Scan Lab status bar and USB log surface it.
+
+### Fixed
+
+- GL128 discarded priming pass now forces `geometry=None`, `apply_calib=False`, and `mode="color"`, so hosts that pass bring-up `geometry` (e.g. Scan Lab) no longer stretch the prime into a full request-PPI shading+scan cycle.
+
 ### Changed
 
 - PyPI development status classifier is now **4 - Beta** (was **3 - Alpha**).
