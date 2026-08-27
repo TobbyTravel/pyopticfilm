@@ -49,7 +49,7 @@ Not implemented or out of scope here: iSRD infrared dust removal, SilverFast-sty
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for release notes. Latest release: [v1.2.0 on GitHub](https://github.com/jboneng/pyopticfilm/releases/tag/v1.2.0).
+See [CHANGELOG.md](CHANGELOG.md) for release notes. Latest release: [v1.3.0 on GitHub](https://github.com/jboneng/pyopticfilm/releases/tag/v1.3.0).
 
 ## Requirements
 

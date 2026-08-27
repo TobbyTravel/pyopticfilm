@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-27
+
 ### Added
 
 - **GL128 first-scan priming**: before the first retained scan after open, run a discarded small pass (default **600 dpi**, area `(0, 0, 1, 0.12)`) so image-pass `AGOHOME` parks the carriage for repeatable start position. Override with `POF_GL128_PRIME` (`full` or `<dpi>:x0,y0,x1,y1`).
@@ -23,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - GL128 multi-exposure colour-long `REG_EXPOSURE` is clamped by PPI (8200i SE + 8100 V2): max **42000** at 7200 dpi (SilverFast known-good); **14000–85000** at other resolutions.
 - PyPI development status classifier is now **4 - Beta** (was **3 - Alpha**).
-- README now points the "Latest release" link at [v1.2.0](https://github.com/jboneng/pyopticfilm/releases/tag/v1.2.0).
+- README now points the "Latest release" link at [v1.3.0](https://github.com/jboneng/pyopticfilm/releases/tag/v1.3.0).
 - README and `docs/` now document the hardware-tested set as **8200i SE + 8100 (V2)** (and distinguish GL845 8100 `07b3:130c` from GL128 8100 V2 `07b3:1824`).
 - Comments, docstrings, and user-facing errors now describe the two-model scan-ready set; Scan Lab README matches. Internal bring-up helper renamed `is_opticfilm_8200i_se` → `is_gl128_opticfilm`.
 - ME long-pass pixel clocks are selected via an explicit long-pass flag (not only `exposure >= 42000`); `REG_EXPOSURE` is hard-clamped to `me_hardware_max_exposure` at configure time.
