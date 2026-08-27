@@ -10,7 +10,11 @@ import pytest
 
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.scan.geometry import compute_geometry
-from pyopticfilm.scan.session_gl128 import IMAGE_USB_PACE_S, Gl128ScanSession
+from pyopticfilm.scan.session_gl128 import (
+    _QUIET_DRAIN_LAG,
+    IMAGE_USB_PACE_S,
+    Gl128ScanSession,
+)
 
 
 def _geometry(*, dpi: int = 7200, lines: int = 4) -> object:
@@ -58,15 +62,16 @@ def test_acquire_no_throttle_when_host_keeps_pace():
     assert sleeps == []
 
 
-def test_acquire_adaptive_throttle_capped_per_chunk():
-    geometry = _geometry(dpi=1800)
+def test_acquire_throttle_matches_lperiod_at_7200():
+    """7200 LPERIOD is ~3.55 ms/line; do not cap sleep at the old 3 ms ceiling."""
+    geometry = _geometry(dpi=7200)
     line = geometry.line_bytes
     chunk = Gl128ScanSession._chunk_bytes(geometry, geometry.total_bytes)
     geom = MagicMock()
     geom.total_bytes = chunk
     geom.line_bytes = line
     geom.disable_buffer_full_move = geometry.disable_buffer_full_move
-    geom.resolution = geometry.resolution
+    geom.resolution = 7200
     session = Gl128ScanSession(MagicMock(), MODEL_8200I_SE)
     session.asic = MagicMock()
     session.asic.image_usb_pace_s = IMAGE_USB_PACE_S
@@ -87,8 +92,10 @@ def test_acquire_adaptive_throttle_capped_per_chunk():
         session._acquire(geom, progress=None, cancel=None)
 
     chunk_lines = chunk / line
+    expected = session._line_interval_s(geometry) * chunk_lines * _QUIET_DRAIN_LAG
     assert len(sleeps) == 1
-    assert sleeps[0] <= IMAGE_USB_PACE_S * chunk_lines + 1e-9
+    assert sleeps[0] == pytest.approx(expected)
+    assert sleeps[0] > IMAGE_USB_PACE_S * chunk_lines
 
 
 def test_gl128_default_adaptive_usb_drain():

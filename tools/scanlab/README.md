@@ -89,7 +89,7 @@ scan-ready GL128 **8100 (V2)** (`07b3:1824`).
 | **Apply calib** | **On** (default). ASIC shading before colour prescan/scan; first run at each PPI/geometry measures once, then reuses `~/.cache/pyopticfilm/calib_v2.json`. Forced off when **Override safety HW gate** is on. |
 | **Clear calib cache** | Deletes cached shading entries; next scan re-measures at home. |
 | **USB planar RGB** | Off = chunky `RGBRGB…` (default). On = planar planes — try this if Prescan is rainbow-striped. |
-| **Adaptive quiet drain** | On (default). Rate-limits host bulk reads to the ASIC line rate so motor creep stays continuous at 7200 dpi. Uncheck for fastest drain (louder). |
+| **Adaptive quiet drain** | On (default). Rate-limits host bulk reads to the ASIC `LPERIOD` line rate (including 7200 dpi, ~3.55 ms/line) so motor creep stays continuous. Uncheck for fastest drain (louder). |
 | **Slow image slope** | Off (default). On: shading/slow motor ramp on the image pass (feeds stay fast). |
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
 | **PPI** | Resolutions from the selected model’s `resolutions_dpi` (Scan only; Prescan uses a fixed low dpi). |
@@ -185,7 +185,8 @@ discarded AGOHOME park pass runs, then **Scanning…**.
 - Rubber-band crops are clamped so image `LINCNT` cannot past the scan-window
   end (see `captures/8200i-se/MOTOR.md` in the repo if present).
 - High PPI (≥2400) uses line-aligned bulk drain; **Adaptive quiet drain** keeps
-  motor creep continuous at 7200 (no fixed pause before each USB chunk).
+  motor creep continuous at 7200 by matching host reads to `LPERIOD` even when
+  that is above 3 ms/line (no fixed pause before each USB chunk).
   Uncheck for fastest/loudest drain. **Slow image slope** is an optional acoustic
   probe (feeds stay fast).
 - 8100 V2 has no IR; leave **IR pass** off on that model.

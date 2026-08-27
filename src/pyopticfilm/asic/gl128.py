@@ -173,8 +173,10 @@ def _u16_table_bytes(words: tuple[int, ...]) -> bytes:
     return bytes(out)
 
 
-#: Default adaptive quiet USB drain on GL128 image acquire (seconds per line cap).
-#: Set ``Gl128.image_usb_pace_s = 0`` for flat-out bulk drain (louder motor).
+#: Default adaptive quiet USB drain on GL128 image acquire (on/off sentinel).
+#: Any value ``> 0`` enables LPERIOD-matched pacing; ``0`` is flat-out drain
+#: (louder motor). Not a per-line sleep ceiling — ``_acquire`` sleeps the full
+#: line-period deficit (plus a small lag) when the host outran the ASIC.
 DEFAULT_IMAGE_USB_PACE_S = 0.003
 
 
@@ -220,9 +222,8 @@ class Gl128:
         self.last_color_shading_host_ok: bool = False
         #: Lab acoustic A/B: use ``SLOPE_TABLE_SLOW`` for non-shading table uploads.
         self.image_slope_slow: bool = False
-        #: Max adaptive throttle (seconds) per line when quiet USB drain is on.
-        #: ``Gl128ScanSession._acquire`` applies it only after a fast read; ``0``
-        #: drains flat-out (louder motor creep).
+        #: Quiet USB drain flag: ``> 0`` paces bulk reads to ``LPERIOD``;
+        #: ``0`` drains flat-out (louder motor creep).
         self.image_usb_pace_s: float = DEFAULT_IMAGE_USB_PACE_S
 
     def _require_motor_enabled(self) -> None:

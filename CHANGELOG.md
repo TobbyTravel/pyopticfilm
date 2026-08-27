@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - GL128 discarded priming pass always forces `geometry=None`, `apply_calib=False`, and `mode="color"`, so hosts that pass bring-up `geometry` (e.g. Scan Lab) no longer stretch the prime into a full request-PPI shading+scan cycle.
+- GL128 adaptive quiet USB drain now sleeps the full `LPERIOD` deficit (plus a small lag) instead of capping at 3 ms/line, so 7200 dpi image creep is no longer ~15% ahead of the ASIC line clock.
 
 ### Changed
 
