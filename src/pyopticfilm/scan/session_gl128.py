@@ -38,14 +38,16 @@ logger = get_logger(__name__)
 #: and (empirically) high-PPI creep is quieter than one giant unpaced preamble.
 IMAGE_CHUNK_BYTES = BULK_MAX_SIZE
 
-#: Max adaptive throttle (seconds) per line when quiet USB drain is enabled.
-#: Not a fixed pre-chunk sleep — :meth:`Gl128ScanSession._acquire` only pauses
-#: after a fast drain if the host outran the expected line interval.
+#: Quiet-drain on sentinel (any ``> 0`` enables pacing). Not a sleep ceiling.
 #: Matches :data:`pyopticfilm.asic.gl128.DEFAULT_IMAGE_USB_PACE_S` (on by default).
 IMAGE_USB_PACE_S = DEFAULT_IMAGE_USB_PACE_S
 
 #: Scale ASIC ``LPERIOD`` register to approximate output-line duration (seconds).
 _LINE_PERIOD_TO_SECONDS = 1.0 / 4_500_000.0
+
+#: Host stays slightly behind the ASIC line clock so the image buffer does not
+#: empty (start/stop creep). Applied only when quiet drain is on.
+_QUIET_DRAIN_LAG = 1.05
 
 #: ME colour-long ``REG_EXPOSURE`` floor (short bin / SilverFast ME short).
 _ME_LONG_MIN = 14_000
@@ -667,8 +669,8 @@ class Gl128ScanSession(ScanSession):
         )
 
         buf = bytearray()
-        pace_cap = float(getattr(self.asic, "image_usb_pace_s", IMAGE_USB_PACE_S) or 0.0)
-        line_interval = self._line_interval_s(geometry) if pace_cap > 0 else 0.0
+        pace_on = float(getattr(self.asic, "image_usb_pace_s", IMAGE_USB_PACE_S) or 0.0) > 0
+        line_interval = self._line_interval_s(geometry) if pace_on else 0.0
         while len(buf) < total:
             if cancel is not None and cancel.is_set():
                 raise ScanCancelled("cancelled during bulk read")
@@ -688,15 +690,15 @@ class Gl128ScanSession(ScanSession):
             buf.extend(chunk)
             if progress is not None:
                 progress(min(1.0, len(buf) / total))
-            if pace_cap > 0 and line_interval > 0:
+            if pace_on and line_interval > 0:
                 try:
                     line_bytes = max(1, int(geometry.line_bytes))
                 except (TypeError, ValueError):
                     line_bytes = IMAGE_CHUNK_BYTES
                 lines = max(1.0, len(chunk) / line_bytes)
-                expected = line_interval * lines
+                expected = line_interval * lines * _QUIET_DRAIN_LAG
                 elapsed = time.monotonic() - t0
-                throttle = min(pace_cap * lines, max(0.0, expected - elapsed))
+                throttle = max(0.0, expected - elapsed)
                 if throttle > 0:
                     time.sleep(throttle)
 
