@@ -136,3 +136,56 @@ def test_boot_maps_nonempty_for_complete_models():
         boot = model.boot_register_map()
         assert boot
         assert 0x05 in boot
+
+
+def test_8100_v2_capture_derived_constants():
+    """Capture-derived overrides in Model8100V2 must match 04_color_7200.pcapng.
+
+    Evidence sources (all from 04_color_7200.pcapng, Aug 2026):
+    - feed_to_scan_steps: frame 2999, regs 0x3D-0x3F = 0x003348 = 13128
+    - lperiod_by_dpi[7200]: frames 1661/2257/3203, reg 0x28-0x2A = 0x003EA3 = 16035
+    - shading_strip_clocks white/7200: frame 2257, reg 0x2B = 0x10
+    - max_image_lincnt_by_feed2[13128]: frame 3203, regs 0x25-0x27 = 0x007154 = 29012
+    - ladder_feed2_steps: frame 2999, same positioning feed as feed_to_scan_steps
+    """
+    from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
+    from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
+
+    # feed_to_scan_steps differs from SE default (13704)
+    assert MODEL_8100_V2.feed_to_scan_steps == 13128
+    assert MODEL_8200I_SE.feed_to_scan_steps == 13704
+
+    # lperiod at 7200 dpi differs from SE (15963)
+    assert MODEL_8100_V2.lperiod_by_dpi[7200] == 16035
+    assert MODEL_8200I_SE.lperiod_by_dpi[7200] == 15963
+
+    # lperiod at other DPIs is inherited unchanged from SE
+    for dpi in (600, 1200, 1800, 3600):
+        assert MODEL_8100_V2.lperiod_by_dpi[dpi] == MODEL_8200I_SE.lperiod_by_dpi[dpi], dpi
+
+    # White shading at 7200 dpi uses dummy=0x10 (SE would produce 0x17)
+    dummy, clk_a, clk_b = MODEL_8100_V2.shading_strip_clocks(7200, dvdset=True)
+    assert dummy == 0x10, f"white shading dummy: expected 0x10, got {dummy:#04x}"
+    assert clk_a == 0x01
+    assert clk_b == 0x01
+
+    # Dark shading at 7200 dpi uses dummy=0x17 on both V2 and SE (SE fallback)
+    dark_dummy, _, _ = MODEL_8100_V2.shading_strip_clocks(7200, dvdset=False)
+    se_dark_dummy, _, _ = MODEL_8200I_SE.shading_strip_clocks(7200, dvdset=False)
+    assert dark_dummy == 0x17, f"V2 dark dummy: expected 0x17, got {dark_dummy:#04x}"
+    assert se_dark_dummy == 0x17, f"SE dark dummy: expected 0x17, got {se_dark_dummy:#04x}"
+
+    # V2 full-frame LINCNT at feed2=13128: 29012 (04_color_7200 frame 3203)
+    # SE inherits 4836 (1200 dpi preview) at the same key — wrong for V2
+    assert MODEL_8100_V2.max_image_lincnt_by_feed2[13128] == 29012
+    assert MODEL_8200I_SE.max_image_lincnt_by_feed2[13128] == 4836
+
+    # V2 ladder_feed2_steps matches feed_to_scan_steps (top of TA window)
+    assert MODEL_8100_V2.ladder_feed2_steps == 13128
+    assert MODEL_8200I_SE.ladder_feed2_steps == 13560
+    assert MODEL_8100_V2.ladder_feed2_steps == MODEL_8100_V2.feed_to_scan_steps
+
+    # shading_strip_clocks at lower DPIs delegates to SE (not the 0x10 override)
+    dummy_1200, _, _ = MODEL_8100_V2.shading_strip_clocks(1200, dvdset=True)
+    se_dummy_1200, _, _ = MODEL_8200I_SE.shading_strip_clocks(1200, dvdset=True)
+    assert dummy_1200 == se_dummy_1200, "V2 lower-DPI white shading must match SE"
