@@ -104,6 +104,7 @@ class Gl128ScanSession(ScanSession):
         infrared: bool = False,
         align_passes: bool = True,
         me_exposure_mode: str = "adaptive",
+        n_passes: int = 1,
         **kwargs,
     ):  # type: ignore[no-untyped-def]
         """Refuse unless the ASIC explicitly arms motor moves."""
@@ -122,6 +123,7 @@ class Gl128ScanSession(ScanSession):
                 infrared=infrared,
                 align_passes=align_passes,
                 me_exposure_mode=me_exposure_mode,
+                n_passes=n_passes,
                 **kwargs,
             )
         return super().run(*args, **kwargs)
@@ -308,16 +310,19 @@ class Gl128ScanSession(ScanSession):
         infrared: bool = False,
         align_passes: bool = True,
         me_exposure_mode: str = "adaptive",
+        n_passes: int = 1,
     ):
         from pyopticfilm.image import ScanImage
         from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift, warn_if_align_unavailable
-        from pyopticfilm.scan.exposure_merge import merge_exposures_result
+        from pyopticfilm.scan.exposure_merge import merge_exposures_result, stack_passes
         from pyopticfilm.scan.geometry import compute_geometry
         from pyopticfilm.scan.me_debug import MeScanDebug
         from pyopticfilm.scan.me_exposure import fixed_long_exposure, select_long_exposure
 
         if mode == "infrared":
             raise ValueError("Use mode='color' with infrared=True for colour+IR scans")
+        if n_passes < 1:
+            raise ValueError(f"n_passes must be >= 1, got {n_passes!r}")
 
         model = self.model
         exp_short = int(getattr(model, "exposure_short", model.exposure_lperiod))
@@ -336,18 +341,17 @@ class Gl128ScanSession(ScanSession):
         if geometry is None:
             geometry = compute_geometry(resolution, model=model, area=area)
 
-        # Short (+ optional IR) first; long exposure is chosen after short RGB.
-        early: list[tuple[str, str, int, bool, bool]] = [
-            ("color_short", "transparency", exp_short, False, False),
-        ]
-        if infrared:
-            early.append(("ir", "infrared", exp_short, False, False))
-        n_pass = len(early) + (1 if multi_exposure else 0)
+        # Total progress slots: n_passes short + optional IR (always 1) +
+        # optional n_passes long.  IR is never stacked — one pass is sufficient
+        # because film grain and shot noise are the same between IR scans.
+        n_colour_groups = 1 + (1 if multi_exposure else 0)
+        total_slots = n_passes * n_colour_groups + (1 if infrared else 0)
 
         logger.info(
-            "GL128 multi-pass %ddpi passes=%d me=%s ir=%s me_exposure_mode=%s",
+            "GL128 multi-pass %ddpi total_slots=%d n_passes=%d me=%s ir=%s me_exposure_mode=%s",
             geometry.resolution,
-            n_pass,
+            total_slots,
+            n_passes,
             multi_exposure,
             infrared,
             mode_norm,
@@ -361,17 +365,15 @@ class Gl128ScanSession(ScanSession):
         def _acquire_pass(
             *,
             idx: int,
-            key: str,
             method: str,
             exposure: int,
             remeasure: bool,
             long_pass: bool,
         ):
-            nonlocal rgb_short, rgb_long, ir_plane
-
-            def _prog(p: float, _i: int = idx) -> None:
+            """Acquire one raw pass and return the decoded linear uint16 HxWx3 array."""
+            def _prog(p: float) -> None:
                 if progress is not None:
-                    progress(min(1.0, (_i + p) / n_pass))
+                    progress(min(1.0, (idx + p) / total_slots))
 
             calib = None
             if apply_calib and self.calibrator is not None:
@@ -417,36 +419,48 @@ class Gl128ScanSession(ScanSession):
             planar = getattr(self.asic, "usb_planar_rgb", None)
             if planar is None:
                 planar = bool(getattr(self.model, "usb_planar_rgb", False))
-            rgb = self.pipeline.assemble(
+            return self.pipeline.assemble(
                 raw,
                 geometry,
                 dark=dark,
                 white=white,
                 planar=bool(planar),
-                # Keep ME colour (and IR) planes linear — per-plane expose_film_base
-                # collapses the short/long ratio. Makeup runs once on the deliverable.
+                # Keep bracket planes linear — per-plane expose_film_base collapses
+                # the short/long ratio.  Makeup runs once on the deliverable.
                 expose_base=False,
             )
 
-            if key == "color_short":
-                rgb_short = rgb
-            elif key == "color_long":
-                rgb_long = rgb
-            elif key == "ir":
-                ir_plane = self._infrared_plane(rgb)
-
-        for idx, (key, method, exposure, remeasure, long_pass) in enumerate(early):
-            _acquire_pass(
-                idx=idx,
-                key=key,
-                method=method,
-                exposure=exposure,
-                remeasure=remeasure,
-                long_pass=long_pass,
+        # ── Short colour passes (stacked if n_passes > 1) ──────────────────
+        short_frames = []
+        for pass_i in range(n_passes):
+            # Calibrate only on the first pass of each exposure group; subsequent
+            # passes reuse the shading table so the calibration overhead is O(1).
+            frame = _acquire_pass(
+                idx=pass_i,
+                method="transparency",
+                exposure=exp_short,
+                remeasure=False,
+                long_pass=False,
             )
+            short_frames.append(frame)
+            if n_passes > 1:
+                logger.info(
+                    "GL128 short pass %d/%d acquired", pass_i + 1, n_passes
+                )
+        rgb_short = stack_passes(short_frames)
 
-        assert rgb_short is not None
+        # ── IR pass (always 1; no stacking) ────────────────────────────────
+        if infrared:
+            ir_rgb = _acquire_pass(
+                idx=n_passes,
+                method="infrared",
+                exposure=exp_short,
+                remeasure=False,
+                long_pass=False,
+            )
+            ir_plane = self._infrared_plane(ir_rgb)
 
+        # ── Long colour exposure selection ──────────────────────────────────
         if multi_exposure:
             # DPI-aware ME long ceiling (7200 → 42k; other PPI → 85k).
             dpi_adaptive_max = clamp_me_long_for_dpi(
@@ -507,15 +521,29 @@ class Gl128ScanSession(ScanSession):
                 exp_long,
                 exposure_decision.reason,
             )
-            _acquire_pass(
-                idx=len(early),
-                key="color_long",
-                method="transparency",
-                exposure=exp_long,
-                remeasure=True,
-                long_pass=True,
-            )
 
+            # ── Long colour passes (stacked if n_passes > 1) ───────────────
+            long_base_idx = n_passes + (1 if infrared else 0)
+            long_frames = []
+            for pass_i in range(n_passes):
+                # Remeasure shading once for the long exposure group (different
+                # exposure changes the per-line signal level that ASIC shading
+                # compensates).  Subsequent long passes reuse that table.
+                frame = _acquire_pass(
+                    idx=long_base_idx + pass_i,
+                    method="transparency",
+                    exposure=exp_long,
+                    remeasure=(pass_i == 0),
+                    long_pass=True,
+                )
+                long_frames.append(frame)
+                if n_passes > 1:
+                    logger.info(
+                        "GL128 long pass %d/%d acquired", pass_i + 1, n_passes
+                    )
+            rgb_long = stack_passes(long_frames)
+
+        # ── Pass alignment ─────────────────────────────────────────────────
         align_shift_long: tuple[float, float] | None = None
         align_shift_ir: tuple[float, float] | None = None
 
@@ -536,6 +564,7 @@ class Gl128ScanSession(ScanSession):
                 align_shift_ir[1],
             )
 
+        # ── IVW merge (ME) or pass through (single-exposure) ───────────────
         primary = rgb_short
         fusion_stats = None
         if multi_exposure and rgb_long is not None:
@@ -567,6 +596,7 @@ class Gl128ScanSession(ScanSession):
                 exposure_reason=(
                     None if exposure_decision is None else exposure_decision.reason
                 ),
+                n_passes=n_passes,
             )
 
         # Single film-base makeup on the deliverable only (not on bracket planes).

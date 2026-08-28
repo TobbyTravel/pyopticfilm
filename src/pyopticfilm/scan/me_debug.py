@@ -32,3 +32,5 @@ class MeScanDebug:
     exposure_proposed: int | None = None
     #: Why ``exposure_long`` was chosen (adaptive / clamped / fixed / fallback).
     exposure_reason: str | None = None
+    #: How many same-exposure passes were stacked per bracket (1 = no stacking).
+    n_passes: int = 1

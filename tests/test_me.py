@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
+import pytest
 import numpy as np
 
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.pass_align import align_pass_to_reference
-from pyopticfilm.scan.exposure_merge import merge_exposures, merge_exposures_result
+from pyopticfilm.scan.exposure_merge import merge_exposures, merge_exposures_result, stack_passes
 
 
 def test_model_me_exposure_constants():
@@ -290,3 +291,108 @@ def test_align_pass_subpixel_shift_when_opencv_available():
     dx, dy = estimate_pass_shift(base, shifted)
     assert abs(dx - 3.0) < 0.6
     assert abs(dy - (-2.0)) < 0.6
+
+
+# ── stack_passes ────────────────────────────────────────────────────────────
+
+
+def test_stack_passes_single_is_identity():
+    arr = np.full((8, 8, 3), 8000, dtype=np.uint16)
+    result = stack_passes([arr])
+    assert np.array_equal(result, arr)
+    assert result.dtype == np.uint16
+
+
+def test_stack_passes_two_identical_frames_returns_same_value():
+    arr = np.full((16, 16, 3), 12000, dtype=np.uint16)
+    result = stack_passes([arr, arr])
+    assert result.dtype == np.uint16
+    assert abs(float(result.mean()) - 12000.0) < 2.0
+
+
+def test_stack_passes_reduces_noise():
+    """N=4 passes should yield lower MSE than a single noisy frame."""
+    rng = np.random.default_rng(7)
+    truth = np.full((64, 64, 3), 8000.0)
+    frames = []
+    for _ in range(4):
+        noisy = np.clip(truth + rng.normal(0, 80, truth.shape), 0, 65535).astype(np.uint16)
+        frames.append(noisy)
+    stacked = stack_passes(frames)
+    mse_single = float(np.mean((frames[0].astype(np.float64) - truth) ** 2))
+    mse_stacked = float(np.mean((stacked.astype(np.float64) - truth) ** 2))
+    # Expect ~4× noise reduction (√4 in amplitude); accept 1.5× to avoid flakiness.
+    assert mse_stacked < mse_single * 0.7
+
+
+def test_stack_passes_saturated_pixel_excluded():
+    """A frame with a blown channel should be down-weighted so the stack stays clean."""
+    clean = np.full((8, 8, 3), 10000, dtype=np.uint16)
+    blown = clean.copy()
+    blown[:, :, 0] = 65535  # R channel saturated in one frame
+    result = stack_passes([blown, clean])
+    # R should be pulled toward 10000 by the clean frame (blown is near-zero confidence).
+    assert abs(float(result[:, :, 0].mean()) - 10000.0) < 3000.0
+    # G and B are identical across frames — exact.
+    assert abs(float(result[:, :, 1].mean()) - 10000.0) < 2.0
+
+
+def test_stack_passes_output_dtype_is_uint16():
+    frames = [np.full((4, 4, 3), v, dtype=np.uint16) for v in (5000, 7000, 9000)]
+    result = stack_passes(frames)
+    assert result.dtype == np.uint16
+    assert result.shape == (4, 4, 3)
+
+
+def test_stack_passes_empty_raises():
+    with pytest.raises(ValueError, match="non-empty"):
+        stack_passes([])
+
+
+def test_stack_passes_shape_mismatch_raises():
+    a = np.zeros((4, 4, 3), dtype=np.uint16)
+    b = np.zeros((8, 4, 3), dtype=np.uint16)
+    with pytest.raises(ValueError):
+        stack_passes([a, b])
+
+
+def test_stack_passes_large_frame_chunked():
+    """7200 dpi-class shape must complete without OOM (chunked float32 processing)."""
+    h, w = 3603, 5184
+    frames = [np.full((h, w, 3), 8000, dtype=np.uint16) for _ in range(2)]
+    result = stack_passes(frames)
+    assert result.shape == (h, w, 3)
+    assert result.dtype == np.uint16
+    assert abs(float(result.mean()) - 8000.0) < 2.0
+
+
+def test_stack_passes_n1_matches_stack_n2_on_identical():
+    """stack_passes([a]) and stack_passes([a, a]) produce same values (within rounding)."""
+    arr = np.full((16, 16, 3), 15000, dtype=np.uint16)
+    single = stack_passes([arr])
+    double = stack_passes([arr, arr])
+    assert np.allclose(single.astype(np.float32), double.astype(np.float32), atol=1.0)
+
+
+def test_n_passes_default_in_scanner_scan():
+    """Scanner.scan() must accept n_passes=1 (default) without error."""
+    import inspect
+    from pyopticfilm.scanner import Scanner
+    sig = inspect.signature(Scanner.scan)
+    assert "n_passes" in sig.parameters
+    assert sig.parameters["n_passes"].default == 1
+
+
+def test_me_debug_n_passes_field_default():
+    """MeScanDebug.n_passes defaults to 1 for backward-compatible construction."""
+    from pyopticfilm.scan.me_debug import MeScanDebug
+    rgb = np.zeros((4, 4, 3), dtype=np.uint16)
+    debug = MeScanDebug(rgb_short=rgb, rgb_long=rgb, exposure_short=14000, exposure_long=42000)
+    assert debug.n_passes == 1
+
+
+def test_me_debug_n_passes_stored():
+    from pyopticfilm.scan.me_debug import MeScanDebug
+    rgb = np.zeros((4, 4, 3), dtype=np.uint16)
+    debug = MeScanDebug(rgb_short=rgb, rgb_long=rgb, exposure_short=14000, exposure_long=42000, n_passes=4)
+    assert debug.n_passes == 4

@@ -287,9 +287,12 @@ class Scanner:
         infrared: bool = False,
         align_passes: bool = True,
         me_exposure_mode: str = "adaptive",
+        n_passes: int = 1,
     ) -> ScanImage:
         self._ensure_scan_ready()
         self._ensure_open()
+        if not isinstance(n_passes, int) or n_passes < 1:
+            raise ValueError(f"n_passes must be a positive integer, got {n_passes!r}")
         if not self._asic._initialized:
             self._asic.init()
             if not self._asic.is_at_home():
@@ -308,6 +311,7 @@ class Scanner:
             "infrared": infrared,
             "align_passes": align_passes,
             "me_exposure_mode": me_exposure_mode,
+            "n_passes": n_passes,
         }
         if getattr(self._model, "asic", "") == "GL128" and not self._gl128_primed:
             prime_dpi, prime_area = _gl128_prime_spec()

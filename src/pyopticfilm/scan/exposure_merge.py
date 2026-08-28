@@ -95,6 +95,77 @@ def estimate_pg_noise_params(
     return alpha, beta
 
 
+def stack_passes(
+    frames: list[np.ndarray],
+    *,
+    alpha: float = _SNR_ALPHA,
+    beta: float = _SNR_BETA,
+) -> np.ndarray:
+    """Average N same-exposure frames with per-pixel confidence weighting.
+
+    Each pixel is weighted by ``confidence / variance`` where
+    ``variance = alpha·mean + beta`` (Poisson-Gaussian model, same as ME IVW).
+    For clean, unsaturated pixels with equal exposure this is a simple mean;
+    near-saturated or near-black pixels are down-weighted so a single blown
+    pixel across passes does not contaminate the stack.
+
+    SNR improves by √N in read-noise-limited regions (Poisson-Gaussian noise
+    floor, β ≈ 64 DN; reducing it from one pass to N collapses by 1/√N).
+
+    Processed in row bands so peak float32 memory stays O(chunk × N) not
+    O(full-frame × N).
+
+    Args:
+        frames: N uint16 HxWx3 arrays at identical exposure and geometry.
+        alpha: Poisson coefficient for variance model.
+        beta: Gaussian read-noise term (~64² DN² by default).
+
+    Returns:
+        uint16 HxWx3 array.
+
+    Raises:
+        ValueError: if *frames* is empty, shapes mismatch, or rank ≠ 3.
+    """
+    if not frames:
+        raise ValueError("frames must be non-empty")
+    if len(frames) == 1:
+        return np.asarray(frames[0], dtype=np.uint16)
+    ref = np.asarray(frames[0], dtype=np.uint16)
+    if ref.ndim != 3 or ref.shape[2] != 3:
+        raise ValueError(f"expected HxWx3 arrays, got {ref.shape}")
+    for i, f in enumerate(frames[1:], 1):
+        fa = np.asarray(f, dtype=np.uint16)
+        if fa.shape != ref.shape:
+            raise ValueError(
+                f"frame {i} shape {fa.shape} does not match frame 0 shape {ref.shape}"
+            )
+
+    h = ref.shape[0]
+    out = np.empty_like(ref)
+
+    for y0 in range(0, h, _MERGE_CHUNK_ROWS):
+        y1 = min(h, y0 + _MERGE_CHUNK_ROWS)
+        acc = np.zeros((y1 - y0, ref.shape[1], 3), dtype=np.float32)
+        w_sum = np.zeros_like(acc)
+        for frame in frames:
+            chunk = np.asarray(frame, dtype=np.uint16)[y0:y1].astype(np.float32)
+            var = alpha * np.maximum(chunk, 0.0) + beta
+            conf = _smooth_confidence(
+                chunk,
+                floor=_SNR_FLOOR,
+                clip_start=_SNR_CLIP_START,
+                clip_end=_SNR_CLIP_END,
+            )
+            w = conf / np.maximum(var, 1e-12)
+            acc += w * chunk
+            w_sum += w
+        both_zero = w_sum <= 1e-12
+        result = np.where(both_zero, 0.0, acc / np.maximum(w_sum, 1e-12))
+        out[y0:y1] = np.clip(result, 0, 65535).astype(np.uint16)
+
+    return out
+
+
 def merge_exposures(
     short: np.ndarray,
     long: np.ndarray,

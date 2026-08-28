@@ -73,6 +73,7 @@ class ScanSession:
         infrared: bool = False,
         align_passes: bool = True,
         me_exposure_mode: str = "adaptive",  # GL128 ME only; ignored here
+        n_passes: int = 1,  # GL128 multi-pass stacking only; ignored here
     ) -> ScanImage:
         if multi_exposure or infrared:
             raise NotImplementedError(
