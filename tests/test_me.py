@@ -396,3 +396,26 @@ def test_me_debug_n_passes_stored():
     rgb = np.zeros((4, 4, 3), dtype=np.uint16)
     debug = MeScanDebug(rgb_short=rgb, rgb_long=rgb, exposure_short=14000, exposure_long=42000, n_passes=4)
     assert debug.n_passes == 4
+
+
+def test_gl128_session_routes_n_passes_without_me():
+    """n_passes > 1 alone (no ME, no IR) must route to _run_multi_pass, not super().run()."""
+    from unittest.mock import MagicMock, patch
+    import numpy as np
+    from pyopticfilm.scan.session_gl128 import Gl128ScanSession
+    from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
+
+    session = Gl128ScanSession.__new__(Gl128ScanSession)
+    session.model = MODEL_8200I_SE
+    session.asic = MagicMock()
+    session.asic._motor_moves_enabled = True
+
+    rgb = np.zeros((4, 4, 3), dtype=np.uint16)
+    from pyopticfilm.image import ScanImage
+    fake_result = ScanImage(rgb=rgb, dpi=1800)
+
+    with patch.object(session, "_run_multi_pass", return_value=fake_result) as mock_mp:
+        session.run(resolution=1800, n_passes=2)
+
+    mock_mp.assert_called_once()
+    assert mock_mp.call_args.kwargs.get("n_passes") == 2

@@ -110,7 +110,7 @@ class Gl128ScanSession(ScanSession):
         """Refuse unless the ASIC explicitly arms motor moves."""
         if not getattr(self.asic, "_motor_moves_enabled", False):
             raise AsicError(_MOTOR_GATED_HINT)
-        if multi_exposure or (infrared and kwargs.get("mode", "color") == "color"):
+        if multi_exposure or n_passes > 1 or (infrared and kwargs.get("mode", "color") == "color"):
             if infrared and not getattr(self.model, "supports_infrared", False):
                 raise ScanError(
                     f"{self.model.model} has no infrared channel: IR scans are "
