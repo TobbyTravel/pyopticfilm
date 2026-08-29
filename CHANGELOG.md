@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-08-29
+
 ### Added
 
 - **Manual exposure overrides** (GL128): `Scanner.scan(single_pass_exposure=..., me_short_exposure=..., me_long_exposure=...)` send an exact `REG_EXPOSURE` for the retained single-pass, ME short, or ME long pass, bypassing adaptive selection, PPI clamp, and `me_hardware_max_exposure`. `me_long_exposure` takes precedence over `me_exposure_mode`. Values are validated for the 24-bit register range (1–`0xFFFFFF`); out-of-range values raise `ValueError`. All three default to `None` (unchanged behavior) and never apply to the discarded GL128 priming pass. Scan Lab exposes matching **Manual exposure overrides** fields.
