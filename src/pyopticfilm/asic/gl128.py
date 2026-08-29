@@ -577,15 +577,33 @@ class Gl128:
             )
             result = AfeFrontend(offsets=offsets, gains=capped)
         elif not infrared and (result.offsets == (0, 0, 0) or result.gains == (0, 0, 0)):
-            restored_offsets = offset_seed if offset_seed != (0, 0, 0) else result.offsets
-            restored_gains = COLOR_AFE_SESSION04_GAINS if result.gains == (0, 0, 0) else result.gains
-            if restored_offsets == (0, 0, 0):
-                restored_offsets = (38, 30, 36)
+            collapsed = []
+            if result.offsets == (0, 0, 0):
+                collapsed.append("offsets")
+                if offset_seed != (0, 0, 0):
+                    restored_offsets = offset_seed
+                    offset_src = f"offset_seed={offset_seed}"
+                else:
+                    restored_offsets = (38, 30, 36)
+                    offset_src = "hardcoded baseline (38,30,36)"
+            else:
+                restored_offsets = result.offsets
+                offset_src = "search result"
+            if result.gains == (0, 0, 0):
+                collapsed.append("gains")
+                restored_gains = COLOR_AFE_SESSION04_GAINS
+                gain_src = f"session-04 codes {COLOR_AFE_SESSION04_GAINS}"
+            else:
+                restored_gains = result.gains
+                gain_src = "search result"
             result = AfeFrontend(offsets=restored_offsets, gains=restored_gains)
             logger.warning(
-                "GL128 AFE collapsed to zeros; restored offsets=%s gains=%s",
-                result.offsets,
-                result.gains,
+                "GL128 AFE search collapsed to zeros for %s; "
+                "restored offsets=%s [%s] gains=%s [%s]; "
+                "image colour may be degraded — recalibrate if quality is poor",
+                "/".join(collapsed),
+                result.offsets, offset_src,
+                result.gains, gain_src,
             )
         self.apply_frontend(result)
         self.last_afe = result
