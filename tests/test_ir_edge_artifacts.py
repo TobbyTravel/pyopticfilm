@@ -26,10 +26,10 @@ def test_trim_to_optical_span_drops_usb_wider_than_pixels():
 def test_assemble_drops_fixed_usb_end_dummy(monkeypatch):
     """Fixed ENDPIXEL dummy suffix — not heuristic dark-column trim."""
     geo = compute_geometry(1800, model=MODEL_8200I_SE, area=(0.15, 0.2, 0.7, 0.6))
-    assert geo.usb_end_drop == 18
+    assert geo.usb_end_drop == 24
     h = max(4, geo.lines)
     rgb = np.full((h, geo.pixels, 3), 18_000, dtype=np.uint16)
-    rgb[:, -18:, :] = 200  # USB ENDPIXEL dummy (image left after mirror)
+    rgb[:, -24:, :] = 200  # USB ENDPIXEL dummy (image left after mirror)
     pipe = ImagePipeline(MODEL_8200I_SE)
     monkeypatch.setattr(pipe, "decode_rgb", lambda *_a, **_k: rgb.copy())
     monkeypatch.setattr(pipe, "reduce_y_oversample", lambda arr, _g: arr)
@@ -37,7 +37,7 @@ def test_assemble_drops_fixed_usb_end_dummy(monkeypatch):
     monkeypatch.setattr(pipe, "apply_y_stagger", lambda arr, _g: arr)
     monkeypatch.setattr(pipe, "apply_host_downsample", lambda arr, _g: arr)
     out = pipe.assemble(b"", geo, dark=None, white=None, expose_base=False)
-    assert out.shape[1] == geo.pixels - 18
+    assert out.shape[1] == geo.pixels - 24
     assert int(out[:, 0, 0].mean()) > 10_000
 
 

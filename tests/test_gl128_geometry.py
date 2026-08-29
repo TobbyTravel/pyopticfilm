@@ -20,12 +20,12 @@ SESSION_04_PX_1800 = 2478
 
 
 def test_endpixel_dummy_scales_as_native_clocks():
-    """Dummy suffix is 72 native clocks → 12 / 18 / 36 output px, not a fixed 9."""
+    """Dummy+transition is 96 native clocks → 16 / 24 / 48 output px."""
     n = MODEL_8200I_SE.optical_end_inactive_native
-    assert n == 72
-    assert n * 1200 // NATIVE == 12
-    assert n * 1800 // NATIVE == 18
-    assert n * 3600 // NATIVE == 36
+    assert n == 96
+    assert n * 1200 // NATIVE == 16
+    assert n * 1800 // NATIVE == 24
+    assert n * 3600 // NATIVE == 48
 
 
 def test_session_03_str_end_match_sf_usb_window():
@@ -34,13 +34,13 @@ def test_session_03_str_end_match_sf_usb_window():
     assert g.pixel_startx == SESSION_03_STR
     assert g.pixel_endx == SESSION_03_END
     assert g.pixels == SESSION_03_PX_1200
-    assert g.usb_end_drop == 12
+    assert g.usb_end_drop == 16
     assert g.pixel_endx - g.pixel_startx == g.optical_pixels
     assert g.line_bytes == g.pixels * 3 * 2
 
 
 def test_session_04_str_end_match_cropped_usb_window():
-    """Session 04 STR 578 / 2478 px crop; USB span matches SF, drop 18 at 1800."""
+    """Session 04 STR 578 / 2478 px crop; USB span matches SF, drop 24 at 1800."""
     origin = 120
     tl_mm = (SESSION_04_STR - origin) * MM_PER_INCH / NATIVE
     x1 = (tl_mm - MODEL_8200I_SE.x_offset_ta_mm) / MODEL_8200I_SE.x_size_ta_mm
@@ -50,7 +50,7 @@ def test_session_04_str_end_match_cropped_usb_window():
     assert g.pixel_startx == SESSION_04_STR
     assert g.pixel_endx == SESSION_04_END
     assert g.pixels == SESSION_04_PX_1800
-    assert g.usb_end_drop == 18
+    assert g.usb_end_drop == 24
     assert g.pixels % 2 == 0
     assert g.optical_pixels % 4 == 0
     assert g.line_bytes == g.pixels * 3 * 2
@@ -74,7 +74,7 @@ def test_full_window_str_is_dpi_independent():
         assert g.pixels % 2 == 0
         assert g.pixel_endx - g.pixel_startx == g.optical_pixels
         assert g.line_bytes == g.pixels * 3 * (g.depth // 8)
-        assert g.usb_end_drop == 72 * dpi // NATIVE
+        assert g.usb_end_drop == 96 * dpi // NATIVE
     assert len(set(starts)) == 1
     assert starts[0] == SESSION_03_STR
 

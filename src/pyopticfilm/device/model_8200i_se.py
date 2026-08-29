@@ -298,12 +298,11 @@ class Model8200iSE:
     #: STR 242 or session 04 STR 578 (both remainder 2 vs the factor).
     strpixel_native_units: bool = True
     #: Per-line dummy clocks on the USB ENDPIXEL side (image left after
-    #: ``mirror_x``). Live 1800 dpi scans show ~18 near-zero output columns
-    #: there (72 native). Shrinking ``ENDPIXEL`` does not remove them — the ASIC
-    #: still suffixes dummy on whatever window is programmed. Decode drops
-    #: ``native × dpi / 7200`` columns after assemble. Shading keeps the full
-    #: USB width so DVDSET stays indexed to the wire.
-    optical_end_inactive_native: int = 72
+    #: ``mirror_x``). The near-zero core is ~18 output px at 1800, but the
+    #: transition still inverts to a white strip on the positive (~22 px to
+    #: reach ~85% of interior DN). 96 native clocks → 16 / 24 / 48 output px
+    #: at 1200 / 1800 / 3600. Shrinking ``ENDPIXEL`` does not remove the suffix.
+    optical_end_inactive_native: int = 96
     supports_infrared: bool = True
     #: PPI below this share the 600 dpi ASIC programming (session 13).
     min_asic_dpi: int = _MIN_ASIC_DPI
