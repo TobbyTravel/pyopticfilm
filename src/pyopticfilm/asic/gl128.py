@@ -106,6 +106,11 @@ HOME_POLL_S = 0.05
 #: on ``0x9c`` (SCANFSH|HOME|LAMP). Requiring only ``not BUFEMPTY`` also matches
 #: motor-busy ``0xa5`` (no HOME) and can bulk-read stale AHB from a prior strip.
 _STATIONARY_DATA_READY: frozenset[int] = frozenset({0xBD, 0xA9, 0xAD, 0x9C})
+#: After an image pass, hardware ``0x02`` may still have MTRPWR|AGOHOME (park
+#: leaves it alone) and SCAN may still be settling. Stationary START while
+#: ``MOTORENB`` is set hangs as ``0xcd`` (HOME|BUFEMPTY|LAMP|MOTORENB).
+_STATIONARY_IDLE_WAIT_S = 2.0
+_STATIONARY_START_RETRIES = 1
 
 #: Vendor probe ``wIndex`` polled during fast feeds until it returns this.
 _FEED_PROBE_INDEX = 0x21
@@ -361,6 +366,57 @@ class Gl128:
         kind = "motorized" if motorized else "stationary"
         raise ScanError(f"{where}: no {kind} data ready within {timeout_s:.0f}s (last status=0x{last:02x})")
 
+    def _drop_scan_and_motor(self) -> None:
+        """Clear SCAN/DVDSET and MTRPWR so the next stationary START can fire.
+
+        Genesys ignores geometry/motor writes while SCAN is set. Park also
+        leaves hardware ``0x02`` armed (``MTRPWR|AGOHOME``) even after the
+        cache drops ``AGOHOME``.
+        """
+        r = self.registers
+        reg01 = (self._reg_cache.get(r.REG_0x01, 0x22) | r.SHDAREA) & ~r.SCAN & ~r.DVDSET
+        self._write(r.REG_0x01, reg01)
+        self._write(r.REG_0x02, 0x00)
+
+    def _wait_idle_at_home_for_stationary(self, timeout_s: float, *, where: str) -> None:
+        """Wait until HOME and motor off so motor-off SCAN/START is accepted.
+
+        Two consecutive idle samples (captures show one stale ``0x101``).
+        Logs and returns on timeout so a SCAN retry can still recover.
+        """
+        deadline = time.monotonic() + timeout_s
+        last = -1
+        idle_hits = 0
+        while time.monotonic() < deadline:
+            status = self.read_status()
+            last = int(status.raw) & 0xFF
+            if status.is_at_home and not status.is_motor_enabled:
+                idle_hits += 1
+                if idle_hits >= 2:
+                    return
+            else:
+                idle_hits = 0
+            time.sleep(0.01)
+        logger.warning(
+            "GL128 %s: motor not idle at home within %.1fs (last status=0x%02x)",
+            where,
+            timeout_s,
+            last,
+        )
+
+    def _start_stationary_strip(self) -> None:
+        """Capture start recipe: motor off, ``0x0d`` → absolute SCAN → ``0x0f``.
+
+        Absolute SCAN write — RMW can pick up a stale ``0x01`` (SCAN/DVDSET
+        from the previous image pass) and then START never fills the AHB.
+        """
+        r = self.registers
+        self._write(r.REG_0x02, 0x00)
+        self._write(r.REG_CLRCNT, r.CLRCNT_ALL)
+        reg01 = (self._reg_cache.get(r.REG_0x01, 0x22) | r.SHDAREA | r.SCAN) & ~r.DVDSET
+        self._write(r.REG_0x01, reg01)
+        self._write(r.REG_START, r.START_GO)
+
     def _setup_afe_strip_regs(self, *, wide: bool = False) -> None:
         """Stationary AFE strip geometry (session 03 window, motor off)."""
         r = self.registers
@@ -396,17 +452,29 @@ class Gl128:
         if size <= 0:
             raise ValueError("AFE strip size must be positive")
 
+        # Drop SCAN before geometry writes — they are ignored while SCAN is set
+        # leftover from the previous image pass (consecutive-scan 0xcd hang).
+        self._drop_scan_and_motor()
+        self._wait_idle_at_home_for_stationary(_STATIONARY_IDLE_WAIT_S, where="AFE strip")
         self._setup_afe_strip_regs(wide=size >= AFE_WIDE_BYTES)
-        # Capture start recipe: 0x0d → SCAN → 0x0f (no motor).
-        self._write(r.REG_CLRCNT, r.CLRCNT_ALL)
-        self._update_bits(r.REG_0x01, set_bits=r.SCAN)
-        self._write(r.REG_START, r.START_GO)
-
-        try:
-            self._wait_stationary_data_ready(timeout_s, where="AFE strip")
-        except ScanError:
-            self._update_bits(r.REG_0x01, clear_bits=r.SCAN)
-            raise
+        last_exc: ScanError | None = None
+        for attempt in range(1 + _STATIONARY_START_RETRIES):
+            if attempt:
+                logger.warning("GL128 AFE strip START retry after: %s", last_exc)
+                self._drop_scan_and_motor()
+                self._wait_idle_at_home_for_stationary(
+                    _STATIONARY_IDLE_WAIT_S, where="AFE strip retry"
+                )
+            self._start_stationary_strip()
+            try:
+                self._wait_stationary_data_ready(timeout_s, where="AFE strip")
+                last_exc = None
+                break
+            except ScanError as exc:
+                last_exc = exc
+                self._drop_scan_and_motor()
+        if last_exc is not None:
+            raise last_exc
 
         self.protocol.bulk_read_begin(size, index=r.BULK_INDEX_RAM, addr=r.AHB_CHANNEL_R)
         buf = bytearray()
@@ -781,6 +849,9 @@ class Gl128:
             self._write(r.REG_0x02, r.MTRPWR | r.AGOHOME)
         else:
             self._write(r.REG_0x02, 0x00)
+            self._wait_idle_at_home_for_stationary(
+                _STATIONARY_IDLE_WAIT_S, where="Shading strip"
+            )
         self._write(r.REG_CLRCNT, r.CLRCNT_ALL)
         # Absolute SCAN write — RMW can drop DVDSET if a stale 0x01 read races.
         reg01 = self._reg_cache.get(r.REG_0x01, 0x22) | r.SHDAREA | r.SCAN

@@ -694,6 +694,102 @@ def test_stationary_data_ready_ignores_busy_accepts_home_not_empty(monkeypatch):
         asic._wait_stationary_data_ready(0.0, where="test")
 
 
+def test_wait_idle_at_home_requires_two_samples_without_motor(monkeypatch):
+    """0xcd (HOME|BUFEMPTY|LAMP|MOTORENB) is not idle; 0xcc (motor off) is."""
+    import pyopticfilm.asic.gl128 as gl128_mod
+    from pyopticfilm.asic.gl128 import Gl128
+    from pyopticfilm.asic.status import ScannerStatus
+
+    monkeypatch.setattr(gl128_mod.time, "sleep", lambda *_a, **_k: None)
+
+    asic = Gl128(MagicMock(), MODEL_8200I_SE)
+    asic.read_status = MagicMock(
+        side_effect=[
+            ScannerStatus.from_reg41(0xCD),
+            ScannerStatus.from_reg41(0xCC),
+            ScannerStatus.from_reg41(0xCC),
+        ]
+    )
+    asic._wait_idle_at_home_for_stationary(1.0, where="test")
+    assert asic.read_status.call_count == 3
+
+
+def test_acquire_afe_strip_waits_out_motor_busy_then_absolute_scan(monkeypatch):
+    """Consecutive scans leave 0xcd; wait idle, then SCAN via write not RMW."""
+    import pyopticfilm.asic.gl128 as gl128_mod
+    from pyopticfilm.asic.gl128 import Gl128
+    from pyopticfilm.asic.registers import Gl128Registers
+    from pyopticfilm.asic.status import ScannerStatus
+    from pyopticfilm.scan.calib_gl128 import AFE_STRIP_BYTES
+
+    monkeypatch.setattr(gl128_mod.time, "sleep", lambda *_a, **_k: None)
+
+    r = Gl128Registers()
+    proto = MagicMock()
+    proto.read_register = MagicMock(return_value=r.SHDAREA | r.SCAN)
+    proto.bulk_read_chunk = MagicMock(return_value=b"\x00" * AFE_STRIP_BYTES)
+    asic = Gl128(proto, MODEL_8200I_SE)
+    asic._initialized = True
+    asic.read_status = MagicMock(
+        side_effect=[
+            ScannerStatus.from_reg41(0xCD),
+            ScannerStatus.from_reg41(0xCC),
+            ScannerStatus.from_reg41(0xCC),
+            ScannerStatus.from_reg41(0xDC),
+            ScannerStatus.from_reg41(0x9C),
+        ]
+    )
+
+    buf = asic.acquire_afe_strip(AFE_STRIP_BYTES)
+    assert len(buf) == AFE_STRIP_BYTES
+
+    written_01 = [
+        int(c.args[1]) & 0xFF
+        for c in proto.write_register.call_args_list
+        if c.args and int(c.args[0]) == r.REG_0x01
+    ]
+    scan_writes = [v for v in written_01 if v & r.SCAN]
+    assert scan_writes, "expected an absolute SCAN write to 0x01"
+    assert all((v & r.DVDSET) == 0 for v in scan_writes)
+    starts = [
+        c
+        for c in proto.write_register.call_args_list
+        if c.args and int(c.args[0]) == r.REG_START
+    ]
+    assert len(starts) == 1
+
+
+def test_acquire_afe_strip_retries_start_after_data_timeout(monkeypatch):
+    import pyopticfilm.asic.gl128 as gl128_mod
+    from pyopticfilm.asic.gl128 import Gl128
+    from pyopticfilm.asic.registers import Gl128Registers
+    from pyopticfilm.exceptions import ScanError
+    from pyopticfilm.scan.calib_gl128 import AFE_STRIP_BYTES
+
+    monkeypatch.setattr(gl128_mod.time, "sleep", lambda *_a, **_k: None)
+
+    r = Gl128Registers()
+    proto = MagicMock()
+    proto.read_register = MagicMock(return_value=r.SHDAREA | r.SCAN)
+    proto.bulk_read_chunk = MagicMock(return_value=b"\x00" * AFE_STRIP_BYTES)
+    asic = Gl128(proto, MODEL_8200I_SE)
+    asic._initialized = True
+    asic._wait_idle_at_home_for_stationary = MagicMock()
+    asic._wait_stationary_data_ready = MagicMock(
+        side_effect=[ScanError("AFE strip: no stationary data ready"), None]
+    )
+
+    buf = asic.acquire_afe_strip(AFE_STRIP_BYTES)
+    assert len(buf) == AFE_STRIP_BYTES
+    starts = [
+        c
+        for c in proto.write_register.call_args_list
+        if c.args and int(c.args[0]) == r.REG_START
+    ]
+    assert len(starts) == 2
+    assert asic._wait_stationary_data_ready.call_count == 2
+
+
 def test_motorized_shading_data_ready_accepts_busy_without_home(monkeypatch):
     """Colour white (DVDSET+MTRPWR) may leave home — accept not BUFEMPTY / 0xa5."""
     import pyopticfilm.asic.gl128 as gl128_mod
