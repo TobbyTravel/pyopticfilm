@@ -36,8 +36,9 @@ class ScanWorker(QObject):
     calib_cleared = pyqtSignal(str)
     #: target, apply_calib
     request_prescan = pyqtSignal(object, bool)
-    #: target, dpi, ir_pass, me_pass, crop_norm, apply_calib, me_exposure_mode
-    request_scan = pyqtSignal(object, int, bool, bool, object, bool, str)
+    #: target, dpi, ir_pass, me_pass, crop_norm, apply_calib, me_exposure_mode,
+    #: single_pass_exposure, me_short_exposure, me_long_exposure
+    request_scan = pyqtSignal(object, int, bool, bool, object, bool, str, object, object, object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -127,6 +128,9 @@ class ScanWorker(QObject):
         crop_norm: tuple[float, float, float, float] | None,
         apply_calib: bool = False,
         me_exposure_mode: str = "adaptive",
+        single_pass_exposure: int | None = None,
+        me_short_exposure: int | None = None,
+        me_long_exposure: int | None = None,
     ) -> None:
         self._run(
             target,
@@ -137,6 +141,9 @@ class ScanWorker(QObject):
             crop=crop_norm,
             apply_calib=bool(apply_calib),
             me_exposure_mode=str(me_exposure_mode or "adaptive"),
+            single_pass_exposure=single_pass_exposure,
+            me_short_exposure=me_short_exposure,
+            me_long_exposure=me_long_exposure,
         )
 
     def _run(
@@ -150,6 +157,9 @@ class ScanWorker(QObject):
         crop: tuple[float, float, float, float] | None,
         apply_calib: bool,
         me_exposure_mode: str = "adaptive",
+        single_pass_exposure: int | None = None,
+        me_short_exposure: int | None = None,
+        me_long_exposure: int | None = None,
     ) -> None:
         self.busy_changed.emit(True)
         self._cancel.clear()
@@ -187,6 +197,9 @@ class ScanWorker(QObject):
                     multi_exposure=me,
                     infrared=ir,
                     me_exposure_mode=me_exposure_mode,
+                    single_pass_exposure=single_pass_exposure,
+                    me_short_exposure=me_short_exposure,
+                    me_long_exposure=me_long_exposure,
                     **scan_kw,
                 )
                 self.me_debug_ready.emit(getattr(scanner, "last_me_debug", None))

@@ -96,6 +96,7 @@ scan-ready GL128 **8100 (V2)** (`07b3:1824`).
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
 | **Multi-exposure (ME)** | GL128 / hardware-tested models: short + adaptive long colour passes (42k–85k safety envelope, capped at 42000 at 7200 dpi; fallback 42000); host SNR/IVW merge into ``rgb``. Bracket planes on ``Scanner.last_me_debug`` (not ``ScanImage``). |
 | **Fixed 42k long (A/B)** | When ME is on: force SilverFast-style long exposure 42000 instead of adaptive selection. |
+| **Manual exposure overrides** | GL128 debug/testing only — see [Manual exposure overrides](#manual-exposure-overrides) below. |
 | **Prescan** | Low-res preview (GL128: 1200 dpi safe window; non-scan-ready: lowest dpi + short Y strip). |
 | **Scan** | Colour scan at the chosen PPI; optional IR and/or ME. Uses the prescan crop when one is set (clamped on non-scan-ready). |
 | **Open capture…** | Open a USBPcap ``.pcap`` / ``.pcapng``. Decodes the largest bulk IN through the selected model’s image pipeline and diffs FEEDL / LINCNT / DPISET vs Lab geometry (Capture tab). |
@@ -103,6 +104,29 @@ scan-ready GL128 **8100 (V2)** (`07b3:1824`).
 
 The yellow banner states MOCK vs REAL for the current selection (HW gate override
 and USB RGB layout when relevant).
+
+## Manual exposure overrides
+
+Three GL128-only text fields let Scan Lab send an exact `REG_EXPOSURE` value for
+debugging/testing, bypassing the driver's normal soft limits:
+
+| Field | Controls | Empty (default) |
+|-------|----------|------------------|
+| **Single-pass exposure** | The retained Scan pass when ME is off. | Model-derived exposure, still clamped to the hardware max. |
+| **ME short exposure** | The ME short pass only. | Model-derived short exposure, still clamped to the hardware max. |
+| **ME long exposure** | The ME long pass only; overrides **Adaptive**/**Fixed 42k long** entirely. | Normal Adaptive/Fixed selection (42k–85k envelope, DPI clamp). |
+
+Each field is grayed out when it does not apply to the current pass selection
+(e.g. the single-pass field while ME is on). A value is written to
+`REG_EXPOSURE` **verbatim** — it skips the adaptive selection, the DPI clamp,
+and the hardware-max clamp that apply to normal (automatic) exposure. The only
+limit enforced is the actual 24-bit register range (1–16777215 / `0xFFFFFF`);
+an out-of-range value is rejected with a clear error rather than clamped.
+
+These overrides exist for hardware/debugging experiments — an excessive value
+can produce severe overexposure/clipping, and the software intentionally does
+not prevent that. They apply only to the retained Scan pass, never to the
+discarded GL128 priming pass.
 
 ## Tabs
 

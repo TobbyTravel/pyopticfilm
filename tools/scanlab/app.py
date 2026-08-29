@@ -6,13 +6,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread
-from PyQt6.QtGui import QTextCursor
+from PyQt6.QtGui import QIntValidator, QTextCursor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -25,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from pyopticfilm.image import ScanImage
+from pyopticfilm.scan.exposure_override import MAX_EXPOSURE_REGISTER
 from tools.scanlab.backend import (
     LabTarget,
     device_banner,
@@ -148,6 +150,47 @@ class ScanLabWindow(QMainWindow):
         )
         self.me_fixed_long.setEnabled(False)
         form.addWidget(self.me_fixed_long)
+
+        # Manual exposure overrides (GL128 debug/testing only): empty means
+        # normal driver behavior; a value bypasses the driver's soft
+        # adaptive/hardware-max clamps and is written to REG_EXPOSURE as-is
+        # (still limited to the 24-bit register range, 1..0xFFFFFF).
+        self._exposure_validator = QIntValidator(1, MAX_EXPOSURE_REGISTER, self)
+
+        form.addWidget(QLabel("Manual exposure overrides (debug — bypasses safety clamps)"))
+
+        self.single_pass_exposure = QLineEdit()
+        self.single_pass_exposure.setPlaceholderText("auto (non-ME Scan)")
+        self.single_pass_exposure.setValidator(self._exposure_validator)
+        self.single_pass_exposure.setToolTip(
+            "REG_EXPOSURE for a single (non-ME) Scan pass. Empty = normal "
+            "driver-derived exposure with the hardware-max clamp. A value "
+            "here is written verbatim, bypassing that clamp — up to "
+            f"{MAX_EXPOSURE_REGISTER} (0x{MAX_EXPOSURE_REGISTER:06X})."
+        )
+        form.addWidget(self.single_pass_exposure)
+
+        self.me_short_exposure = QLineEdit()
+        self.me_short_exposure.setPlaceholderText("auto (ME short)")
+        self.me_short_exposure.setValidator(self._exposure_validator)
+        self.me_short_exposure.setToolTip(
+            "REG_EXPOSURE for the ME short pass. Empty = model-derived short "
+            "exposure. A value here bypasses the hardware-max clamp."
+        )
+        self.me_short_exposure.setEnabled(False)
+        form.addWidget(self.me_short_exposure)
+
+        self.me_long_exposure = QLineEdit()
+        self.me_long_exposure.setPlaceholderText("auto (ME long)")
+        self.me_long_exposure.setValidator(self._exposure_validator)
+        self.me_long_exposure.setToolTip(
+            "REG_EXPOSURE for the ME long pass. Empty = normal Adaptive/Fixed "
+            "selection (see Fixed 42k long above). A value here overrides "
+            "Adaptive/Fixed entirely, skips the DPI/adaptive/hardware-max "
+            "clamps, and is written verbatim."
+        )
+        self.me_long_exposure.setEnabled(False)
+        form.addWidget(self.me_long_exposure)
 
         self.me_pass.toggled.connect(self._on_me_pass_toggled)
 
@@ -294,6 +337,7 @@ class ScanLabWindow(QMainWindow):
         self.me_fixed_long.setEnabled(is_gl128 and self.me_pass.isChecked())
         if not self.me_fixed_long.isEnabled():
             self.me_fixed_long.setChecked(False)
+        self._sync_manual_exposure_enabled()
         self._update_me_tabs_visible()
         self._refresh_banner()
         self.prescan_view.clear_crop()
@@ -386,10 +430,31 @@ class ScanLabWindow(QMainWindow):
         return msg
 
     def _on_me_pass_toggled(self, checked: bool) -> None:
-        self.me_fixed_long.setEnabled(bool(checked) and self.me_pass.isEnabled())
+        checked = bool(checked)
+        self.me_fixed_long.setEnabled(checked and self.me_pass.isEnabled())
         if not checked:
             self.me_fixed_long.setChecked(False)
+        self._sync_manual_exposure_enabled()
+        # ME on/off changes which override applies — drop the one that no
+        # longer makes sense rather than leaving a hidden value to surprise
+        # a later scan.
+        stale = (self.me_short_exposure, self.me_long_exposure) if not checked else (self.single_pass_exposure,)
+        for edit in stale:
+            edit.clear()
         self._update_me_tabs_visible()
+
+    def _sync_manual_exposure_enabled(self) -> None:
+        """Manual overrides only apply to the pass they name — gray out the rest."""
+        me_active = self.me_pass.isEnabled() and self.me_pass.isChecked()
+        self.single_pass_exposure.setEnabled(self.me_pass.isEnabled() and not me_active)
+        self.me_short_exposure.setEnabled(me_active)
+        self.me_long_exposure.setEnabled(me_active)
+
+    def _manual_exposure_value(self, edit: QLineEdit) -> int | None:
+        if not edit.isEnabled():
+            return None
+        text = edit.text().strip()
+        return int(text) if text else None
 
     def _default_dpi(self) -> int:
         data = self.ppi.currentData()
@@ -810,6 +875,18 @@ class ScanLabWindow(QMainWindow):
             )
             if reply != QMessageBox.StandardButton.Ok:
                 return
+        try:
+            single_pass_exposure = self._manual_exposure_value(self.single_pass_exposure)
+            me_short_exposure = self._manual_exposure_value(self.me_short_exposure)
+            me_long_exposure = self._manual_exposure_value(self.me_long_exposure)
+        except ValueError:
+            QMessageBox.warning(
+                self,
+                "Manual exposure",
+                "Manual exposure overrides must be empty or a whole number "
+                f"between 1 and {MAX_EXPOSURE_REGISTER}.",
+            )
+            return
         self._pending_crop_meta = None
         if crop is not None:
             self._pending_crop_meta = lab_crop_scan_meta(
@@ -823,6 +900,9 @@ class ScanLabWindow(QMainWindow):
             crop,
             self.apply_calib.isChecked(),
             "fixed" if self.me_fixed_long.isChecked() else "adaptive",
+            single_pass_exposure,
+            me_short_exposure,
+            me_long_exposure,
         )
 
     def _on_progress(self, value: float) -> None:
@@ -982,6 +1062,7 @@ class ScanLabWindow(QMainWindow):
         self.me_fixed_long.setEnabled(
             not busy and is_gl128 and self.me_pass.isChecked()
         )
+        self._sync_manual_exposure_enabled()
         self.run_mock.setEnabled(not busy)
         self.override_hw_gate.setEnabled(not busy)
         self.apply_calib.setEnabled(not busy)

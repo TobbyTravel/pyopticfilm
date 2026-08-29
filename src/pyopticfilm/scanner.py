@@ -22,6 +22,7 @@ from pyopticfilm.exceptions import AsicError, PlustekError
 from pyopticfilm.image import ScanImage
 from pyopticfilm.logging import get_logger
 from pyopticfilm.scan.calibrate import CalibEntry, Calibrator, default_cache_path
+from pyopticfilm.scan.exposure_override import validate_manual_exposure
 from pyopticfilm.usb.device import UsbDeviceHandle
 from pyopticfilm.usb.fake import FakeDeviceHandle, MockScannerTransport
 from pyopticfilm.usb.protocol import GenesysUsbProtocol, UsbTransport
@@ -287,7 +288,14 @@ class Scanner:
         infrared: bool = False,
         align_passes: bool = True,
         me_exposure_mode: str = "adaptive",
+        single_pass_exposure: int | None = None,
+        me_short_exposure: int | None = None,
+        me_long_exposure: int | None = None,
     ) -> ScanImage:
+        # Fail fast on bad manual-exposure input before touching the ASIC.
+        validate_manual_exposure(single_pass_exposure, label="single_pass_exposure")
+        validate_manual_exposure(me_short_exposure, label="me_short_exposure")
+        validate_manual_exposure(me_long_exposure, label="me_long_exposure")
         self._ensure_scan_ready()
         self._ensure_open()
         if not self._asic._initialized:
@@ -308,6 +316,9 @@ class Scanner:
             "infrared": infrared,
             "align_passes": align_passes,
             "me_exposure_mode": me_exposure_mode,
+            "single_pass_exposure": single_pass_exposure,
+            "me_short_exposure": me_short_exposure,
+            "me_long_exposure": me_long_exposure,
         }
         if getattr(self._model, "asic", "") == "GL128" and not self._gl128_primed:
             prime_dpi, prime_area = _gl128_prime_spec()
