@@ -84,6 +84,25 @@ def test_measure_disarms_motor_and_persists_blob(tmp_path: Path):
     assert cal.prefer_asic_shading is True
 
 
+def test_measure_reuses_colour_afe_when_dpi_changes(tmp_path: Path):
+    """1800→3600 remesures shading but must not re-run AFE search (0xcd hang)."""
+    asic = _asic(motor=True)
+    asic.last_afe = MagicMock(offsets=(38, 30, 36), gains=(19, 31, 23))
+    asic._scan_method = "transparency"
+    asic.search_afe.side_effect = AssertionError("must not re-search")
+
+    def run_asic_shading(**_kw):
+        asic.asic_shading_ready = True
+        return b"DPI3600"
+
+    asic.run_asic_shading.side_effect = run_asic_shading
+    cal = Calibrator(asic, cache_path=tmp_path / "calib.json", model=MODEL_8200I_SE)
+    entry = cal.measure_colour_asic_shading(_geometry(3600))
+    asic.search_afe.assert_not_called()
+    asic.run_asic_shading.assert_called_once()
+    assert entry.shading_blob == b"DPI3600"
+
+
 def test_apply_cached_blob_skips_strip_acquire(tmp_path: Path):
     asic = _asic(shading_ready=False)
     cal = Calibrator(asic, cache_path=tmp_path / "calib.json", model=MODEL_8200I_SE)
@@ -725,15 +744,23 @@ def test_acquire_afe_strip_waits_out_motor_busy_then_absolute_scan(monkeypatch):
     monkeypatch.setattr(gl128_mod.time, "sleep", lambda *_a, **_k: None)
 
     r = Gl128Registers()
+
+    def _read_reg(addr, *_a, **_k):
+        addr = int(addr)
+        if addr == r.REG_0x01:
+            return 0x22  # cancel leftover: SHDAREA|DVDSET, SCAN clear
+        if addr == r.REG_0x02:
+            return 0x00
+        return 0
+
     proto = MagicMock()
-    proto.read_register = MagicMock(return_value=r.SHDAREA | r.SCAN)
+    proto.read_register = MagicMock(side_effect=_read_reg)
     proto.bulk_read_chunk = MagicMock(return_value=b"\x00" * AFE_STRIP_BYTES)
     asic = Gl128(proto, MODEL_8200I_SE)
     asic._initialized = True
     asic.read_status = MagicMock(
         side_effect=[
             ScannerStatus.from_reg41(0xCD),
-            ScannerStatus.from_reg41(0xCC),
             ScannerStatus.from_reg41(0xCC),
             ScannerStatus.from_reg41(0xDC),
             ScannerStatus.from_reg41(0x9C),
@@ -751,12 +778,13 @@ def test_acquire_afe_strip_waits_out_motor_busy_then_absolute_scan(monkeypatch):
     scan_writes = [v for v in written_01 if v & r.SCAN]
     assert scan_writes, "expected an absolute SCAN write to 0x01"
     assert all((v & r.DVDSET) == 0 for v in scan_writes)
-    starts = [
+    start_go = [
         c
         for c in proto.write_register.call_args_list
-        if c.args and int(c.args[0]) == r.REG_START
+        if c.args and int(c.args[0]) == r.REG_START and int(c.args[1]) & r.START_GO
     ]
-    assert len(starts) == 1
+    assert len(start_go) == 1
+    assert asic._reg_cache.get(0x2B) == MODEL_8200I_SE.shading_strip_clocks(1200, dvdset=False)[0]
 
 
 def test_acquire_afe_strip_retries_start_after_data_timeout(monkeypatch):
@@ -770,23 +798,23 @@ def test_acquire_afe_strip_retries_start_after_data_timeout(monkeypatch):
 
     r = Gl128Registers()
     proto = MagicMock()
-    proto.read_register = MagicMock(return_value=r.SHDAREA | r.SCAN)
+    proto.read_register = MagicMock(return_value=0x00)
     proto.bulk_read_chunk = MagicMock(return_value=b"\x00" * AFE_STRIP_BYTES)
     asic = Gl128(proto, MODEL_8200I_SE)
     asic._initialized = True
-    asic._wait_idle_at_home_for_stationary = MagicMock()
+    asic._reset_stationary_scan_engine = MagicMock()
     asic._wait_stationary_data_ready = MagicMock(
         side_effect=[ScanError("AFE strip: no stationary data ready"), None]
     )
 
     buf = asic.acquire_afe_strip(AFE_STRIP_BYTES)
     assert len(buf) == AFE_STRIP_BYTES
-    starts = [
+    start_go = [
         c
         for c in proto.write_register.call_args_list
-        if c.args and int(c.args[0]) == r.REG_START
+        if c.args and int(c.args[0]) == r.REG_START and int(c.args[1]) & r.START_GO
     ]
-    assert len(starts) == 2
+    assert len(start_go) == 2
     assert asic._wait_stationary_data_ready.call_count == 2
 
 

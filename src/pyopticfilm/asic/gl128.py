@@ -366,17 +366,51 @@ class Gl128:
         kind = "motorized" if motorized else "stationary"
         raise ScanError(f"{where}: no {kind} data ready within {timeout_s:.0f}s (last status=0x{last:02x})")
 
-    def _drop_scan_and_motor(self) -> None:
-        """Clear SCAN/DVDSET and MTRPWR so the next stationary START can fire.
+    def _reset_stationary_scan_engine(self, *, where: str) -> None:
+        """Abort a leftover image SCAN so stationary geometry writes stick.
 
-        Genesys ignores geometry/motor writes while SCAN is set. Park also
-        leaves hardware ``0x02`` armed (``MTRPWR|AGOHOME``) even after the
-        cache drops ``AGOHOME``.
+        Park leaves hardware ``0x02`` armed (``MTRPWR|AGOHOME``) and ``0x01``
+        at ``0x22``. The next AFE START with AGOHOME still set hangs as
+        ``0xcd`` (HOME|BUFEMPTY|LAMP|MOTORENB). Confirm SCAN/motor from
+        hardware — the cache drops AGOHOME after park without writing it.
         """
         r = self.registers
-        reg01 = (self._reg_cache.get(r.REG_0x01, 0x22) | r.SHDAREA) & ~r.SCAN & ~r.DVDSET
-        self._write(r.REG_0x01, reg01)
+        motor_mask = r.MTRPWR | r.AGOHOME | r.FASTFED
+        self._write(r.REG_START, 0x00)
+        self._write(r.REG_0x01, _CANCEL_REG01)
         self._write(r.REG_0x02, 0x00)
+        self._write(r.REG_CLRCNT, r.CLRCNT_ALL)
+        deadline = time.monotonic() + _STATIONARY_IDLE_WAIT_S
+        last01 = last02 = last_st = -1
+        while time.monotonic() < deadline:
+            last01 = int(self.protocol.read_register(r.REG_0x01)) & 0xFF
+            last02 = int(self.protocol.read_register(r.REG_0x02)) & 0xFF
+            status = self.read_status()
+            last_st = int(status.raw) & 0xFF
+            scan_clear = (last01 & r.SCAN) == 0
+            motor_clear = (last02 & motor_mask) == 0
+            idle = status.is_at_home and not status.is_motor_enabled
+            if scan_clear and motor_clear and idle:
+                self._reg_cache[r.REG_0x01] = last01
+                self._reg_cache[r.REG_0x02] = last02
+                if last01 & r.DVDSET:
+                    self._write(
+                        r.REG_0x01,
+                        (last01 | r.SHDAREA) & ~r.SCAN & ~r.DVDSET,
+                    )
+                return
+            if last01 & r.SCAN:
+                self._write(r.REG_0x01, (last01 | r.SHDAREA) & ~r.SCAN & ~r.DVDSET)
+            if last02 & motor_mask:
+                self._write(r.REG_0x02, 0x00)
+            time.sleep(0.02)
+        logger.warning(
+            "GL128 %s: scan engine not idle (0x01=%#04x 0x02=%#04x status=0x%02x)",
+            where,
+            last01,
+            last02,
+            last_st,
+        )
 
     def _wait_idle_at_home_for_stationary(self, timeout_s: float, *, where: str) -> None:
         """Wait until HOME and motor off so motor-off SCAN/START is accepted.
@@ -409,9 +443,15 @@ class Gl128:
 
         Absolute SCAN write — RMW can pick up a stale ``0x01`` (SCAN/DVDSET
         from the previous image pass) and then START never fills the AHB.
+        Read back ``0x02`` so AGOHOME leftover from park cannot ride into START.
         """
         r = self.registers
+        motor_mask = r.MTRPWR | r.AGOHOME | r.FASTFED
         self._write(r.REG_0x02, 0x00)
+        reg02 = int(self.protocol.read_register(r.REG_0x02)) & 0xFF
+        if reg02 & motor_mask:
+            logger.warning("GL128 AFE START 0x02=%#04x still armed — rewriting 0", reg02)
+            self._write(r.REG_0x02, 0x00)
         self._write(r.REG_CLRCNT, r.CLRCNT_ALL)
         reg01 = (self._reg_cache.get(r.REG_0x01, 0x22) | r.SHDAREA | r.SCAN) & ~r.DVDSET
         self._write(r.REG_0x01, reg01)
@@ -422,6 +462,22 @@ class Gl128:
         r = self.registers
         self._apply_stationary_scan_regs()
         dpi_calib = self.model.optical_resolution // 6
+        # Image leftover 0x2B/0xA5/0xAB are dpi-specific; AFE is the 1200-dpi
+        # dark-strip clock set (session 03). Skipping this after an 1800 pass
+        # left the CCD clock in image mode and START hung at 0xcd.
+        afe_clock_dpi = 1200
+        asic_dpi = getattr(self.model, "asic_dpi_for", None)
+        if callable(asic_dpi):
+            afe_clock_dpi = int(asic_dpi(1200))
+        clocks = getattr(self.model, "shading_strip_clocks", None)
+        if callable(clocks):
+            dummy, clk_a, clk_b = clocks(afe_clock_dpi, dvdset=False)
+        else:
+            dummy, clk_a, clk_b = 0x04, 0x01, 0x30
+        self._write(0x2B, int(dummy))
+        self._write(0xA5, int(clk_a))
+        self._write(0xAB, int(clk_b))
+        self._write(0xA3, 0x01)
         end = AFE_WIDE_ENDPIXEL if wide else AFE_ENDPIXEL
         self.protocol.write_u24(r.REG_LINCNT, 1)
         self.protocol.write_u16(r.REG_DPISET, dpi_calib)
@@ -452,19 +508,14 @@ class Gl128:
         if size <= 0:
             raise ValueError("AFE strip size must be positive")
 
-        # Drop SCAN before geometry writes — they are ignored while SCAN is set
-        # leftover from the previous image pass (consecutive-scan 0xcd hang).
-        self._drop_scan_and_motor()
-        self._wait_idle_at_home_for_stationary(_STATIONARY_IDLE_WAIT_S, where="AFE strip")
+        # Abort leftover image SCAN/AGOHOME before geometry writes (0xcd hang).
+        self._reset_stationary_scan_engine(where="AFE strip")
         self._setup_afe_strip_regs(wide=size >= AFE_WIDE_BYTES)
         last_exc: ScanError | None = None
         for attempt in range(1 + _STATIONARY_START_RETRIES):
             if attempt:
                 logger.warning("GL128 AFE strip START retry after: %s", last_exc)
-                self._drop_scan_and_motor()
-                self._wait_idle_at_home_for_stationary(
-                    _STATIONARY_IDLE_WAIT_S, where="AFE strip retry"
-                )
+                self._reset_stationary_scan_engine(where="AFE strip retry")
             self._start_stationary_strip()
             try:
                 self._wait_stationary_data_ready(timeout_s, where="AFE strip")
@@ -472,7 +523,7 @@ class Gl128:
                 break
             except ScanError as exc:
                 last_exc = exc
-                self._drop_scan_and_motor()
+                self._reset_stationary_scan_engine(where="AFE strip fail")
         if last_exc is not None:
             raise last_exc
 
@@ -835,6 +886,8 @@ class Gl128:
         lines = int(lines)
         size = n * lines * 6
         r = self.registers
+        if not dvdset:
+            self._reset_stationary_scan_engine(where="Shading strip")
         self._setup_shading_strip_regs(
             pixels=n,
             lines=lines,
