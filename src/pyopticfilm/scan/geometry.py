@@ -216,8 +216,8 @@ def _geometry_from_mm(
         # the same crop keeps STR/END across 1800 vs 3600. Output-space
         # ``int(mm×dpi/25.4)`` then × factor undershoots that origin by 2.
         origin_native = offset * optical_res // asic_dpi
-        pixel_startx = origin_native + int(round(tl_x_mm * optical_res / MM_PER_INCH))
-        optical_pixels = max(1, int(round(width_mm * optical_res / MM_PER_INCH)))
+        pixel_startx = origin_native + round(tl_x_mm * optical_res / MM_PER_INCH)
+        optical_pixels = max(1, round(width_mm * optical_res / MM_PER_INCH))
         if span_align > 1 and optical_pixels >= span_align:
             factor = max(1, optical_res // asic_dpi)
             align = lcm(span_align, 2 * factor)

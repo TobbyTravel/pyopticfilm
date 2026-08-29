@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.pass_align import _warp_shift
 from pyopticfilm.scan.calib_gl128 import (
     IR_SIDECAR_TARGET_LEVEL,
@@ -12,7 +13,6 @@ from pyopticfilm.scan.calib_gl128 import (
 )
 from pyopticfilm.scan.geometry import compute_geometry
 from pyopticfilm.scan.pipeline import ImagePipeline, trim_to_optical_span
-from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 
 
 def test_trim_to_optical_span_drops_usb_wider_than_pixels():
