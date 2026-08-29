@@ -22,6 +22,7 @@ from pyopticfilm.exceptions import AsicError, PlustekError
 from pyopticfilm.image import ScanImage
 from pyopticfilm.logging import get_logger
 from pyopticfilm.scan.calibrate import CalibEntry, Calibrator, default_cache_path
+from pyopticfilm.scan.exposure_override import validate_manual_exposure
 from pyopticfilm.usb.device import UsbDeviceHandle
 from pyopticfilm.usb.fake import FakeDeviceHandle, MockScannerTransport
 from pyopticfilm.usb.protocol import GenesysUsbProtocol, UsbTransport
@@ -43,6 +44,11 @@ logger = get_logger(__name__)
 #   unset/empty         -> default small pass (600 dpi, area (0, 0, 1, 0.12))
 #   full                -> full pass at the requested PPI and area
 #   <dpi>:x0,y0,x1,y1   -> custom pass, e.g. 600:0.0,0.0,1.0,0.12
+#
+# Scanner.scan(gl128_prime=False) skips the pass entirely for that call
+# (debug/testing only — expect ~30 px of first-scan position drift). It does
+# not mark the scanner as primed, so a later call without the override still
+# primes normally.
 _PRIME_ENV = "POF_GL128_PRIME"
 _PRIME_DEFAULT = (600, (0.0, 0.0, 1.0, 0.12))
 
@@ -66,7 +72,7 @@ def _gl128_prime_spec() -> tuple[int, tuple[float, float, float, float] | None]:
 
 
 ScanMode = Literal["color", "infrared", "gray"]
-ScanStatus = Literal["priming", "scanning"]
+ScanStatus = Literal["priming", "prime_skipped", "scanning"]
 
 
 class Scanner:
@@ -287,7 +293,15 @@ class Scanner:
         infrared: bool = False,
         align_passes: bool = True,
         me_exposure_mode: str = "adaptive",
+        single_pass_exposure: int | None = None,
+        me_short_exposure: int | None = None,
+        me_long_exposure: int | None = None,
+        gl128_prime: bool = True,
     ) -> ScanImage:
+        # Fail fast on bad manual-exposure input before touching the ASIC.
+        validate_manual_exposure(single_pass_exposure, label="single_pass_exposure")
+        validate_manual_exposure(me_short_exposure, label="me_short_exposure")
+        validate_manual_exposure(me_long_exposure, label="me_long_exposure")
         self._ensure_scan_ready()
         self._ensure_open()
         if not self._asic._initialized:
@@ -308,38 +322,52 @@ class Scanner:
             "infrared": infrared,
             "align_passes": align_passes,
             "me_exposure_mode": me_exposure_mode,
+            "single_pass_exposure": single_pass_exposure,
+            "me_short_exposure": me_short_exposure,
+            "me_long_exposure": me_long_exposure,
         }
         if getattr(self._model, "asic", "") == "GL128" and not self._gl128_primed:
-            prime_dpi, prime_area = _gl128_prime_spec()
-            if prime_area is None:
-                prime_area = area
-            if prime_dpi == 0:
-                prime_dpi = resolution
-            logger.info(
-                "GL128 priming pass (%s dpi, area=%s): discard first image to establish AGOHOME park "
-                "(ignores caller geometry/calib/mode)",
-                prime_dpi,
-                prime_area,
-            )
-            if on_status is not None:
-                on_status("priming")
-            # Do not spread caller kwargs: geometry= would ignore dpi/area, and
-            # apply_calib=True can add a cold shading cycle before the park.
-            prime_kwargs = {
-                "resolution": prime_dpi,
-                "mode": "color",
-                "area": prime_area,
-                "geometry": None,
-                "progress": None,
-                "cancel": None,
-                "apply_calib": False,
-                "multi_exposure": False,
-                "infrared": False,
-                "align_passes": align_passes,
-            }
-            prime_session = create_session(self._asic, self._model, self._calibrator)
-            prime_session.run(**prime_kwargs)  # type: ignore[arg-type]
-            self._gl128_primed = True
+            if not gl128_prime:
+                # Debug/testing only: skip the discarded pass for this call.
+                # _gl128_primed stays False, so a later call without the
+                # override still primes normally.
+                logger.info(
+                    "GL128 priming pass skipped (gl128_prime=False, debug/testing "
+                    "override) — first retained scan position may drift ~30px"
+                )
+                if on_status is not None:
+                    on_status("prime_skipped")
+            else:
+                prime_dpi, prime_area = _gl128_prime_spec()
+                if prime_area is None:
+                    prime_area = area
+                if prime_dpi == 0:
+                    prime_dpi = resolution
+                logger.info(
+                    "GL128 priming pass (%s dpi, area=%s): discard first image to establish AGOHOME park "
+                    "(ignores caller geometry/calib/mode)",
+                    prime_dpi,
+                    prime_area,
+                )
+                if on_status is not None:
+                    on_status("priming")
+                # Do not spread caller kwargs: geometry= would ignore dpi/area, and
+                # apply_calib=True can add a cold shading cycle before the park.
+                prime_kwargs = {
+                    "resolution": prime_dpi,
+                    "mode": "color",
+                    "area": prime_area,
+                    "geometry": None,
+                    "progress": None,
+                    "cancel": None,
+                    "apply_calib": False,
+                    "multi_exposure": False,
+                    "infrared": False,
+                    "align_passes": align_passes,
+                }
+                prime_session = create_session(self._asic, self._model, self._calibrator)
+                prime_session.run(**prime_kwargs)  # type: ignore[arg-type]
+                self._gl128_primed = True
 
         if on_status is not None:
             on_status("scanning")

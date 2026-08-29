@@ -37,6 +37,8 @@ Other OpticFilm models **enumerate and open**: you can read status, turn the lam
 - Color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host; infrared is available only on supported hardware)
 - Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour; 8200i SE only among the hardware-tested set)
 - Multi-exposure (ME) on GL128 hardware-tested models (8200i SE and 8100 V2): short + adaptive long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
+- Manual exposure overrides on GL128 (`single_pass_exposure` / `me_short_exposure` / `me_long_exposure`) for testing/debugging: bypass the adaptive/hardware-max clamps and write an exact `REG_EXPOSURE` value (24-bit register range), never applied to the discarded priming pass
+- Priming-pass override on GL128 (`gl128_prime=False`) for testing/debugging: skip the discarded first-scan AGOHOME-park pass for one call, without disabling it for the rest of the session
 - Optional crop via normalized `area` (`x1, y1, x2, y2` in 0–1)
 - Dark/white shading calibration with on-disk cache (`~/.cache/pyopticfilm/calib_v2.json`)
 - GL128 ASIC shading path (AFE codes + shading blob) aligned with SilverFast capture order
@@ -142,6 +144,34 @@ with Scanner.open() as scanner:
         save_rgb16_tiff(debug.rgb_long, "long.tif", dpi=image.dpi)
         print(debug.exposure_short, debug.exposure_long)  # e.g. 14000, 42000…85000
         print(debug.exposure_proposed, debug.exposure_reason)
+```
+
+Manual exposure overrides (GL128; debugging/testing only): send an exact
+``REG_EXPOSURE`` value that bypasses the adaptive selection, DPI clamp, and
+hardware-max clamp above — the value is written verbatim, limited only to the
+24-bit register range (1–``0xFFFFFF``). ``me_long_exposure`` takes precedence
+over ``me_exposure_mode``. All three default to ``None`` (unchanged behavior)
+and never apply to the discarded GL128 priming pass:
+
+```python
+image = scanner.scan(
+    resolution=1800,
+    mode="color",
+    multi_exposure=True,
+    me_short_exposure=14000,
+    me_long_exposure=120000,  # above the normal 42k–85k envelope, on purpose
+)
+```
+
+Priming-pass override (GL128; debugging/testing only): GL128's first retained
+scan after open normally runs a discarded pass first (fixed 600 dpi, small
+top crop) to establish a repeatable AGOHOME park position — skipping it costs
+~30 px of first-scan position drift. `gl128_prime=False` skips that pass for
+one call without disabling it for the rest of the session: a later call
+without the override still primes normally:
+
+```python
+image = scanner.scan(resolution=1800, mode="color", gl128_prime=False)
 ```
 
 Colour + IR in one call (8200i SE; IR after the colour / ME passes):

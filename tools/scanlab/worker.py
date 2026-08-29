@@ -34,10 +34,11 @@ class ScanWorker(QObject):
     failed = pyqtSignal(str)
     busy_changed = pyqtSignal(bool)
     calib_cleared = pyqtSignal(str)
-    #: target, apply_calib
-    request_prescan = pyqtSignal(object, bool)
-    #: target, dpi, ir_pass, me_pass, crop_norm, apply_calib, me_exposure_mode
-    request_scan = pyqtSignal(object, int, bool, bool, object, bool, str)
+    #: target, apply_calib, gl128_prime
+    request_prescan = pyqtSignal(object, bool, bool)
+    #: target, dpi, ir_pass, me_pass, crop_norm, apply_calib, me_exposure_mode,
+    #: single_pass_exposure, me_short_exposure, me_long_exposure, gl128_prime
+    request_scan = pyqtSignal(object, int, bool, bool, object, bool, str, object, object, object, bool)
 
     def __init__(self) -> None:
         super().__init__()
@@ -57,6 +58,8 @@ class ScanWorker(QObject):
     def _on_status(self, status: str) -> None:
         if status == "priming":
             self._usb_divider("PRIMING")
+        elif status == "prime_skipped":
+            self._usb_divider("PRIMING SKIPPED (debug)")
         self.status_changed.emit(status)
 
     def _usb_divider(self, title: str) -> None:
@@ -107,7 +110,12 @@ class ScanWorker(QObject):
     def cancel(self) -> None:
         self._cancel.set()
 
-    def run_prescan(self, target: LabTarget, apply_calib: bool = False) -> None:
+    def run_prescan(
+        self,
+        target: LabTarget,
+        apply_calib: bool = False,
+        gl128_prime: bool = True,
+    ) -> None:
         self._run(
             target,
             kind="prescan",
@@ -116,6 +124,7 @@ class ScanWorker(QObject):
             me=False,
             crop=None,
             apply_calib=bool(apply_calib),
+            gl128_prime=bool(gl128_prime),
         )
 
     def run_scan(
@@ -127,6 +136,10 @@ class ScanWorker(QObject):
         crop_norm: tuple[float, float, float, float] | None,
         apply_calib: bool = False,
         me_exposure_mode: str = "adaptive",
+        single_pass_exposure: int | None = None,
+        me_short_exposure: int | None = None,
+        me_long_exposure: int | None = None,
+        gl128_prime: bool = True,
     ) -> None:
         self._run(
             target,
@@ -137,6 +150,10 @@ class ScanWorker(QObject):
             crop=crop_norm,
             apply_calib=bool(apply_calib),
             me_exposure_mode=str(me_exposure_mode or "adaptive"),
+            single_pass_exposure=single_pass_exposure,
+            me_short_exposure=me_short_exposure,
+            me_long_exposure=me_long_exposure,
+            gl128_prime=bool(gl128_prime),
         )
 
     def _run(
@@ -150,6 +167,10 @@ class ScanWorker(QObject):
         crop: tuple[float, float, float, float] | None,
         apply_calib: bool,
         me_exposure_mode: str = "adaptive",
+        single_pass_exposure: int | None = None,
+        me_short_exposure: int | None = None,
+        me_long_exposure: int | None = None,
+        gl128_prime: bool = True,
     ) -> None:
         self.busy_changed.emit(True)
         self._cancel.clear()
@@ -167,6 +188,7 @@ class ScanWorker(QObject):
                     on_status=self._on_status,
                     apply_calib=apply_calib,
                     multi_exposure=me,
+                    gl128_prime=gl128_prime,
                     **scan_kw,
                 )
                 self.prescan_ready.emit(image)
@@ -187,6 +209,10 @@ class ScanWorker(QObject):
                     multi_exposure=me,
                     infrared=ir,
                     me_exposure_mode=me_exposure_mode,
+                    single_pass_exposure=single_pass_exposure,
+                    me_short_exposure=me_short_exposure,
+                    me_long_exposure=me_long_exposure,
+                    gl128_prime=gl128_prime,
                     **scan_kw,
                 )
                 self.me_debug_ready.emit(getattr(scanner, "last_me_debug", None))
