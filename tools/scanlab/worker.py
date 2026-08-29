@@ -44,10 +44,15 @@ class ScanWorker(QObject):
         super().__init__()
         self._target: LabTarget | None = None
         self._scanner: Any = None
+        self._last_align_shift_ir: tuple[float, float] | None = None
         self._cancel = threading.Event()
         self._lock = threading.Lock()
         self.request_prescan.connect(self.run_prescan)
         self.request_scan.connect(self.run_scan)
+
+    @property
+    def last_align_shift_ir(self) -> tuple[float, float] | None:
+        return self._last_align_shift_ir
 
     def _on_usb(self, txn: UsbTransaction) -> None:
         self.usb_line.emit(usb_log_line(txn))
@@ -216,6 +221,7 @@ class ScanWorker(QObject):
                     **scan_kw,
                 )
                 self.me_debug_ready.emit(getattr(scanner, "last_me_debug", None))
+                self._last_align_shift_ir = getattr(scanner, "last_align_shift_ir", None)
                 self.scan_ready.emit(image)
         except ScanCancelled:
             self.busy_changed.emit(False)

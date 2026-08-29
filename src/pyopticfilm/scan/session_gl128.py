@@ -29,6 +29,7 @@ from pyopticfilm.logging import get_logger
 from pyopticfilm.scan.calibrate import Calibrator
 from pyopticfilm.scan.exposure_override import validate_manual_exposure
 from pyopticfilm.scan.geometry import ScanGeometry
+from pyopticfilm.scan.pipeline import trim_invalid_edge_columns
 from pyopticfilm.scan.session import DATA_TIMEOUT_S, ScanSession
 from pyopticfilm.usb.device import BULK_MAX_SIZE
 
@@ -101,6 +102,8 @@ class Gl128ScanSession(ScanSession):
         self._pass_manual: bool = False
         #: Lab-only ME bracket / IVW stats (not on :class:`~pyopticfilm.image.ScanImage`).
         self.last_me_debug = None
+        #: IR→short alignment shift from the last multi-pass scan (ME or IR-only).
+        self.last_align_shift_ir: tuple[float, float] | None = None
 
     def run(
         self,
@@ -371,6 +374,9 @@ class Gl128ScanSession(ScanSession):
             self.asic.init()
 
         self.last_me_debug = None
+        self.last_align_shift_ir = None
+        #: Locked after color_short so IR/long drop the same padding columns.
+        edge_trim: tuple[int, int] | None = None
 
         if geometry is None:
             geometry = compute_geometry(resolution, model=model, area=area)
@@ -407,7 +413,7 @@ class Gl128ScanSession(ScanSession):
             long_pass: bool,
             manual: bool = False,
         ):
-            nonlocal rgb_short, rgb_long, ir_plane
+            nonlocal rgb_short, rgb_long, ir_plane, edge_trim
 
             def _prog(p: float, _i: int = idx) -> None:
                 if progress is not None:
@@ -468,7 +474,12 @@ class Gl128ScanSession(ScanSession):
                 # Keep ME colour (and IR) planes linear — per-plane expose_film_base
                 # collapses the short/long ratio. Makeup runs once on the deliverable.
                 expose_base=False,
+                # Multi-pass: detect on color_short, lock (L,R) for IR/long.
+                edge_trim=edge_trim,
+                detect_edge_trim=False,
             )
+            if edge_trim is None:
+                rgb, edge_trim = trim_invalid_edge_columns(rgb)
 
             if key == "color_short":
                 rgb_short = rgb
@@ -586,6 +597,7 @@ class Gl128ScanSession(ScanSession):
         if align_passes and ir_plane is not None:
             warn_if_align_unavailable("IR")
             ir_plane, align_shift_ir = align_pass_to_reference(rgb_short, ir_plane)
+            self.last_align_shift_ir = align_shift_ir
             logger.info(
                 "IR pass shift (dx, dy)=(%.3f, %.3f)",
                 align_shift_ir[0],

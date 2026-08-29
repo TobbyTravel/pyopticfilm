@@ -710,6 +710,10 @@ def flatten_ir_columns(
 
 #: SilverFast 9 IR page median ballpark (see captures/8200i-se/Silverfast_ir_tiff/).
 IR_SIDECAR_TARGET_LEVEL = 56000.0
+#: Exclude this fraction of width at each edge when estimating flatten levels.
+IR_FLATTEN_BORDER_INSET = 0.04
+#: Cap per-column gain so garbage/dark edge columns cannot blow up to ~56k.
+IR_FLATTEN_MAX_GAIN = 4.0
 
 
 def flatten_ir_image_columns(
@@ -718,6 +722,8 @@ def flatten_ir_image_columns(
     percentile: float = 90.0,
     target: float | None = IR_SIDECAR_TARGET_LEVEL,
     smooth_half: int | None = None,
+    border_inset: float = IR_FLATTEN_BORDER_INSET,
+    max_gain: float = IR_FLATTEN_MAX_GAIN,
 ):
     """Per-image IR flatten for a SilverFast-like iSRD sidecar.
 
@@ -725,6 +731,10 @@ def flatten_ir_image_columns(
     not pull the gain up, then low-pass-smooths that profile and rescales so
     ``out[x] = ir[x] * target / level[x]``. Cancels residual L/R falloff after
     the stationary white-strip flatten without high-pass masking film structure.
+
+    Edge columns are scored from the nearest interior levels (inset
+    ``border_inset``) so decode padding / holder samples cannot dominate the
+    gain. ``max_gain`` caps amplification of near-zero columns.
 
     Default ``target`` matches the SilverFast IR page bright field (~56k).
     Pass ``target=None`` to keep the mean of the smoothed column levels.
@@ -739,13 +749,27 @@ def flatten_ir_image_columns(
         raise ValueError(f"empty infrared plane: {arr.shape}")
     # Robust bright level ignores dark defects / holder edges in the column.
     levels = np.percentile(arr, float(percentile), axis=0).astype(np.float32)
+    inset = min(max(float(border_inset), 0.0), 0.2)
+    cut = max(0, round(width * inset)) if width >= 16 else 0
+    if cut * 2 < width:
+        # Replace edge column stats with the nearest interior sample before smooth.
+        levels[:cut] = levels[cut]
+        levels[width - cut :] = levels[width - cut - 1]
     half = (0 if width < 64 else max(8, width // 40)) if smooth_half is None else int(smooth_half)
     levels = _box_smooth_profile(levels, half)
     levels = np.maximum(levels, 1.0)
-    tgt = float(np.mean(levels)) if target is None else float(target)
-    if tgt <= 0:
-        tgt = 1.0
-    out = arr * (tgt / levels[np.newaxis, :])
+    if cut * 2 < width:
+        interior = levels[cut : width - cut]
+        tgt_base = float(np.mean(interior)) if target is None else float(target)
+    else:
+        tgt_base = float(np.mean(levels)) if target is None else float(target)
+    if tgt_base <= 0:
+        tgt_base = 1.0
+    gain = tgt_base / levels
+    cap = float(max_gain)
+    if cap > 0:
+        gain = np.minimum(gain, cap)
+    out = arr * gain[np.newaxis, :]
     return np.clip(np.rint(out), 0, 65535).astype(np.uint16)
 
 

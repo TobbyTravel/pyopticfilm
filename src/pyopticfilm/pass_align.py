@@ -155,6 +155,38 @@ def estimate_pass_shift(reference: np.ndarray, moving: np.ndarray) -> Shift2D:
     return (dx, dy)
 
 
+def _fill_shift_border(out: np.ndarray, dx: float, dy: float) -> np.ndarray:
+    """Replace destination strips that came from out-of-bounds / edge replicate.
+
+    ``BORDER_REPLICATE`` and clipped index gathers copy the extreme edge column
+    into a strip of width ``ceil(|dx|)``. When that column is decode padding,
+    IR flatten already blew it up — replicate widens it into a bright band.
+    Fill from the first fully valid interior column instead.
+    """
+    h, w = out.shape[:2]
+    bx = int(np.ceil(abs(float(dx))))
+    by = int(np.ceil(abs(float(dy))))
+    if bx <= 0 and by <= 0:
+        return out
+    result = np.array(out, copy=True)
+    if bx > 0 and bx < w:
+        if dx > 0:
+            # Content shifted right: left strip is invalid.
+            src = result[:, bx : bx + 1]
+            result[:, :bx] = src
+        elif dx < 0:
+            src = result[:, w - bx - 1 : w - bx]
+            result[:, w - bx :] = src
+    if by > 0 and by < h:
+        if dy > 0:
+            src = result[by : by + 1, :]
+            result[:by, :] = src
+        elif dy < 0:
+            src = result[h - by - 1 : h - by, :]
+            result[h - by :, :] = src
+    return result
+
+
 def _warp_shift(mov: np.ndarray, dx: float, dy: float) -> np.ndarray:
     """Translate ``mov`` by ``(dx, dy)`` with sub-pixel resampling when possible."""
     if abs(dx) < 1e-9 and abs(dy) < 1e-9:
@@ -167,8 +199,10 @@ def _warp_shift(mov: np.ndarray, dx: float, dy: float) -> np.ndarray:
         x_idx = np.clip(np.arange(w) + idx, 0, w - 1)
         y_idx = np.clip(np.arange(h) + idy, 0, h - 1)
         if mov.ndim == 3:
-            return mov[y_idx][:, x_idx, :]
-        return mov[y_idx][:, x_idx]
+            out = mov[y_idx][:, x_idx, :]
+        else:
+            out = mov[y_idx][:, x_idx]
+        return _fill_shift_border(out, float(idx), float(idy))
     try:
         import cv2
     except ImportError:
@@ -177,9 +211,12 @@ def _warp_shift(mov: np.ndarray, dx: float, dy: float) -> np.ndarray:
         x_idx = np.clip(np.arange(w) + idx, 0, w - 1)
         y_idx = np.clip(np.arange(h) + idy, 0, h - 1)
         if mov.ndim == 3:
-            return mov[y_idx][:, x_idx, :]
-        return mov[y_idx][:, x_idx]
+            out = mov[y_idx][:, x_idx, :]
+        else:
+            out = mov[y_idx][:, x_idx]
+        return _fill_shift_border(out, float(idx), float(idy))
     # OpenCV: +x is right, +y is down — same as phaseCorrelate / our index convention.
+    # CONSTANT+0 then interior fill avoids replicating a hot/dark padding column.
     matrix = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32)
     if mov.ndim == 3:
         planes = [
@@ -188,7 +225,8 @@ def _warp_shift(mov: np.ndarray, dx: float, dy: float) -> np.ndarray:
                 matrix,
                 (w, h),
                 flags=cv2.INTER_LINEAR,
-                borderMode=cv2.BORDER_REPLICATE,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=0,
             )
             for c in range(mov.shape[2])
         ]
@@ -199,11 +237,14 @@ def _warp_shift(mov: np.ndarray, dx: float, dy: float) -> np.ndarray:
             matrix,
             (w, h),
             flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
         )
     if np.issubdtype(mov.dtype, np.integer):
-        return np.clip(np.rint(out), 0, np.iinfo(mov.dtype).max).astype(mov.dtype)
-    return out.astype(mov.dtype, copy=False)
+        out = np.clip(np.rint(out), 0, np.iinfo(mov.dtype).max).astype(mov.dtype)
+    else:
+        out = out.astype(mov.dtype, copy=False)
+    return _fill_shift_border(out, dx, dy)
 
 
 def align_pass_to_reference(

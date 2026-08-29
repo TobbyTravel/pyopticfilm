@@ -102,6 +102,7 @@ class Scanner:
         )
         self._closed = False
         self._last_me_debug = None
+        self._last_align_shift_ir = None
         #: Lab / session may disarm GL128 briefly for stationary shading.
         self._bringup_motor_armed = bool(model_is_scan_ready(self._model))
         #: When True, scan/home/park are allowed even if ``scan_ready`` is False.
@@ -278,6 +279,11 @@ class Scanner:
         """Bracket planes / IVW stats from the last ME scan (GL128 only), or ``None``."""
         return self._last_me_debug
 
+    @property
+    def last_align_shift_ir(self) -> tuple[float, float] | None:
+        """IR→colour-short alignment shift from the last multi-pass scan, or ``None``."""
+        return self._last_align_shift_ir
+
     def scan(
         self,
         *,
@@ -374,6 +380,7 @@ class Scanner:
         session = create_session(self._asic, self._model, self._calibrator)
         image = session.run(**run_kwargs)  # type: ignore[arg-type]
         self._last_me_debug = getattr(session, "last_me_debug", None)
+        self._last_align_shift_ir = getattr(session, "last_align_shift_ir", None)
         return image
 
     def arm_bringup_motor(self) -> None:

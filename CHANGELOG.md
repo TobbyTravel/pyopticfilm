@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Cropped 8200i SE edge padding / IR band**: invalid left/right decode-padding columns (1–2 px white strip on colour) are detected and trimmed in the image pipeline; multi-pass ME/IR locks the same crop across passes. IR column flatten now uses inset edge levels and a gain cap so residual edge samples cannot blow up to ~56k. Pass registration fills shift borders from interior columns instead of replicating padding (which widened the IR bright band and caused NegPy ICE over-repaint). Scan Lab surfaces IR align shift in the status bar / IR caption.
 - **OpticFilm 8100 (V2)** geometry/timing: five constants inherited from the 8200i SE without V2 capture proof are now V2-specific — `feed_to_scan_steps` **13128** (was 13704; fixes ~1 mm clipped at the top of full-frame scans), 7200 dpi `LPERIOD` **16035** (was 15963), 7200 white-shading strip dummy clock **0x10** (was 0x17), `max_image_lincnt_by_feed2` **{13128: 29012}** (was SE preview entry 4836), and `ladder_feed2_steps` **13128** (was SE 13560).
 
 ### Changed
