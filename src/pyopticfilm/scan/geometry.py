@@ -57,6 +57,10 @@ class ScanGeometry:
     #: When > 1, ASIC acquired at a higher PPI and the host must downsample
     #: (SE: 150/300 share 600 dpi programming). Integer factors only in practice.
     host_downsample: int = 1
+    #: Output columns to drop from the USB ENDPIXEL side after decode (image
+    #: left after ``mirror_x``). The ASIC still returns these; they are a
+    #: per-line dummy suffix, so shrinking ``ENDPIXEL`` does not remove them.
+    usb_end_drop: int = 0
 
     @property
     def max_color_shift(self) -> int:
@@ -187,16 +191,6 @@ def _geometry_from_mm(
     asic_dpi = int(asic_fn(resolution)) if callable(asic_fn) else int(resolution)
     host_downsample = max(1, asic_dpi // int(resolution))
 
-    pixels = int((width_mm * asic_dpi) / MM_PER_INCH)
-    # GL845: align to 16 when xres==yres and xres>1200. The GL128 SE captures
-    # show unaligned widths (2478 at 1800 dpi, 4956 at 3600), so models can opt
-    # out via ``pixel_alignment``.
-    alignment = int(getattr(model, "pixel_alignment", 16))
-    if alignment > 1 and asic_dpi > 1200:
-        pixels = (pixels // alignment) * alignment
-    if pixels < 16:
-        raise ValueError("Scan width too small")
-
     lines = int((height_mm * asic_dpi) / MM_PER_INCH)
     if lines < 1:
         raise ValueError("Scan height too small")
@@ -214,22 +208,57 @@ def _geometry_from_mm(
     except KeyError as exc:
         raise ValueError(f"No sensor DPI maps for resolution {resolution}") from exc
 
-    output_startx = startx + offset
     optical_res = model.optical_resolution
-    optical_pixels = pixels * optical_res // asic_dpi
-    # SE: keep native span coherent with USB line length. Session 13 spans are
-    # always % 4 == 0; at factor 4 (1800 dpi) that alone still allows odd output
-    # widths (e.g. 2455), which shear ~1 px/row into a diamond. Also require an
-    # even pixel count via lcm(span_align, 2*factor).
     span_align = int(getattr(model, "optical_span_alignment", 0) or 0)
-    if span_align > 1 and optical_pixels >= span_align:
-        factor = max(1, optical_res // asic_dpi)
-        align = lcm(span_align, 2 * factor)
-        optical_pixels = (optical_pixels // align) * align
+    native_x = bool(getattr(model, "strpixel_native_units", False))
+    if native_x:
+        # Native 7200 clocks: session 03 full-width STR 242 / END 10610, and
+        # the same crop keeps STR/END across 1800 vs 3600. Output-space
+        # ``int(mm×dpi/25.4)`` then × factor undershoots that origin by 2.
+        origin_native = offset * optical_res // asic_dpi
+        pixel_startx = origin_native + round(tl_x_mm * optical_res / MM_PER_INCH)
+        optical_pixels = max(1, round(width_mm * optical_res / MM_PER_INCH))
+        if span_align > 1 and optical_pixels >= span_align:
+            factor = max(1, optical_res // asic_dpi)
+            align = lcm(span_align, 2 * factor)
+            optical_pixels = (optical_pixels // align) * align
         pixels = max(1, optical_pixels * asic_dpi // optical_res)
         optical_pixels = pixels * optical_res // asic_dpi
-    pixel_startx = output_startx * optical_res // asic_dpi
-    pixel_endx = pixel_startx + optical_pixels
+        pixel_endx = pixel_startx + optical_pixels
+        startx = max(0, pixel_startx * asic_dpi // optical_res - offset)
+        # Per-line dummy on the USB ENDPIXEL side (image left after mirror).
+        # Shrinking ENDPIXEL leaves the suffix in place; drop it after decode.
+        end_inactive = int(getattr(model, "optical_end_inactive_native", 0) or 0)
+        usb_end_drop = (
+            0
+            if disable_buffer_full_move or end_inactive <= 0
+            else end_inactive * int(resolution) // optical_res
+        )
+    else:
+        pixels = int((width_mm * asic_dpi) / MM_PER_INCH)
+        # GL845: align to 16 when xres==yres and xres>1200. The GL128 SE
+        # captures show unaligned widths (2478 at 1800 dpi, 4956 at 3600),
+        # so models can opt out via ``pixel_alignment``.
+        alignment = int(getattr(model, "pixel_alignment", 16))
+        if alignment > 1 and asic_dpi > 1200:
+            pixels = (pixels // alignment) * alignment
+        optical_pixels = pixels * optical_res // asic_dpi
+        # SE: keep native span coherent with USB line length. Session 13
+        # spans are always % 4 == 0; at factor 4 (1800 dpi) that alone still
+        # allows odd output widths (e.g. 2455), which shear ~1 px/row into a
+        # diamond. Also require an even pixel count via lcm(span_align, 2*factor).
+        if span_align > 1 and optical_pixels >= span_align:
+            factor = max(1, optical_res // asic_dpi)
+            align = lcm(span_align, 2 * factor)
+            optical_pixels = (optical_pixels // align) * align
+            pixels = max(1, optical_pixels * asic_dpi // optical_res)
+            optical_pixels = pixels * optical_res // asic_dpi
+        pixel_startx = (startx + offset) * optical_res // asic_dpi
+        pixel_endx = pixel_startx + optical_pixels
+        usb_end_drop = 0
+
+    if pixels < 16:
+        raise ValueError("Scan width too small")
 
     shift_r = model.ld_shift_r * asic_dpi // model.motor_base_ydpi
     shift_g = model.ld_shift_g * asic_dpi // model.motor_base_ydpi
@@ -321,4 +350,5 @@ def _geometry_from_mm(
         is_default_full_frame=bool(is_default_full_frame),
         area=area,
         host_downsample=host_downsample,
+        usb_end_drop=max(0, min(int(usb_end_drop), max(0, pixels - 16))),
     )

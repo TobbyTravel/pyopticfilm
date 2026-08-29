@@ -30,6 +30,42 @@ _HOST_CALIB_CHUNK_ROWS = 256
 _FS = np.float32(65535.0)
 
 
+def _edge_column_means(rgb: np.ndarray, n: int = 16) -> tuple[list[float], list[float]]:
+    """Mean DN of the first/last ``n`` USB columns (all channels)."""
+    arr = np.asarray(rgb)
+    if arr.ndim != 3 or arr.shape[1] < 2:
+        return [], []
+    count = min(int(n), max(1, arr.shape[1] // 2))
+    head = [float(arr[:, i, :3].mean()) for i in range(count)]
+    tail = [float(arr[:, arr.shape[1] - count + i, :3].mean()) for i in range(count)]
+    return head, tail
+
+
+def _fmt_means(values: list[float], *, n: int = 8) -> str:
+    shown = values[:n]
+    return "[" + ", ".join(f"{v:.0f}" for v in shown) + "]"
+
+
+def trim_to_optical_span(rgb: np.ndarray, geometry: ScanGeometry) -> np.ndarray:
+    """Drop trailing columns past the programmed STR/END output width.
+
+    Mirrors the pcap 7200 path where URBs can include dummy columns beyond
+    ``ENDPIXEL−STRPIXEL``. At matching live geometry this is a no-op.
+    """
+    arr = np.asarray(rgb)
+    expected = int(geometry.pixels)
+    if expected < 8 or arr.shape[1] <= expected:
+        return arr
+    logger.info(
+        "trimmed optical span width %d → %d (USB wider than geometry.pixels)",
+        arr.shape[1],
+        expected,
+    )
+    if arr.ndim == 3:
+        return np.ascontiguousarray(arr[:, :expected, :])
+    return np.ascontiguousarray(arr[:, :expected])
+
+
 class ImagePipeline:
     """Convert raw scanner bytes into HxWx3 uint16 RGB."""
 
@@ -381,19 +417,52 @@ class ImagePipeline:
 
         ``expose_base=False`` skips scalar peak stretch and border clamp so ME
         short/long planes stay linear (SilverFast-wire scale) for host merge.
+
+        Image width equals the programmed STR/END span (pcap 7200 may still
+        drop dummy URB columns via :func:`trim_to_optical_span`).
         """
         rgb = self.decode_rgb(raw, geometry=geometry, planar=planar)
         rgb = self.reduce_y_oversample(rgb, geometry)
         rgb = self.apply_line_shifts(rgb, geometry)
         rgb = self.apply_y_stagger(rgb, geometry)
         rgb = self.apply_host_downsample(rgb, geometry)
-        if dark is not None and white is not None:
+        rgb = trim_to_optical_span(rgb, geometry)
+        host_calib = dark is not None and white is not None
+        if host_calib:
             rgb = self.apply_host_calib(
                 rgb, dark=dark, white=white, expose_base=expose_base
             )
         elif expose_base:
             rgb = self.expose_film_base(rgb, source="asic shading")
             rgb = self.clamp_border_highlights(rgb)
+        pre_head, pre_tail = _edge_column_means(rgb)
+        drop = 0 if geometry.disable_buffer_full_move else int(getattr(geometry, "usb_end_drop", 0) or 0)
+        if drop > 0 and rgb.shape[1] > drop + 8:
+            rgb = np.ascontiguousarray(rgb[:, : rgb.shape[1] - drop, :])
+            logger.info(
+                "dropped %d USB-end columns (ENDPIXEL dummy) → width %d",
+                drop,
+                rgb.shape[1],
+            )
         if getattr(self.model, "mirror_x", False):
             rgb = np.ascontiguousarray(rgb[:, ::-1, :])
+        post_head, _post_tail = _edge_column_means(rgb)
+        logger.info(
+            "assemble %ddpi str=%d end=%d pixels=%d optical=%d offset=%d "
+            "dpiset=%d usb_end_drop=%d area=%s host_calib=%s "
+            "pre_usb[:,:8]=%s pre_usb[:,-8:]=%s post_mirror[:,:8]=%s",
+            geometry.resolution,
+            geometry.pixel_startx,
+            geometry.pixel_endx,
+            geometry.pixels,
+            geometry.optical_pixels,
+            geometry.output_pixel_offset,
+            geometry.register_dpiset,
+            drop,
+            geometry.area,
+            host_calib,
+            _fmt_means(pre_head),
+            _fmt_means(pre_tail),
+            _fmt_means(post_head),
+        )
         return rgb

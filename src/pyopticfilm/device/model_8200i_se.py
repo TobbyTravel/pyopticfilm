@@ -292,6 +292,17 @@ class Model8200iSE:
     #: a multiple of 4; without it, mm→pixel math at 1440 yields optical span
     #: 10365 / width 2073 and the USB buffer shears into a diagonal grid.
     optical_span_alignment: int = 4
+    #: Program ``STRPIXEL``/``ENDPIXEL`` in native 7200 dpi clocks. Captures keep
+    #: those registers byte-identical for the same crop at 1800 and 3600;
+    #: output-space ``startx`` then × ``7200/dpi`` cannot reproduce session 03
+    #: STR 242 or session 04 STR 578 (both remainder 2 vs the factor).
+    strpixel_native_units: bool = True
+    #: Per-line dummy clocks on the USB ENDPIXEL side (image left after
+    #: ``mirror_x``). The near-zero core is ~18 output px at 1800, but the
+    #: transition still inverts to a white strip on the positive (~22 px to
+    #: reach ~85% of interior DN). 96 native clocks → 16 / 24 / 48 output px
+    #: at 1200 / 1800 / 3600. Shrinking ``ENDPIXEL`` does not remove the suffix.
+    optical_end_inactive_native: int = 96
     supports_infrared: bool = True
     #: PPI below this share the 600 dpi ASIC programming (session 13).
     min_asic_dpi: int = _MIN_ASIC_DPI
@@ -301,7 +312,9 @@ class Model8200iSE:
 
     # X geometry is capture-derived: the 1200 dpi full-width preview in session
     # 03 used STRPIXEL 242 / ENDPIXEL 10610, i.e. 1728 output pixels spanning
-    # 36.58 mm starting 0.43 mm into the window.
+    # 36.58 mm starting 0.43 mm into the window. The last
+    # :attr:`optical_end_inactive_native` clocks of each USB line are dummy
+    # (near-zero DN); decode drops them rather than shrinking ENDPIXEL.
     x_offset_ta_mm: float = 0.43
     x_size_ta_mm: float = 36.58
     # Y window is capture-derived: session 03's preview runs from feed2=13128 to

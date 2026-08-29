@@ -438,7 +438,10 @@ class ScanLabWindow(QMainWindow):
             msg += f" both-zero={stats.zero_weight_fraction:.2%}"
         align = getattr(debug, "align_shift_long", None)
         if align is not None:
-            msg += f"; {self._format_align_shift(align)}"
+            msg += f"; long {self._format_align_shift(align)}"
+        ir_align = getattr(debug, "align_shift_ir", None)
+        if ir_align is not None:
+            msg += f"; IR {self._format_align_shift(ir_align)}"
         return msg
 
     def _on_me_pass_toggled(self, checked: bool) -> None:
@@ -1009,7 +1012,10 @@ class ScanLabWindow(QMainWindow):
                 )
                 align = debug.align_shift_long
                 if align is not None:
-                    cap += f"; {self._format_align_shift(align)}"
+                    cap += f"; long {self._format_align_shift(align)}"
+                ir_align = getattr(debug, "align_shift_ir", None)
+                if ir_align is not None:
+                    cap += f"; IR {self._format_align_shift(ir_align)}"
                 self.merged_view.set_caption(cap)
             else:
                 self.merged_view.set_caption("Merge: SNR / IVW")
@@ -1020,8 +1026,14 @@ class ScanLabWindow(QMainWindow):
             self.merged_view.set_caption("")
         if image.ir is not None:
             self.ir_view.set_gray(image.ir, dpi=image.dpi)
+            ir_align = self._resolve_ir_align_shift(debug)
+            if ir_align is not None:
+                self.ir_view.set_caption(f"IR {self._format_align_shift(ir_align)}")
+            else:
+                self.ir_view.set_caption("IR plane")
         else:
             self.ir_view.set_rgb(None)
+            self.ir_view.set_caption("")
         self._update_me_tabs_visible()
         if debug is not None:
             self.tabs.setCurrentWidget(self.merged_view)
@@ -1033,10 +1045,20 @@ class ScanLabWindow(QMainWindow):
             msg += self._fusion_stats_message(debug)
         if image.ir is not None:
             msg += f"; IR {image.ir.shape[1]}×{image.ir.shape[0]}"
+            ir_align = self._resolve_ir_align_shift(debug)
+            if ir_align is not None:
+                msg += f"; {self._format_align_shift(ir_align)}"
         crop_note = format_crop_status(self._pending_crop_meta)
         if crop_note:
             msg += f"; {crop_note}"
         self.statusBar().showMessage(msg)
+
+    def _resolve_ir_align_shift(self, debug) -> tuple[float, float] | None:
+        if debug is not None:
+            shift = getattr(debug, "align_shift_ir", None)
+            if shift is not None:
+                return shift
+        return self._worker.last_align_shift_ir
 
     def _on_clear_calib_cache(self) -> None:
         reply = QMessageBox.question(

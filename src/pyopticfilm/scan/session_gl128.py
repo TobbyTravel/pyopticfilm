@@ -101,6 +101,8 @@ class Gl128ScanSession(ScanSession):
         self._pass_manual: bool = False
         #: Lab-only ME bracket / IVW stats (not on :class:`~pyopticfilm.image.ScanImage`).
         self.last_me_debug = None
+        #: IR→short alignment shift from the last multi-pass scan (ME or IR-only).
+        self.last_align_shift_ir: tuple[float, float] | None = None
 
     def run(
         self,
@@ -371,6 +373,7 @@ class Gl128ScanSession(ScanSession):
             self.asic.init()
 
         self.last_me_debug = None
+        self.last_align_shift_ir = None
 
         if geometry is None:
             geometry = compute_geometry(resolution, model=model, area=area)
@@ -586,6 +589,7 @@ class Gl128ScanSession(ScanSession):
         if align_passes and ir_plane is not None:
             warn_if_align_unavailable("IR")
             ir_plane, align_shift_ir = align_pass_to_reference(rgb_short, ir_plane)
+            self.last_align_shift_ir = align_shift_ir
             logger.info(
                 "IR pass shift (dx, dy)=(%.3f, %.3f)",
                 align_shift_ir[0],
