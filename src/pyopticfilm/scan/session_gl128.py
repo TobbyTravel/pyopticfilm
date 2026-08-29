@@ -29,7 +29,6 @@ from pyopticfilm.logging import get_logger
 from pyopticfilm.scan.calibrate import Calibrator
 from pyopticfilm.scan.exposure_override import validate_manual_exposure
 from pyopticfilm.scan.geometry import ScanGeometry
-from pyopticfilm.scan.pipeline import trim_invalid_edge_columns
 from pyopticfilm.scan.session import DATA_TIMEOUT_S, ScanSession
 from pyopticfilm.usb.device import BULK_MAX_SIZE
 
@@ -375,8 +374,6 @@ class Gl128ScanSession(ScanSession):
 
         self.last_me_debug = None
         self.last_align_shift_ir = None
-        #: Locked after color_short so IR/long drop the same padding columns.
-        edge_trim: tuple[int, int] | None = None
 
         if geometry is None:
             geometry = compute_geometry(resolution, model=model, area=area)
@@ -413,7 +410,7 @@ class Gl128ScanSession(ScanSession):
             long_pass: bool,
             manual: bool = False,
         ):
-            nonlocal rgb_short, rgb_long, ir_plane, edge_trim
+            nonlocal rgb_short, rgb_long, ir_plane
 
             def _prog(p: float, _i: int = idx) -> None:
                 if progress is not None:
@@ -474,12 +471,7 @@ class Gl128ScanSession(ScanSession):
                 # Keep ME colour (and IR) planes linear — per-plane expose_film_base
                 # collapses the short/long ratio. Makeup runs once on the deliverable.
                 expose_base=False,
-                # Multi-pass: detect on color_short, lock (L,R) for IR/long.
-                edge_trim=edge_trim,
-                detect_edge_trim=False,
             )
-            if edge_trim is None:
-                rgb, edge_trim = trim_invalid_edge_columns(rgb)
 
             if key == "color_short":
                 rgb_short = rgb

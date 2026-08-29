@@ -162,6 +162,7 @@ def bringup_scan_geometry(
     # Do not shrink X to fit a shading table. SF Full window at 1800 is 2592 px;
     # clamping it made USB line length disagree with the ASIC and sheared the
     # frame into a diamond. The shading table covers the acquired columns instead.
+    # Dummy on the ENDPIXEL side is dropped after decode (``usb_end_drop``).
     geometry = compute_geometry(dpi, model=model, area=area)
     geometry = apply_target_lincnt(geometry, int(meta["target_lincnt"]))
 
@@ -247,7 +248,8 @@ def effective_scan_area(
     x1, y1, _x2, _y2 = clamp_area(requested)
     x_size = float(model.x_size_ta_mm)
     y_size = float(model.y_size_ta_mm)
-    width_mm = geometry.pixels * MM_PER_INCH / max(1, geometry.asic_dpi)
+    width_px = max(1, int(geometry.pixels) - int(getattr(geometry, "usb_end_drop", 0) or 0))
+    width_mm = width_px * MM_PER_INCH / max(1, geometry.asic_dpi)
     eff_x2 = min(1.0, max(x1 + 1e-6, x1 + width_mm / x_size))
     eff_y2 = min(1.0, max(y1 + 1e-6, y1 + geometry.travel_mm / y_size))
     return clamp_area((x1, y1, eff_x2, eff_y2))

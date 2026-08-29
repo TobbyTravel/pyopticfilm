@@ -25,111 +25,25 @@ HOST_CALIB_HIGHLIGHT_PERCENTILE = 99.9
 #: holder chrome so NegPy auto bounds do not latch onto Full-window margins.
 HOST_CALIB_BORDER_INSET = 0.04
 
-#: Max decode-padding columns to drop per edge (USB / STRPIXEL edge samples).
-EDGE_PAD_TRIM_MAX = 8
-#: Interior inset when scoring edge columns against the film window.
-EDGE_PAD_INSET = HOST_CALIB_BORDER_INSET
-#: Treat an edge column as hot padding when any channel exceeds this DN
-#: *and* the column is spatially flat (decode padding, not film structure).
-EDGE_PAD_HOT_ABS = 60_000
-#: Or when any channel exceeds interior peak × this factor (also requires flat).
-EDGE_PAD_HOT_FRAC = 1.12
-#: Column std below ``max(EDGE_PAD_FLAT_STD, frac * mean)`` counts as flat.
-EDGE_PAD_FLAT_STD = 800.0
-EDGE_PAD_FLAT_MEAN_FRAC = 0.06
-#: Near-zero / flat padding: mean and std below these floors.
-EDGE_PAD_DARK_MEAN = 256.0
-EDGE_PAD_DARK_STD = 64.0
-
 #: Row slabs for host calib / makeup — avoids full-frame float temps at 7200 dpi.
 _HOST_CALIB_CHUNK_ROWS = 256
 _FS = np.float32(65535.0)
 
 
-def apply_edge_trim(rgb: np.ndarray, left: int, right: int) -> np.ndarray:
-    """Crop ``left`` / ``right`` columns from an HxWx3 (or HxW) array."""
+def _edge_column_means(rgb: np.ndarray, n: int = 16) -> tuple[list[float], list[float]]:
+    """Mean DN of the first/last ``n`` USB columns (all channels)."""
     arr = np.asarray(rgb)
-    left_n = max(0, int(left))
-    right_n = max(0, int(right))
-    if left_n == 0 and right_n == 0:
-        return arr
-    w = int(arr.shape[1])
-    if left_n + right_n >= w:
-        raise ValueError(f"edge trim {left_n}+{right_n} exceeds width {w}")
-    if arr.ndim == 3:
-        return np.ascontiguousarray(arr[:, left_n : w - right_n, :])
-    return np.ascontiguousarray(arr[:, left_n : w - right_n])
+    if arr.ndim != 3 or arr.shape[1] < 2:
+        return [], []
+    count = min(int(n), max(1, arr.shape[1] // 2))
+    head = [float(arr[:, i, :3].mean()) for i in range(count)]
+    tail = [float(arr[:, arr.shape[1] - count + i, :3].mean()) for i in range(count)]
+    return head, tail
 
 
-def count_invalid_edge_columns(
-    rgb: np.ndarray,
-    *,
-    side: str,
-    max_trim: int = EDGE_PAD_TRIM_MAX,
-    inset: float = EDGE_PAD_INSET,
-) -> int:
-    """Count leading (``side='left'``) or trailing anomalous padding columns."""
-    arr = np.asarray(rgb)
-    if arr.ndim != 3 or arr.shape[2] < 3:
-        raise ValueError(f"rgb must be HxWx3, got {arr.shape}")
-    if side not in ("left", "right"):
-        raise ValueError(f"side must be 'left' or 'right', got {side!r}")
-    h, w, _ = arr.shape
-    region = ImagePipeline._inset_slice(h, w, inset)
-    if region is None:
-        return 0
-    ys, xs = region
-    interior = arr[ys, xs]
-    peaks = np.percentile(interior.astype(np.float64), 99.0, axis=(0, 1))
-    peaks = np.maximum(peaks, 1.0)
-    limit = min(int(max_trim), max(0, w - 2 * (xs.stop - xs.start) // 4))
-    if limit < 1:
-        return 0
-    n = 0
-    for i in range(limit):
-        col_i = i if side == "left" else w - 1 - i
-        col = arr[:, col_i, :3].astype(np.float64)
-        col_max = col.max(axis=0)
-        col_mean = float(col.mean())
-        col_std = float(col.std())
-        flat = col_std < max(
-            float(EDGE_PAD_FLAT_STD),
-            float(EDGE_PAD_FLAT_MEAN_FRAC) * max(col_mean, 1.0),
-        )
-        hot = bool(
-            (col_max >= float(EDGE_PAD_HOT_ABS)).any()
-            or (col_max > peaks * float(EDGE_PAD_HOT_FRAC)).any()
-        )
-        dark = col_mean < float(EDGE_PAD_DARK_MEAN) and col_std < float(EDGE_PAD_DARK_STD)
-        # Require flatness for hot columns so specular film at the crop edge
-        # is not mistaken for decode padding.
-        if (hot and flat) or dark:
-            n += 1
-        else:
-            break
-    return n
-
-
-def trim_invalid_edge_columns(
-    rgb: np.ndarray,
-    *,
-    max_trim: int = EDGE_PAD_TRIM_MAX,
-    inset: float = EDGE_PAD_INSET,
-) -> tuple[np.ndarray, tuple[int, int]]:
-    """Drop anomalous left/right decode-padding columns; return ``(rgb, (L, R))``.
-
-    Live GL128 geometry already matches STR/END span (pcap only trims when the
-    URB is wider). Cropped scans can still deliver 1–2 invalid edge samples that
-    look like a white strip after NegPy invert and blow up under IR flatten.
-    """
-    arr = np.asarray(rgb)
-    left = count_invalid_edge_columns(arr, side="left", max_trim=max_trim, inset=inset)
-    right = count_invalid_edge_columns(arr, side="right", max_trim=max_trim, inset=inset)
-    if left == 0 and right == 0:
-        return arr, (0, 0)
-    out = apply_edge_trim(arr, left, right)
-    logger.info("trimmed invalid edge columns left=%d right=%d → width %d", left, right, out.shape[1])
-    return out, (left, right)
+def _fmt_means(values: list[float], *, n: int = 8) -> str:
+    shown = values[:n]
+    return "[" + ", ".join(f"{v:.0f}" for v in shown) + "]"
 
 
 def trim_to_optical_span(rgb: np.ndarray, geometry: ScanGeometry) -> np.ndarray:
@@ -498,17 +412,14 @@ class ImagePipeline:
         white: np.ndarray | None = None,
         planar: bool | None = None,
         expose_base: bool = True,
-        edge_trim: tuple[int, int] | None = None,
-        detect_edge_trim: bool = True,
     ) -> np.ndarray:
         """Decode USB RGB and apply calib / optional film-base makeup.
 
         ``expose_base=False`` skips scalar peak stretch and border clamp so ME
         short/long planes stay linear (SilverFast-wire scale) for host merge.
 
-        ``edge_trim=(L, R)`` forces a column crop (multi-pass lock). When
-        ``None`` and ``detect_edge_trim`` is True, anomalous decode-padding
-        columns are detected and dropped.
+        Image width equals the programmed STR/END span (pcap 7200 may still
+        drop dummy URB columns via :func:`trim_to_optical_span`).
         """
         rgb = self.decode_rgb(raw, geometry=geometry, planar=planar)
         rgb = self.reduce_y_oversample(rgb, geometry)
@@ -516,17 +427,42 @@ class ImagePipeline:
         rgb = self.apply_y_stagger(rgb, geometry)
         rgb = self.apply_host_downsample(rgb, geometry)
         rgb = trim_to_optical_span(rgb, geometry)
-        if dark is not None and white is not None:
+        host_calib = dark is not None and white is not None
+        if host_calib:
             rgb = self.apply_host_calib(
                 rgb, dark=dark, white=white, expose_base=expose_base
             )
         elif expose_base:
             rgb = self.expose_film_base(rgb, source="asic shading")
             rgb = self.clamp_border_highlights(rgb)
+        pre_head, pre_tail = _edge_column_means(rgb)
+        drop = 0 if geometry.disable_buffer_full_move else int(getattr(geometry, "usb_end_drop", 0) or 0)
+        if drop > 0 and rgb.shape[1] > drop + 8:
+            rgb = np.ascontiguousarray(rgb[:, : rgb.shape[1] - drop, :])
+            logger.info(
+                "dropped %d USB-end columns (ENDPIXEL dummy) → width %d",
+                drop,
+                rgb.shape[1],
+            )
         if getattr(self.model, "mirror_x", False):
             rgb = np.ascontiguousarray(rgb[:, ::-1, :])
-        if edge_trim is not None:
-            rgb = apply_edge_trim(rgb, int(edge_trim[0]), int(edge_trim[1]))
-        elif detect_edge_trim:
-            rgb, _ = trim_invalid_edge_columns(rgb)
+        post_head, _post_tail = _edge_column_means(rgb)
+        logger.info(
+            "assemble %ddpi str=%d end=%d pixels=%d optical=%d offset=%d "
+            "dpiset=%d usb_end_drop=%d area=%s host_calib=%s "
+            "pre_usb[:,:8]=%s pre_usb[:,-8:]=%s post_mirror[:,:8]=%s",
+            geometry.resolution,
+            geometry.pixel_startx,
+            geometry.pixel_endx,
+            geometry.pixels,
+            geometry.optical_pixels,
+            geometry.output_pixel_offset,
+            geometry.register_dpiset,
+            drop,
+            geometry.area,
+            host_calib,
+            _fmt_means(pre_head),
+            _fmt_means(pre_tail),
+            _fmt_means(post_head),
+        )
         return rgb
