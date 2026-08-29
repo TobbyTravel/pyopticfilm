@@ -141,6 +141,55 @@ def test_gl128_scanner_primes_once_before_first_requested_scan(monkeypatch):
         scanner.close()
 
 
+def test_gl128_prime_skipped_when_gl128_prime_false(monkeypatch):
+    """gl128_prime=False skips the discarded pass for that call only."""
+    import pyopticfilm.scan.session as session_module
+
+    scanner = Scanner.open_fake(MODEL_8200I_SE)
+    runs: list[dict[str, object]] = []
+    statuses: list[str] = []
+
+    class FakeSession:
+        last_me_debug = None
+
+        def run(self, **kwargs):
+            runs.append(kwargs)
+            return object()
+
+    monkeypatch.setattr(session_module, "create_session", lambda *args: FakeSession())
+    monkeypatch.delenv("POF_GL128_PRIME", raising=False)
+    try:
+        scanner.scan(
+            resolution=150,
+            area=_TINY,
+            apply_calib=False,
+            on_status=statuses.append,
+            gl128_prime=False,
+        )
+        # Only the retained scan ran — no discarded prime pass.
+        assert len(runs) == 1
+        assert runs[0]["resolution"] == 150
+        assert statuses == ["prime_skipped", "scanning"]
+        assert scanner._gl128_primed is False
+
+        # A later call without the override still primes normally, since
+        # skipping never marked the scanner as primed.
+        statuses.clear()
+        scanner.scan(
+            resolution=150,
+            area=_TINY,
+            apply_calib=False,
+            on_status=statuses.append,
+        )
+        assert len(runs) == 3
+        assert runs[1]["resolution"] == 600  # the (now-run) discarded prime
+        assert runs[2]["resolution"] == 150
+        assert statuses == ["priming", "scanning"]
+        assert scanner._gl128_primed is True
+    finally:
+        scanner.close()
+
+
 def test_gl128_prime_ignores_caller_geometry_and_calib(monkeypatch):
     """Caller geometry/apply_calib must not stretch the discarded AGOHOME pass."""
     import pyopticfilm.scan.session as session_module

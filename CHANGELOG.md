@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Manual exposure overrides** (GL128): `Scanner.scan(single_pass_exposure=..., me_short_exposure=..., me_long_exposure=...)` let a caller send an exact `REG_EXPOSURE` value for the retained scan/ME short/ME long pass, bypassing the adaptive selection, DPI clamp, and `me_hardware_max_exposure` clamp that apply to driver-derived exposure. `me_long_exposure` takes precedence over `me_exposure_mode`. Values are still hard-validated against the 24-bit register range (1–`0xFFFFFF`); out-of-range values raise `ValueError` rather than being clamped. All three default to `None` (unchanged behavior) and never apply to the discarded GL128 priming pass. Scan Lab exposes matching **Manual exposure overrides** fields.
+- **GL128 priming-pass override**: `Scanner.scan(gl128_prime=False)` skips the discarded first-scan AGOHOME-park pass for that call (debug/testing only — expect ~30 px of first-scan position drift). Skipping does not mark the scanner as primed, so a later call without the override still primes normally. `on_status` gains a new `"prime_skipped"` value. Defaults to `True` (unchanged behavior). Scan Lab exposes a matching **Disable priming pass (debug)** checkbox for both Prescan and Scan.
 
 ## [1.3.0] - 2026-08-27
 

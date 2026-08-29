@@ -129,6 +129,18 @@ class ScanLabWindow(QMainWindow):
         )
         form.addWidget(self.slow_image_slope)
 
+        self.disable_gl128_prime = QCheckBox("Disable priming pass (debug)")
+        self.disable_gl128_prime.setChecked(False)
+        self.disable_gl128_prime.setToolTip(
+            "GL128 only. Off (default): the first Prescan/Scan after open runs "
+            "a discarded small pass that establishes the repeatable AGOHOME "
+            "park position. On: skip that pass — for debugging/testing only; "
+            "expect ~30 px of first-scan position drift versus the primed "
+            "baseline. The scanner still primes normally on a later "
+            "Prescan/Scan once this is unchecked again."
+        )
+        form.addWidget(self.disable_gl128_prime)
+
         refresh = QPushButton("Refresh devices")
         refresh.clicked.connect(self.reload_devices)
         form.addWidget(refresh)
@@ -847,7 +859,11 @@ class ScanLabWindow(QMainWindow):
         self._clear_usb_log()
         self._clear_scan_tabs()
         self.statusBar().showMessage("Prescanning…")
-        self._worker.request_prescan.emit(target, self.apply_calib.isChecked())
+        self._worker.request_prescan.emit(
+            target,
+            self.apply_calib.isChecked(),
+            not self.disable_gl128_prime.isChecked(),
+        )
 
     def _on_scan(self) -> None:
         target = self._resolved_target()
@@ -903,6 +919,7 @@ class ScanLabWindow(QMainWindow):
             single_pass_exposure,
             me_short_exposure,
             me_long_exposure,
+            not self.disable_gl128_prime.isChecked(),
         )
 
     def _on_progress(self, value: float) -> None:
@@ -911,6 +928,8 @@ class ScanLabWindow(QMainWindow):
     def _on_scan_status(self, status: str) -> None:
         if status == "priming":
             self.statusBar().showMessage("Priming scanner…")
+        elif status == "prime_skipped":
+            self.statusBar().showMessage("Priming skipped (debug)…")
         elif status == "scanning":
             self.statusBar().showMessage("Scanning…")
 
@@ -1070,6 +1089,7 @@ class ScanLabWindow(QMainWindow):
         self.usb_planar.setEnabled(not busy)
         self.quiet_usb_pace.setEnabled(not busy)
         self.slow_image_slope.setEnabled(not busy)
+        self.disable_gl128_prime.setEnabled(not busy)
         self.btn_open_capture.setEnabled(not busy)
 
 

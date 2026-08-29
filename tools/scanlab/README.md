@@ -91,6 +91,7 @@ scan-ready GL128 **8100 (V2)** (`07b3:1824`).
 | **USB planar RGB** | Off = chunky `RGBRGB…` (default). On = planar planes — try this if Prescan is rainbow-striped. |
 | **Adaptive quiet drain** | On (default). Rate-limits host bulk reads to the ASIC `LPERIOD` line rate (including 7200 dpi, ~3.55 ms/line) so motor creep stays continuous. Uncheck for fastest drain (louder). |
 | **Slow image slope** | Off (default). On: shading/slow motor ramp on the image pass (feeds stay fast). |
+| **Disable priming pass (debug)** | GL128 only. Off (default). On: skip the discarded first-scan AGOHOME-park pass on both Prescan and Scan — debug/testing only, expect ~30 px of first-scan position drift. Unchecking it lets the scanner prime normally on the next Prescan/Scan. |
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
 | **PPI** | Resolutions from the selected model’s `resolutions_dpi` (Scan only; Prescan uses a fixed low dpi). |
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
@@ -191,13 +192,14 @@ Live truncated log of every control and bulk transfer through the recording
 USB wrapper. **Open capture…** also fills this tab from the pcap (identical
 line format; repeated bulk-IN lengths are collapsed as ``×N``).
 
-- Dividers mark `PRIMING`, `PRESCAN`, `SCAN`, `IR`, and `CAPTURE` sections.
+- Dividers mark `PRIMING` (or `PRIMING SKIPPED (debug)` when **Disable priming pass** is on), `PRESCAN`, `SCAN`, `IR`, and `CAPTURE` sections.
 - **Jump** buttons scroll to those dividers when present.
 - **Clear USB log** empties the buffer (Prescan also clears the log).
 
 Progress for the active pass is shown in the status bar. On the first scan
 after open (GL128), the status bar shows **Priming scanner…** while the
-discarded AGOHOME park pass runs, then **Scanning…**.
+discarded AGOHOME park pass runs, then **Scanning…** — or **Priming skipped
+(debug)…** when **Disable priming pass (debug)** is checked.
 
 ## Geometry notes
 

@@ -35,12 +35,13 @@ def test_run_scan_accepts_positional_signal_args():
         "single_pass_exposure",
         "me_short_exposure",
         "me_long_exposure",
+        "gl128_prime",
     ]
     assert keyword_only == []
 
 
 def test_run_prescan_accepts_positional_signal_args():
-    # request_prescan = pyqtSignal(object, bool)
+    # request_prescan = pyqtSignal(object, bool, bool)
     positional, keyword_only = _method_args("run_prescan")
-    assert positional == ["target", "apply_calib"]
+    assert positional == ["target", "apply_calib", "gl128_prime"]
     assert keyword_only == []
