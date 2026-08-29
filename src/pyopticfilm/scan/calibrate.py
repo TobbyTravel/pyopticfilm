@@ -322,9 +322,20 @@ class Calibrator:
         for attempt in range(2):
             with self._stationary_motor():
                 self._ensure_at_home()
-                if callable(search):
+                last_afe = getattr(self.asic, "last_afe", None)
+                reuse_afe = (
+                    last_afe is not None
+                    and getattr(self.asic, "_scan_method", None) == "transparency"
+                )
+                if callable(search) and not reuse_afe:
                     logger.info("GL128 running stationary AFE search (attempt %d)", attempt + 1)
                     search(method="transparency")
+                elif reuse_afe:
+                    logger.info(
+                        "GL128 reusing colour AFE codes for dpi=%d shading remesure (attempt %d)",
+                        geometry.resolution,
+                        attempt + 1,
+                    )
                 logger.info(
                     "GL128 measuring ASIC shading dpi=%d window=%d..%d dpiset=%d (attempt %d)",
                     geometry.resolution,
