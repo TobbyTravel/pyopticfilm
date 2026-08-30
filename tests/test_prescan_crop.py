@@ -24,11 +24,12 @@ def test_prescan_dpi_is_1200() -> None:
     assert PRESCAN_DPI == 1200
 
 
-def test_image_crop_passes_through_when_pixels_corrected_in_assemble() -> None:
-    """Crop widget coords map 1:1 to TA area once mirror_x is applied in assemble()."""
+def test_image_crop_flips_x_on_mirror_x_models() -> None:
+    """Widget SE crop (0.1, 0.2, 0.4, 0.8) is display-space; TA is the X-mirrored rect."""
     crop = (0.1, 0.2, 0.4, 0.8)
-    assert image_crop_to_scan_area(MODEL_8200I_SE, crop) == clamp_area(crop)
-    back = scan_area_to_image_crop(MODEL_8200I_SE, crop)
+    ta = image_crop_to_scan_area(MODEL_8200I_SE, crop)
+    assert ta == pytest.approx(clamp_area((0.6, 0.2, 0.9, 0.8)))
+    back = scan_area_to_image_crop(MODEL_8200I_SE, ta)
     assert back == pytest.approx(clamp_area(crop))
 
 

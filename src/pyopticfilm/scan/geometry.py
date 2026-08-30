@@ -57,9 +57,10 @@ class ScanGeometry:
     #: When > 1, ASIC acquired at a higher PPI and the host must downsample
     #: (SE: 150/300 share 600 dpi programming). Integer factors only in practice.
     host_downsample: int = 1
-    #: Output columns to drop from the USB ENDPIXEL side after decode (image
-    #: left after ``mirror_x``). The ASIC still returns these; they are a
-    #: per-line dummy suffix, so shrinking ``ENDPIXEL`` does not remove them.
+    #: Cap on content-aware trim of USB ENDPIXEL dummy columns after decode
+    #: (image left after ``mirror_x``). The ASIC still returns a per-line
+    #: suffix; shrinking ``ENDPIXEL`` does not remove it. Assemble drops only
+    #: columns that look like dummy, never more than this width.
     usb_end_drop: int = 0
 
     @property
@@ -226,8 +227,8 @@ def _geometry_from_mm(
         optical_pixels = pixels * optical_res // asic_dpi
         pixel_endx = pixel_startx + optical_pixels
         startx = max(0, pixel_startx * asic_dpi // optical_res - offset)
-        # Per-line dummy on the USB ENDPIXEL side (image left after mirror).
-        # Shrinking ENDPIXEL leaves the suffix in place; drop it after decode.
+        # Cap for content-aware dummy trim on the USB ENDPIXEL side
+        # (image left after mirror). Shrinking ENDPIXEL leaves the suffix.
         end_inactive = int(getattr(model, "optical_end_inactive_native", 0) or 0)
         usb_end_drop = (
             0

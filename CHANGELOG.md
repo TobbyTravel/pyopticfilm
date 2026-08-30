@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - **Scan Lab Prescan crop**: a click or too-small rubber-band no longer clears a committed crop (right-click to clear). Scan builds the hardware window on the GUI thread and logs `crop applied` vs `full window` so a dropped crop cannot silently scan the safe window (including ME/IR passes).
+- **Scan Lab Prescan crop X mapping**: the rubber-band is in mirrored display space. Mapping now flips X back to TA so Color short / ME / IR match the box (cropping the right film base no longer cuts the left).
+- **Left-edge frame clip**: a fixed ENDPIXEL dummy drop was removing 16/24 px of film gate after `mirror_x`. Assemble now trims only columns that look like USB dummy, capped at the old width.
 - **8200i SE positioning slope tables**: SilverFast uploads `SLOPE_TABLE_SLOW` for the first (reference) feed and `SLOPE_TABLE_FAST` for the second (final positioning) feed — 39/39 capture pairs. pyopticfilm previously used the fast ramp for both. The V2-only `use_slow_final_positioning_feed` flag is no longer on `Model8200iSE` (8100 V2 still uses fast-then-slow).
 
 ### Changed

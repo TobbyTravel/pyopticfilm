@@ -217,16 +217,21 @@ def clamp_area(area: Area) -> Area:
 
 
 def image_crop_to_scan_area(model: Any, crop_norm: Area) -> Area:
-    """Map Prescan crop widget coords → TA ``area`` for ``compute_geometry``."""
-    del model  # kept for call-site compatibility; orientation is fixed in assemble()
-    return clamp_area(crop_norm)
+    """Map Prescan crop widget coords → TA ``area`` for ``compute_geometry``.
+
+    Scan Lab shows the assembled image after ``mirror_x``. The rubber-band is
+    therefore in display space: flip X back to TA so STR/ENDPIXEL match the
+    box the user drew.
+    """
+    x1, y1, x2, y2 = clamp_area(crop_norm)
+    if getattr(model, "mirror_x", False):
+        x1, x2 = 1.0 - x2, 1.0 - x1
+    return clamp_area((x1, y1, x2, y2))
 
 
 def scan_area_to_image_crop(model: Any, area: Area) -> Area:
-    """Map TA ``area`` → Prescan crop widget coords (inverse of :func:`image_crop_to_scan_area`)."""
-    del model
-    return clamp_area(area)
-
+    """Map TA ``area`` → Prescan crop widget coords (same involution as :func:`image_crop_to_scan_area`)."""
+    return image_crop_to_scan_area(model, area)
 
 
 def default_frame_crop_norm(model: Any) -> Area:

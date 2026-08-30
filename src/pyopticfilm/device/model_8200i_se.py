@@ -297,11 +297,12 @@ class Model8200iSE:
     #: output-space ``startx`` then × ``7200/dpi`` cannot reproduce session 03
     #: STR 242 or session 04 STR 578 (both remainder 2 vs the factor).
     strpixel_native_units: bool = True
-    #: Per-line dummy clocks on the USB ENDPIXEL side (image left after
-    #: ``mirror_x``). The near-zero core is ~18 output px at 1800, but the
-    #: transition still inverts to a white strip on the positive (~22 px to
-    #: reach ~85% of interior DN). 96 native clocks → 16 / 24 / 48 output px
-    #: at 1200 / 1800 / 3600. Shrinking ``ENDPIXEL`` does not remove the suffix.
+    #: Cap (native clocks) for content-aware dummy trim on the USB ENDPIXEL
+    #: side (image left after ``mirror_x``). The near-zero core is ~18 output
+    #: px at 1800; a white strip on the positive can be wider. 96 native
+    #: clocks → 16 / 24 / 48 output px at 1200 / 1800 / 3600. Shrinking
+    #: ``ENDPIXEL`` does not remove the suffix; assemble drops only columns
+    #: that look like dummy, never more than this width.
     optical_end_inactive_native: int = 96
     supports_infrared: bool = True
     #: PPI below this share the 600 dpi ASIC programming (session 13).
