@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-08-30
+
 ### Fixed
 
 - **Scan Lab Prescan crop**: a click or too-small rubber-band no longer clears a committed crop (right-click to clear). Scan builds the hardware window on the GUI thread and logs `crop applied` vs `full window` so a dropped crop cannot silently scan the safe window (including ME/IR passes).
@@ -17,6 +19,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **8200i SE priming default**: `default_gl128_prime` is now `False` (same as the 8100 V2). `Scanner.scan()` with `gl128_prime` unset skips the discarded first-scan AGOHOME-park pass. Explicit `gl128_prime=True` still primes.
+
+### Contributors
+
+- [@TobbyTravel](https://github.com/TobbyTravel) for default priming off on the 8100 V2 and for scoping the slow-second-feed slope-table fix to V2.
 
 ## [1.3.1] - 2026-08-29
 
