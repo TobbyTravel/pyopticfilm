@@ -441,7 +441,7 @@ def merge_n_exposures(
         w_sum = None
         w_first = None
         w_last = None
-        c_sum = None
+        all_zero_conf = None  # True where every bracket's confidence is ~0
         for raw, e in zip(frames, exposures, strict=True):
             raw_f = np.asarray(raw[y0:y1], dtype=np.float32)
             r = float(e) / e0
@@ -449,21 +449,24 @@ def merge_n_exposures(
             c = _smooth_confidence(raw_f, floor=_SNR_FLOOR, clip_start=_SNR_CLIP_START, clip_end=_SNR_CLIP_END)
             v = (alpha * np.maximum(raw_f, 0.0) + beta) / (r * r)
             weight = c / np.maximum(v, 1e-12)
+            zero_here = c <= 1e-6
             if acc is None:
                 acc = weight * x
                 w_sum = weight
                 w_first = weight
-                c_sum = c
+                all_zero_conf = zero_here
             else:
                 acc += weight * x
                 w_sum += weight
+                all_zero_conf &= zero_here
             w_last = weight
         merged_chunk = acc / np.maximum(w_sum, 1e-12)
         out[y0:y1] = np.clip(merged_chunk, 0, 65535).astype(np.uint16)
         w0_sum += float(w_first.sum())
         wn_sum += float(w_last.sum())
         n_weights += int(w_first.size)
-        zero_count += int(np.count_nonzero(c_sum <= 1e-6))
+        # both_zero_pix equivalent: every bracket (all 3 channels) near-zero confidence.
+        zero_count += int(np.count_nonzero(np.all(all_zero_conf, axis=-1)))
 
     stats = FusionStats(
         mean_short_weight=w0_sum / max(n_weights, 1),
