@@ -339,6 +339,7 @@ GL128_SHARED_FIELDS: frozenset[str] = frozenset(
         "frontend_regs",
         "gpo_regs",
         "memory_layout_regs",
+        "me_default_exposure_mode",
     }
 )
 
