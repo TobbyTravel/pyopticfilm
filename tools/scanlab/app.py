@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
@@ -163,6 +164,26 @@ class ScanLabWindow(QMainWindow):
         )
         self.me_fixed_long.setEnabled(False)
         form.addWidget(self.me_fixed_long)
+
+        n_brackets_row = QHBoxLayout()
+        n_brackets_row.addWidget(QLabel("ME brackets"))
+        self.me_n_brackets = QSpinBox()
+        self.me_n_brackets.setRange(2, 9)
+        self.me_n_brackets.setValue(2)
+        self.me_n_brackets.setToolTip(
+            "Number of exposures fused per ME scan, geometrically spaced "
+            "between the short floor and the long exposure above (2 = "
+            "today's short+long ME, unchanged). More brackets trade scan "
+            "time for lower noise — each extra bracket is a full extra "
+            "pass. 'Fixed 42k long' above still controls whether that top "
+            "exposure is adaptive or pinned; unset it defers to the "
+            "model's own default at brackets > 2 (8100 V2: pinned to the "
+            "validated 42000; 8200i SE: adaptive)."
+        )
+        self.me_n_brackets.setEnabled(False)
+        n_brackets_row.addWidget(self.me_n_brackets)
+        n_brackets_row.addStretch(1)
+        form.addLayout(n_brackets_row)
 
         # Manual exposure overrides (GL128 debug/testing only): empty means
         # normal driver behavior; a value bypasses the driver's soft
@@ -350,6 +371,9 @@ class ScanLabWindow(QMainWindow):
         self.me_fixed_long.setEnabled(is_gl128 and self.me_pass.isChecked())
         if not self.me_fixed_long.isEnabled():
             self.me_fixed_long.setChecked(False)
+        self.me_n_brackets.setEnabled(is_gl128 and self.me_pass.isChecked())
+        if not self.me_n_brackets.isEnabled():
+            self.me_n_brackets.setValue(2)
         self._sync_manual_exposure_enabled()
         self._update_me_tabs_visible()
         self._refresh_banner()
@@ -450,6 +474,9 @@ class ScanLabWindow(QMainWindow):
         self.me_fixed_long.setEnabled(checked and self.me_pass.isEnabled())
         if not checked:
             self.me_fixed_long.setChecked(False)
+        self.me_n_brackets.setEnabled(checked and self.me_pass.isEnabled())
+        if not checked:
+            self.me_n_brackets.setValue(2)
         self._sync_manual_exposure_enabled()
         # ME on/off changes which override applies — drop the one that no
         # longer makes sense rather than leaving a hidden value to surprise
@@ -927,13 +954,20 @@ class ScanLabWindow(QMainWindow):
                 ir_pass=self.ir_pass.isChecked(),
                 me_pass=self.me_pass.isChecked(),
                 apply_calib=self.apply_calib.isChecked(),
-                me_exposure_mode="fixed" if self.me_fixed_long.isChecked() else "adaptive",
+                # None (not "adaptive") when unchecked: lets n_brackets > 2
+                # defer to the model's own default (8100 V2: fixed; 8200i
+                # SE: adaptive) instead of forcing "adaptive" regardless of
+                # model. Behaviorally identical to explicit "adaptive" at
+                # n_brackets == 2, since that model default is always
+                # "adaptive" there too.
+                me_exposure_mode="fixed" if self.me_fixed_long.isChecked() else None,
                 single_pass_exposure=single_pass_exposure,
                 me_short_exposure=me_short_exposure,
                 me_long_exposure=me_long_exposure,
                 gl128_prime=self._gl128_prime_arg(),
                 crop_norm=crop,
                 scan_kw=scan_kw,
+                n_brackets=self.me_n_brackets.value(),
             )
         )
 
@@ -1118,6 +1152,9 @@ class ScanLabWindow(QMainWindow):
         )
         self.me_pass.setEnabled(not busy and is_gl128)
         self.me_fixed_long.setEnabled(
+            not busy and is_gl128 and self.me_pass.isChecked()
+        )
+        self.me_n_brackets.setEnabled(
             not busy and is_gl128 and self.me_pass.isChecked()
         )
         self._sync_manual_exposure_enabled()
