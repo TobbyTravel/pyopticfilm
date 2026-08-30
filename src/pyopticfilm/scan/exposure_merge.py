@@ -368,3 +368,109 @@ def _merge_snr(
         exposure_ratio_used=float(r),
     )
     return out, stats
+
+
+def merge_n_exposures(
+    frames: list[np.ndarray],
+    exposures: list[int],
+    *,
+    alpha: float = _SNR_ALPHA,
+    beta: float = _SNR_BETA,
+) -> MergeResult:
+    """N-bracket generalization of :func:`merge_exposures_result`'s IVW fusion.
+
+    Reduces exactly to the pairwise formula at ``len(frames) == 2`` — the
+    per-pixel weight ``w_i = c_i / v_i`` and merged value
+    ``sum(w_i * x_i) / sum(w_i)`` are algebraically identical to
+    :func:`_merge_snr_rows`'s ``wa``/``wb``/``ivw`` when there are only two
+    brackets, since bracket 0 is always the reference scale (``r_0 = 1``).
+
+    Unlike :func:`merge_exposures_result`, this does **not** apply the
+    2-way merge's residual-disagreement gate (``z``/``c_res_eff``) or
+    misalignment edge-fallback (``ivw_spread``/``prefer``/``misaligned``) —
+    a deliberate v1 scope cut (see PR description), not an oversight.
+    Frames must already be pairwise-aligned to ``frames[0]`` by the caller
+    (e.g. via repeated :func:`pyopticfilm.pass_align.align_pass_to_reference`
+    calls) — this function does no alignment of its own.
+
+    Args:
+        frames: N uint16 HxWx3 arrays, ascending exposure order, already
+            aligned to ``frames[0]``.
+        exposures: N positive exposure values, same order as ``frames``.
+
+    Returns:
+        MergeResult with the fused uint16 HxWx3 array and FusionStats
+        (``mean_short_weight``/``mean_long_weight`` report bracket 0 / the
+        last bracket specifically, for compatibility with the 2-way stats
+        shape; ``exposure_ratio_used`` is ``exposures[-1] / exposures[0]``).
+
+    Raises:
+        ValueError: fewer than 2 frames, mismatched lengths/shapes, or a
+            non-positive exposure.
+    """
+    if len(frames) != len(exposures):
+        raise ValueError(
+            f"frames ({len(frames)}) and exposures ({len(exposures)}) length mismatch"
+        )
+    if len(frames) < 2:
+        raise ValueError(f"merge_n_exposures needs >= 2 frames, got {len(frames)}")
+    if any(e <= 0 for e in exposures):
+        raise ValueError(f"all exposures must be positive, got {exposures}")
+    ref = np.asarray(frames[0], dtype=np.uint16)
+    if ref.ndim != 3 or ref.shape[2] != 3:
+        raise ValueError(f"expected HxWx3 arrays, got {ref.shape}")
+    for i, f in enumerate(frames[1:], 1):
+        fa = np.asarray(f, dtype=np.uint16)
+        if fa.shape != ref.shape:
+            raise ValueError(
+                f"frame {i} shape {fa.shape} does not match frame 0 shape {ref.shape}"
+            )
+
+    e0 = float(exposures[0])
+    h, w = ref.shape[:2]
+    out = np.empty((h, w, 3), dtype=np.uint16)
+    w0_sum = 0.0
+    wn_sum = 0.0
+    n_weights = 0
+    zero_count = 0
+    total_pixels = int(h * w)
+
+    for y0 in range(0, h, _MERGE_CHUNK_ROWS):
+        y1 = min(h, y0 + _MERGE_CHUNK_ROWS)
+        acc = None
+        w_sum = None
+        w_first = None
+        w_last = None
+        c_sum = None
+        for raw, e in zip(frames, exposures, strict=True):
+            raw_f = np.asarray(raw[y0:y1], dtype=np.float32)
+            r = float(e) / e0
+            x = raw_f / r
+            c = _smooth_confidence(raw_f, floor=_SNR_FLOOR, clip_start=_SNR_CLIP_START, clip_end=_SNR_CLIP_END)
+            v = (alpha * np.maximum(raw_f, 0.0) + beta) / (r * r)
+            weight = c / np.maximum(v, 1e-12)
+            if acc is None:
+                acc = weight * x
+                w_sum = weight
+                w_first = weight
+                c_sum = c
+            else:
+                acc += weight * x
+                w_sum += weight
+            w_last = weight
+        merged_chunk = acc / np.maximum(w_sum, 1e-12)
+        out[y0:y1] = np.clip(merged_chunk, 0, 65535).astype(np.uint16)
+        w0_sum += float(w_first.sum())
+        wn_sum += float(w_last.sum())
+        n_weights += int(w_first.size)
+        zero_count += int(np.count_nonzero(c_sum <= 1e-6))
+
+    stats = FusionStats(
+        mean_short_weight=w0_sum / max(n_weights, 1),
+        mean_long_weight=wn_sum / max(n_weights, 1),
+        zero_weight_pixels=zero_count,
+        total_pixels=total_pixels,
+        mean_residual_confidence=None,
+        exposure_ratio_used=float(exposures[-1]) / e0,
+    )
+    return MergeResult(rgb=out, fusion_stats=stats)

@@ -76,6 +76,7 @@ class ScanSession:
         single_pass_exposure: int | None = None,
         me_short_exposure: int | None = None,  # GL128 ME only; ignored here
         me_long_exposure: int | None = None,  # GL128 ME only; ignored here
+        n_brackets: int = 2,  # GL128 ME only; ignored here
     ) -> ScanImage:
         if multi_exposure or infrared:
             raise NotImplementedError(
