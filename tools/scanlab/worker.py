@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass
 from typing import Any
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -15,12 +16,31 @@ from tools.scanlab.backend import (
     LabTarget,
     apply_lab_motor_acoustic,
     device_banner,
+    format_scan_window_log,
     lab_scan_kwargs,
     open_lab_scanner,
     prescan_resolution,
     usb_log_divider,
     usb_log_line,
 )
+
+
+@dataclass(frozen=True)
+class ScanRequest:
+    """Queued Scan payload. Geometry is computed on the GUI thread from crop_norm."""
+
+    target: LabTarget
+    dpi: int
+    ir_pass: bool
+    me_pass: bool
+    apply_calib: bool
+    me_exposure_mode: str = "adaptive"
+    single_pass_exposure: int | None = None
+    me_short_exposure: int | None = None
+    me_long_exposure: int | None = None
+    gl128_prime: bool | None = None
+    crop_norm: tuple[float, float, float, float] | None = None
+    scan_kw: dict[str, Any] | None = None
 
 
 class ScanWorker(QObject):
@@ -36,9 +56,8 @@ class ScanWorker(QObject):
     calib_cleared = pyqtSignal(str)
     #: target, apply_calib, gl128_prime (bool or None for model default)
     request_prescan = pyqtSignal(object, bool, object)
-    #: target, dpi, ir_pass, me_pass, crop_norm, apply_calib, me_exposure_mode,
-    #: single_pass_exposure, me_short_exposure, me_long_exposure, gl128_prime
-    request_scan = pyqtSignal(object, int, bool, bool, object, bool, str, object, object, object, object)
+    #: :class:`ScanRequest` (geometry already computed from crop_norm)
+    request_scan = pyqtSignal(object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -132,33 +151,21 @@ class ScanWorker(QObject):
             gl128_prime=gl128_prime,
         )
 
-    def run_scan(
-        self,
-        target: LabTarget,
-        dpi: int,
-        ir_pass: bool,
-        me_pass: bool,
-        crop_norm: tuple[float, float, float, float] | None,
-        apply_calib: bool = False,
-        me_exposure_mode: str = "adaptive",
-        single_pass_exposure: int | None = None,
-        me_short_exposure: int | None = None,
-        me_long_exposure: int | None = None,
-        gl128_prime: bool | None = None,
-    ) -> None:
+    def run_scan(self, request: ScanRequest) -> None:
         self._run(
-            target,
+            request.target,
             kind="scan",
-            dpi=dpi,
-            ir=ir_pass,
-            me=me_pass,
-            crop=crop_norm,
-            apply_calib=bool(apply_calib),
-            me_exposure_mode=str(me_exposure_mode or "adaptive"),
-            single_pass_exposure=single_pass_exposure,
-            me_short_exposure=me_short_exposure,
-            me_long_exposure=me_long_exposure,
-            gl128_prime=gl128_prime,
+            dpi=request.dpi,
+            ir=request.ir_pass,
+            me=request.me_pass,
+            crop=request.crop_norm,
+            apply_calib=bool(request.apply_calib),
+            me_exposure_mode=str(request.me_exposure_mode or "adaptive"),
+            single_pass_exposure=request.single_pass_exposure,
+            me_short_exposure=request.me_short_exposure,
+            me_long_exposure=request.me_long_exposure,
+            gl128_prime=request.gl128_prime,
+            scan_kw=request.scan_kw,
         )
 
     def _run(
@@ -176,6 +183,7 @@ class ScanWorker(QObject):
         me_short_exposure: int | None = None,
         me_long_exposure: int | None = None,
         gl128_prime: bool | None = None,
+        scan_kw: dict[str, Any] | None = None,
     ) -> None:
         self.busy_changed.emit(True)
         self._cancel.clear()
@@ -183,7 +191,8 @@ class ScanWorker(QObject):
         try:
             scanner = self.ensure_open(target)
             apply_lab_motor_acoustic(scanner, target)
-            scan_kw = lab_scan_kwargs(target.model, dpi=dpi, kind=kind, crop_norm=crop)
+            if scan_kw is None:
+                scan_kw = lab_scan_kwargs(target.model, dpi=dpi, kind=kind, crop_norm=crop)
             if kind == "prescan":
                 self._usb_divider(f"PRESCAN {dpi} dpi")
                 image = scanner.scan(
@@ -199,6 +208,7 @@ class ScanWorker(QObject):
                 self.prescan_ready.emit(image)
             else:
                 self._usb_divider(f"SCAN {dpi} dpi")
+                self.usb_line.emit(format_scan_window_log(crop, scan_kw))
                 if me:
                     self._usb_divider(
                         f"ME multi-pass ({me_exposure_mode})"

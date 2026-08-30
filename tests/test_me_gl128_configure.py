@@ -3,10 +3,17 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from pyopticfilm.asic.gl128 import Gl128
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
+from pyopticfilm.scan.bringup import crop_scan_geometry
 from pyopticfilm.scan.geometry import compute_geometry
-from pyopticfilm.scan.session_gl128 import Gl128ScanSession, clamp_me_long_for_dpi
+from pyopticfilm.scan.session_gl128 import (
+    Gl128ScanSession,
+    clamp_me_long_for_dpi,
+    image_feed2_steps,
+)
 from pyopticfilm.usb.fake import MockScannerTransport
 from pyopticfilm.usb.protocol import GenesysUsbProtocol
 
@@ -20,6 +27,16 @@ def test_clamp_me_long_for_dpi_bounds():
     assert clamp_me_long_for_dpi(3600, 90000) == 85000
     assert clamp_me_long_for_dpi(1800, 10000) == 14000
     assert clamp_me_long_for_dpi(1200, 42000) == 42000
+
+
+def test_image_feed2_uses_area_y1_when_area_missing():
+    geo, _ = crop_scan_geometry(MODEL_8200I_SE, 1800, (0.1, 0.2, 0.9, 0.8))
+    expected = MODEL_8200I_SE.feed_to_scan_steps_for_area(geo.area)
+    assert image_feed2_steps(MODEL_8200I_SE, geo) == expected
+    lost = replace(geo, area=None)
+    from_y1 = MODEL_8200I_SE.feed_to_scan_steps_for_area((0.0, lost.area_y1, 1.0, 1.0))
+    assert image_feed2_steps(MODEL_8200I_SE, lost) == from_y1
+    assert from_y1 != MODEL_8200I_SE.feed_to_scan_steps_for_area(None)
 
 
 def test_gl128_configure_long_exposure_registers():

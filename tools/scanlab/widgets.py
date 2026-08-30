@@ -22,10 +22,19 @@ from tools.scanlab.preview import auto_level_u8, downsample_for_display
 __all__ = [
     "CropImageView",
     "ImageTabPage",
+    "commit_crop_norm",
     "downsample_for_display",
     "gray16_to_qimage",
     "rgb16_to_qimage",
 ]
+
+
+def commit_crop_norm(
+    current: tuple[float, float, float, float] | None,
+    candidate: tuple[float, float, float, float] | None,
+) -> tuple[float, float, float, float] | None:
+    """Keep ``current`` when the rubber-band was too small to commit."""
+    return current if candidate is None else candidate
 
 
 def _u8_rgb_to_qimage(u8: np.ndarray) -> QImage:
@@ -163,6 +172,10 @@ class CropImageView(QWidget):
             self._drag_origin = event.position().toPoint()
             self._drag_rect = QRect(self._drag_origin, self._drag_origin)
             return True
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.RightButton:
+            if self._crop is not None:
+                self.clear_crop()
+            return True
         if event.type() == QEvent.Type.MouseMove and self._drag_origin is not None:
             self._drag_rect = QRect(self._drag_origin, event.position().toPoint()).normalized()
             self._refresh()
@@ -171,7 +184,7 @@ class CropImageView(QWidget):
             rect = QRect(self._drag_origin, event.position().toPoint()).normalized()
             self._drag_origin = None
             self._drag_rect = None
-            self._crop = self._rect_to_norm(rect)
+            self._crop = commit_crop_norm(self._crop, self._rect_to_norm(rect))
             self._refresh()
             return True
         return super().eventFilter(watched, event)

@@ -295,13 +295,16 @@ class Model8200iSE:
     #: Program ``STRPIXEL``/``ENDPIXEL`` in native 7200 dpi clocks. Captures keep
     #: those registers byte-identical for the same crop at 1800 and 3600;
     #: output-space ``startx`` then × ``7200/dpi`` cannot reproduce session 03
-    #: STR 242 or session 04 STR 578 (both remainder 2 vs the factor).
+    #: STR 242 or session 04 STR 578 (both remainder 2 vs the factor). Image
+    #: STR/END are then shifted by :attr:`optical_end_inactive_native` so the
+    #: displayed frame (after dummy-trim + ``mirror_x``) is not STR-heavy.
     strpixel_native_units: bool = True
-    #: Per-line dummy clocks on the USB ENDPIXEL side (image left after
-    #: ``mirror_x``). The near-zero core is ~18 output px at 1800, but the
-    #: transition still inverts to a white strip on the positive (~22 px to
-    #: reach ~85% of interior DN). 96 native clocks → 16 / 24 / 48 output px
-    #: at 1200 / 1800 / 3600. Shrinking ``ENDPIXEL`` does not remove the suffix.
+    #: Cap (native clocks) for content-aware dummy trim on the USB ENDPIXEL
+    #: side (image left after ``mirror_x``). The near-zero core is ~18 output
+    #: px at 1800; a white strip on the positive can be wider. 96 native
+    #: clocks → 16 / 24 / 48 output px at 1200 / 1800 / 3600. Shrinking
+    #: ``ENDPIXEL`` does not remove the suffix; assemble drops only columns
+    #: that look like dummy, never more than this width.
     optical_end_inactive_native: int = 96
     supports_infrared: bool = True
     #: PPI below this share the 600 dpi ASIC programming (session 13).
@@ -319,7 +322,10 @@ class Model8200iSE:
 
     # X geometry is capture-derived: the 1200 dpi full-width preview in session
     # 03 used STRPIXEL 242 / ENDPIXEL 10610, i.e. 1728 output pixels spanning
-    # 36.58 mm starting 0.43 mm into the window. The last
+    # 36.58 mm starting 0.43 mm into the window. Image passes add
+    # :attr:`optical_end_inactive_native` to that origin (338 / 10706) so after
+    # dummy-trim + ``mirror_x`` the film gate is not clipped on the left with
+    # extra holder on the right. The last
     # :attr:`optical_end_inactive_native` clocks of each USB line are dummy
     # (near-zero DN); decode drops them rather than shrinking ENDPIXEL.
     x_offset_ta_mm: float = 0.43

@@ -46,6 +46,38 @@ def _fmt_means(values: list[float], *, n: int = 8) -> str:
     return "[" + ", ".join(f"{v:.0f}" for v in shown) + "]"
 
 
+#: Linear-negative USB dummy is near-zero DN; film / gate is far brighter.
+_USB_END_DUMMY_MEAN_MAX = 2048.0
+
+
+def count_usb_end_dummy_columns(
+    rgb: np.ndarray,
+    *,
+    max_drop: int,
+    dummy_mean_max: float = _USB_END_DUMMY_MEAN_MAX,
+) -> int:
+    """Count ENDPIXEL-side columns that look like USB dummy, capped at ``max_drop``.
+
+    Walks inward from the USB ENDPIXEL edge (last columns, pre-``mirror_x``)
+    while the column mean stays near zero. Stops at the first film/frame
+    column so the gate is not trimmed. Never returns more than ``max_drop``.
+    """
+    arr = np.asarray(rgb)
+    if arr.ndim != 3 or int(max_drop) <= 0 or arr.shape[1] < 16:
+        return 0
+    cap = min(int(max_drop), arr.shape[1] - 8)
+    if cap <= 0:
+        return 0
+    threshold = float(dummy_mean_max)
+    channels = min(3, arr.shape[2])
+    dropped = 0
+    for i in range(1, cap + 1):
+        if float(arr[:, -i, :channels].mean()) > threshold:
+            break
+        dropped = i
+    return dropped
+
+
 def trim_to_optical_span(rgb: np.ndarray, geometry: ScanGeometry) -> np.ndarray:
     """Drop trailing columns past the programmed STR/END output width.
 
@@ -418,8 +450,9 @@ class ImagePipeline:
         ``expose_base=False`` skips scalar peak stretch and border clamp so ME
         short/long planes stay linear (SilverFast-wire scale) for host merge.
 
-        Image width equals the programmed STR/END span (pcap 7200 may still
-        drop dummy URB columns via :func:`trim_to_optical_span`).
+        Image width equals the programmed STR/END span minus a content-aware
+        ENDPIXEL dummy trim (capped at ``geometry.usb_end_drop``). Pcap 7200
+        may still drop dummy URB columns via :func:`trim_to_optical_span`.
         """
         rgb = self.decode_rgb(raw, geometry=geometry, planar=planar)
         rgb = self.reduce_y_oversample(rgb, geometry)
@@ -427,6 +460,16 @@ class ImagePipeline:
         rgb = self.apply_y_stagger(rgb, geometry)
         rgb = self.apply_host_downsample(rgb, geometry)
         rgb = trim_to_optical_span(rgb, geometry)
+        cap = 0 if geometry.disable_buffer_full_move else int(getattr(geometry, "usb_end_drop", 0) or 0)
+        drop = count_usb_end_dummy_columns(rgb, max_drop=cap)
+        if drop > 0:
+            rgb = np.ascontiguousarray(rgb[:, : rgb.shape[1] - drop, :])
+            logger.info(
+                "dropped %d USB-end columns (ENDPIXEL dummy, cap %d) → width %d",
+                drop,
+                cap,
+                rgb.shape[1],
+            )
         host_calib = dark is not None and white is not None
         if host_calib:
             rgb = self.apply_host_calib(
@@ -436,14 +479,6 @@ class ImagePipeline:
             rgb = self.expose_film_base(rgb, source="asic shading")
             rgb = self.clamp_border_highlights(rgb)
         pre_head, pre_tail = _edge_column_means(rgb)
-        drop = 0 if geometry.disable_buffer_full_move else int(getattr(geometry, "usb_end_drop", 0) or 0)
-        if drop > 0 and rgb.shape[1] > drop + 8:
-            rgb = np.ascontiguousarray(rgb[:, : rgb.shape[1] - drop, :])
-            logger.info(
-                "dropped %d USB-end columns (ENDPIXEL dummy) → width %d",
-                drop,
-                rgb.shape[1],
-            )
         if getattr(self.model, "mirror_x", False):
             rgb = np.ascontiguousarray(rgb[:, ::-1, :])
         post_head, _post_tail = _edge_column_means(rgb)
@@ -458,7 +493,7 @@ class ImagePipeline:
             geometry.optical_pixels,
             geometry.output_pixel_offset,
             geometry.register_dpiset,
-            drop,
+            cap,
             geometry.area,
             host_calib,
             _fmt_means(pre_head),

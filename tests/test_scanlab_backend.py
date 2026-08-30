@@ -19,6 +19,8 @@ from tools.scanlab.backend import (
     apply_lab_motor_acoustic,
     device_banner,
     format_crop_status,
+    format_scan_window_log,
+    format_scan_window_note,
     lab_crop_scan_meta,
     lab_scan_kwargs,
     lab_scan_needs_motor_warning,
@@ -175,6 +177,63 @@ def test_lab_scan_se_crop_clamps_lincnt():
     geometry = kwargs["geometry"]
     feed2 = MODEL_8200I_SE.feed_to_scan_steps_for_area(geometry.area)
     assert geometry.lincnt_register <= MODEL_8200I_SE.max_lincnt_for(feed2, 1800)
+
+
+def test_lab_scan_se_inset_crop_is_not_preview_safe():
+    full = lab_scan_kwargs(MODEL_8200I_SE, dpi=1800, kind="scan", crop_norm=None)
+    cropped = lab_scan_kwargs(
+        MODEL_8200I_SE,
+        dpi=1800,
+        kind="scan",
+        crop_norm=(0.1, 0.1, 0.75, 0.85),
+    )
+    full_geo = full["geometry"]
+    crop_geo = cropped["geometry"]
+    assert crop_geo.pixels < full_geo.pixels
+    assert crop_geo.pixel_startx != full_geo.pixel_startx
+    assert crop_geo.lincnt_register < full_geo.lincnt_register
+
+
+def test_lab_scan_se_right_widget_crop_raises_str():
+    """Display-right inset (x2 < 1) is STR after mirror_x — raise pixel_startx."""
+    full = lab_scan_kwargs(MODEL_8200I_SE, dpi=1800, kind="scan", crop_norm=None)
+    cropped = lab_scan_kwargs(
+        MODEL_8200I_SE,
+        dpi=1800,
+        kind="scan",
+        crop_norm=(0.0, 0.1, 0.85, 0.9),
+    )
+    full_geo = full["geometry"]
+    crop_geo = cropped["geometry"]
+    assert crop_geo.pixel_startx > full_geo.pixel_startx
+    # Optical-span snap can move END by a few clocks; the crop is STR.
+    assert abs(crop_geo.pixel_endx - full_geo.pixel_endx) < 16
+
+
+def test_format_scan_window_note_crop_vs_full():
+    assert format_scan_window_note(crop_norm=None, width=2568, height=1801) == (
+        "full window 2568×1801"
+    )
+    assert format_scan_window_note(
+        crop_norm=(0.1, 0.2, 0.9, 0.8), width=1272, height=804
+    ) == "crop applied 1272×804"
+
+
+def test_format_scan_window_log_includes_geometry():
+    kwargs = lab_scan_kwargs(
+        MODEL_8200I_SE,
+        dpi=1800,
+        kind="scan",
+        crop_norm=(0.1, 0.1, 0.75, 0.85),
+    )
+    line = format_scan_window_log((0.1, 0.1, 0.75, 0.85), kwargs)
+    geo = kwargs["geometry"]
+    assert line.startswith("crop (0.100,0.100,0.750,0.850)")
+    assert f"str={geo.pixel_startx}" in line
+    assert f"end={geo.pixel_endx}" in line
+    assert format_scan_window_log(None, lab_scan_kwargs(
+        MODEL_8200I_SE, dpi=1800, kind="scan", crop_norm=None
+    )).startswith("full window")
 
 
 def test_lab_non_se_prescan_uses_short_area():

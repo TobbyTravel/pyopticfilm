@@ -219,6 +219,40 @@ def format_crop_status(meta: dict | None) -> str | None:
     return crop_adjustment_message(requested, effective)
 
 
+def format_scan_window_note(
+    *,
+    crop_norm: tuple[float, float, float, float] | None,
+    width: int,
+    height: int,
+) -> str:
+    """Status-bar fragment: crop applied vs full preview_safe window."""
+    if crop_norm is None:
+        return f"full window {width}×{height}"
+    return f"crop applied {width}×{height}"
+
+
+def format_scan_window_log(
+    crop_norm: tuple[float, float, float, float] | None,
+    scan_kw: dict,
+) -> str:
+    """USB-log line for the Scan window (crop tuple + STR/END when geometry is set)."""
+    if crop_norm is None:
+        text = "full window"
+    else:
+        x1, y1, x2, y2 = (float(v) for v in crop_norm)
+        text = f"crop ({x1:.3f},{y1:.3f},{x2:.3f},{y2:.3f})"
+    geometry = scan_kw.get("geometry")
+    if geometry is not None:
+        text += (
+            f" str={geometry.pixel_startx} end={geometry.pixel_endx} "
+            f"pixels={geometry.pixels} lines={geometry.lines} "
+            f"lincnt={geometry.lincnt_register}"
+        )
+    elif scan_kw.get("area") is not None:
+        text += f" area={scan_kw['area']}"
+    return text
+
+
 def list_lab_targets() -> list[LabTarget]:
     targets: list[LabTarget] = []
     connected_models: set[str] = set()
