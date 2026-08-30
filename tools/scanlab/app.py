@@ -132,12 +132,10 @@ class ScanLabWindow(QMainWindow):
         self.disable_gl128_prime = QCheckBox("Disable priming pass (debug)")
         self.disable_gl128_prime.setChecked(False)
         self.disable_gl128_prime.setToolTip(
-            "GL128 only. Off (default): the first Prescan/Scan after open runs "
-            "a discarded small pass that establishes the repeatable AGOHOME "
-            "park position. On: skip that pass — for debugging/testing only; "
-            "expect ~30 px of first-scan position drift versus the primed "
-            "baseline. The scanner still primes normally on a later "
-            "Prescan/Scan once this is unchecked again."
+            "GL128 only. Off (default): use the model's priming default "
+            "(currently off for 8200i SE and 8100 V2). On: skip the discarded "
+            "first-scan AGOHOME-park pass — for debugging/testing only. "
+            "Explicit priming is still available via Scanner.scan(gl128_prime=True)."
         )
         form.addWidget(self.disable_gl128_prime)
 
@@ -834,6 +832,12 @@ class ScanLabWindow(QMainWindow):
             slow_image_slope=self.slow_image_slope.isChecked(),
         )
 
+    def _gl128_prime_arg(self) -> bool | None:
+        """False when the debug box is on; otherwise leave the model default."""
+        if self.disable_gl128_prime.isChecked():
+            return False
+        return None
+
     def _clear_scan_tabs(self) -> None:
         """Drop prior prescan/scan results so a new Prescan starts a fresh session."""
         self._last_scan = None
@@ -865,7 +869,7 @@ class ScanLabWindow(QMainWindow):
         self._worker.request_prescan.emit(
             target,
             self.apply_calib.isChecked(),
-            not self.disable_gl128_prime.isChecked(),
+            self._gl128_prime_arg(),
         )
 
     def _on_scan(self) -> None:
@@ -922,7 +926,7 @@ class ScanLabWindow(QMainWindow):
             single_pass_exposure,
             me_short_exposure,
             me_long_exposure,
-            not self.disable_gl128_prime.isChecked(),
+            self._gl128_prime_arg(),
         )
 
     def _on_progress(self, value: float) -> None:

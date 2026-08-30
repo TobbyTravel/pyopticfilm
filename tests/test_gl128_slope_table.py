@@ -1,12 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""GL128 motor slope-table selection per feed (2026-08-30 real-hardware fault).
+"""GL128 motor slope-table selection per feed.
 
-Two independent real captures (a second capture session's files, and the
-original vendor capture ``04_color_7200.pcapng``) show every positioning
-feed pair uploading ``SLOPE_TABLE_FAST`` for the first (reference) feed but
-``SLOPE_TABLE_SLOW`` for the second (final positioning) feed — exact byte
-match in both sources, every time. pyopticfilm previously always used the
-fast ramp for both feeds. See docs/hw-ref/8100v2/PROGRESS.md.
+8100 V2 vendor captures: first (reference) feed ``SLOPE_TABLE_FAST``, second
+(final positioning) feed ``SLOPE_TABLE_SLOW``. 8200i SE SilverFast captures
+are the inverse (slow then fast; 39/39 positioning pairs). ``feed()`` still
+uploads the fast ramp on both models.
 """
 
 from __future__ import annotations
@@ -103,13 +101,14 @@ def test_position_for_full_frame_scan_uses_fast_then_slow_on_v2(monkeypatch):
     assert ahb_writes[3] == slow
 
 
-def test_position_for_full_frame_scan_stays_fast_on_se(monkeypatch):
-    """Regression guard: SE is unaffected by the V2-only slope fix.
+def test_v2_only_flag_is_absent_on_se():
+    """SE must not expose the V2 slow-final-feed flag (hosts cannot select it)."""
+    assert not hasattr(MODEL_8200I_SE, "use_slow_final_positioning_feed")
+    assert MODEL_8100_V2.use_slow_final_positioning_feed is True
 
-    This evidence is V2-only (see Model8200iSE.use_slow_final_positioning_
-    feed's docstring) -- SE must keep using the fast ramp for both feeds,
-    exactly as before this fix, until SE-specific evidence exists.
-    """
+
+def test_position_for_full_frame_scan_uses_slow_then_fast_on_se(monkeypatch):
+    """SE SilverFast: first feed SLOW, second FAST (inverse of V2)."""
     usb = MockScannerTransport()
     protocol = GenesysUsbProtocol(usb)
     asic = create_asic(protocol, MODEL_8200I_SE)
@@ -119,5 +118,9 @@ def test_position_for_full_frame_scan_stays_fast_on_se(monkeypatch):
     asic.position_for_full_frame_scan(scan_steps=13704)
 
     fast = _pack(SLOPE_TABLE_FAST)
-    assert len(ahb_writes) == 4
-    assert all(w == fast for w in ahb_writes), "SE must stay fast-fast, not fast-slow"
+    slow = _pack(SLOPE_TABLE_SLOW)
+    assert len(ahb_writes) == 4  # 2 windows x 2 feeds
+    assert ahb_writes[0] == slow
+    assert ahb_writes[1] == slow
+    assert ahb_writes[2] == fast
+    assert ahb_writes[3] == fast

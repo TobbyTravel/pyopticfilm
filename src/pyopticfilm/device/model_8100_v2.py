@@ -113,11 +113,11 @@ class Model8100V2(Model8200iSE):
     # not a claim that priming itself is dangerous. Still fully overridable
     # via Scanner.scan(gl128_prime=True) or a host's own UI toggle.
     default_gl128_prime: bool = False
-    # Real-hardware fault fix: two independent captures (this repo's own
-    # session, plus the recovered 04_color_7200.pcapng) show the second
-    # (final positioning) feed uses the slow motor ramp, not the fast one
-    # SE defaults to. See Model8200iSE.use_slow_final_positioning_feed's
-    # docstring — not yet independently verified on SE.
+    # V2-only: second (final positioning) feed uses SLOPE_TABLE_SLOW.
+    # Two independent V2 captures (plus recovered 04_color_7200.pcapng).
+    # 8200i SE has no such field — SilverFast there is the inverse
+    # (slow reference feed, fast final feed). See
+    # Gl128.position_for_full_frame_scan.
     use_slow_final_positioning_feed: bool = True
 
     def shading_strip_clocks(self, resolution: int, *, dvdset: bool) -> tuple[int, int, int]:

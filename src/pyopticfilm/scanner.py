@@ -48,10 +48,10 @@ logger = get_logger(__name__)
 # Scanner.scan(gl128_prime=False) skips the pass entirely for that call
 # (expect ~30 px of first-scan position drift on models where priming is
 # actually needed). It does not mark the scanner as primed, so a later call
-# without the override still primes normally. Leave gl128_prime unset (None)
-# to use the model's own default (Model.default_gl128_prime) — True for
-# every model except the 8100 V2, which defaults to False as of 2026-08-30
-# (see model_8100_v2.py).
+# without the override still primes if the model's default is on. Leave
+# gl128_prime unset (None) to use the model's own default
+# (Model.default_gl128_prime) — False for both GL128 models (8200i SE and
+# 8100 V2). Explicit gl128_prime=True still primes.
 _PRIME_ENV = "POF_GL128_PRIME"
 _PRIME_DEFAULT = (600, (0.0, 0.0, 1.0, 0.12))
 
@@ -336,7 +336,7 @@ class Scanner:
             "me_long_exposure": me_long_exposure,
         }
         if gl128_prime is None:
-            gl128_prime = bool(getattr(self._model, "default_gl128_prime", True))
+            gl128_prime = bool(getattr(self._model, "default_gl128_prime", False))
         if getattr(self._model, "asic", "") == "GL128" and not self._gl128_primed:
             if not gl128_prime:
                 # Debug/testing only: skip the discarded pass for this call.

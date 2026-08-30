@@ -61,11 +61,13 @@ from later passes. This is a physical positioning issue, not image alignment:
 repeated 1200 dpi full-frame scans showed a roughly 46-pixel first-to-second
 pass displacement, while later passes stayed within approximately 2 pixels.
 
-The public `Scanner.scan()` path therefore performs one discarded, single-pass
-colour scan the first time a GL128 scanner is used. That pass completes the
-normal image-session shutdown, including the capture-proven `AGOHOME` return to
-home. The requested scan then runs after this priming cycle. Priming is tracked
-per `Scanner` instance and is not repeated for later scans from that instance.
+The public `Scanner.scan()` path can perform one discarded, single-pass
+colour scan the first time a GL128 scanner is used (`gl128_prime=True`).
+That pass completes the normal image-session shutdown, including the
+capture-proven `AGOHOME` return to home. The requested scan then runs after
+this priming cycle. Priming is tracked per `Scanner` instance and is not
+repeated for later scans from that instance. Both hardware-tested GL128
+models default `gl128_prime` to off (`Model.default_gl128_prime=False`).
 
 The priming pass deliberately disables caller progress/cancel callbacks and
 multi-exposure/infrared modes. It also forces `geometry=None`,

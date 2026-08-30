@@ -264,6 +264,7 @@ def test_scanner_scan_threads_manual_exposure_to_session_not_prime(monkeypatch):
             single_pass_exposure=12345,
             me_short_exposure=6789,
             me_long_exposure=99999,
+            gl128_prime=True,
         )
     finally:
         scanner.close()
