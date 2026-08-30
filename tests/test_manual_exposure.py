@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
 from pyopticfilm.device.model_8200i import MODEL_8200I
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.device.select import create_asic
@@ -42,11 +43,15 @@ def _mock_gl128_session() -> tuple[Gl128ScanSession, MockScannerTransport]:
 
 def _mock_gl128_session_armed() -> tuple[Gl128ScanSession, MockScannerTransport]:
     """For full ``run()`` calls — motor moves armed, required by the run() gate."""
+    return _mock_gl128_session_armed_for(MODEL_8200I_SE)
+
+
+def _mock_gl128_session_armed_for(model) -> tuple[Gl128ScanSession, MockScannerTransport]:
     usb = MockScannerTransport()
-    asic = create_asic(GenesysUsbProtocol(usb), MODEL_8200I_SE)
+    asic = create_asic(GenesysUsbProtocol(usb), model)
     asic._motor_moves_enabled = True
     asic.init()
-    return Gl128ScanSession(asic, MODEL_8200I_SE), usb
+    return Gl128ScanSession(asic, model), usb
 
 
 # --- validation ----------------------------------------------------------
@@ -360,3 +365,61 @@ def test_n_brackets_out_of_range_raises(n_brackets):
             )
     finally:
         scanner.close()
+
+
+# --- n_brackets model-aware exposure-mode default --------------------------
+#
+# n_brackets > 2 with no explicit me_exposure_mode defers to
+# Model.me_default_exposure_mode: "fixed" (pinned to the one
+# real-hardware-validated exposure) on the 8100 V2, "adaptive" on the SE
+# (no dedicated N-bracket hardware validation for SE yet). n_brackets == 2
+# is unaffected either way — always "adaptive" by default, unchanged.
+
+
+def test_n_brackets_v2_defaults_to_fixed_when_unset():
+    session, _usb = _mock_gl128_session_armed_for(MODEL_8100_V2)
+    session.run(
+        resolution=1800,
+        area=_TINY,
+        apply_calib=False,
+        multi_exposure=True,
+        n_brackets=5,
+    )
+    debug = session.last_me_debug
+    assert debug.exposure_reason == "fixed"
+    assert debug.exposure_long == 42000
+
+
+def test_n_brackets_se_defaults_to_adaptive_when_unset():
+    session, _usb = _mock_gl128_session_armed_for(MODEL_8200I_SE)
+    session.run(
+        resolution=1800,
+        area=_TINY,
+        apply_calib=False,
+        multi_exposure=True,
+        n_brackets=5,
+    )
+    debug = session.last_me_debug
+    assert debug.exposure_reason != "fixed"
+
+
+def test_n_brackets_two_v2_still_defaults_to_adaptive():
+    """n_brackets == 2 is unaffected by the model default — unchanged behavior."""
+    session, _usb = _mock_gl128_session_armed_for(MODEL_8100_V2)
+    session.run(resolution=1800, area=_TINY, apply_calib=False, multi_exposure=True)
+    debug = session.last_me_debug
+    assert debug.exposure_reason != "fixed"
+
+
+def test_n_brackets_explicit_mode_overrides_v2_default():
+    session, _usb = _mock_gl128_session_armed_for(MODEL_8100_V2)
+    session.run(
+        resolution=1800,
+        area=_TINY,
+        apply_calib=False,
+        multi_exposure=True,
+        n_brackets=5,
+        me_exposure_mode="adaptive",
+    )
+    debug = session.last_me_debug
+    assert debug.exposure_reason != "fixed"

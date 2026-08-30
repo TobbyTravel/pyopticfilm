@@ -81,5 +81,15 @@ class Model8200iSE(Gl128Common):
     #: Required GL128 knob (V2 is the inverse). Do not omit this field.
     use_slow_final_positioning_feed: bool = False
 
+    #: Default me_exposure_mode ("adaptive"/"fixed") when a caller passes
+    #: n_brackets > 1 to Scanner.scan() without an explicit override — SE
+    #: has no dedicated real-hardware exposure-selection validation the way
+    #: V2 does (see Model8100V2's override), so content-driven adaptive
+    #: selection is the SE default. An explicit me_exposure_mode always
+    #: wins regardless of this default; n_brackets == 2 is unaffected
+    #: (always "adaptive" unless explicitly overridden, unchanged from
+    #: before this attribute existed).
+    me_default_exposure_mode: str = "adaptive"
+
 
 MODEL_8200I_SE = Model8200iSE()

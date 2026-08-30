@@ -301,7 +301,7 @@ class Scanner:
         multi_exposure: bool = False,
         infrared: bool = False,
         align_passes: bool = True,
-        me_exposure_mode: str = "adaptive",
+        me_exposure_mode: str | None = None,
         single_pass_exposure: int | None = None,
         me_short_exposure: int | None = None,
         me_long_exposure: int | None = None,

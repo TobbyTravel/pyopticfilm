@@ -127,7 +127,7 @@ class Gl128ScanSession(ScanSession):
         multi_exposure: bool = False,
         infrared: bool = False,
         align_passes: bool = True,
-        me_exposure_mode: str = "adaptive",
+        me_exposure_mode: str | None = None,
         single_pass_exposure: int | None = None,
         me_short_exposure: int | None = None,
         me_long_exposure: int | None = None,
@@ -354,7 +354,7 @@ class Gl128ScanSession(ScanSession):
         multi_exposure: bool = False,
         infrared: bool = False,
         align_passes: bool = True,
-        me_exposure_mode: str = "adaptive",
+        me_exposure_mode: str | None = None,
         me_short_exposure: int | None = None,
         me_long_exposure: int | None = None,
         n_brackets: int = 2,
@@ -380,10 +380,21 @@ class Gl128ScanSession(ScanSession):
             else int(getattr(model, "exposure_short", model.exposure_lperiod))
         )
         exp_long = int(getattr(model, "exposure_long", exp_short * 3))
-        mode_norm = str(me_exposure_mode or "adaptive").strip().lower()
+        if me_exposure_mode is not None:
+            # Explicit caller choice always wins, regardless of n_brackets.
+            mode_norm = str(me_exposure_mode).strip().lower()
+        elif n_brackets > 2:
+            # No explicit choice: n_brackets > 2 defers to the model's own
+            # default (Model.me_default_exposure_mode) — e.g. the 8100 V2
+            # stays pinned to its one real-hardware-validated exposure
+            # rather than adaptively varying per frame in the new N-bracket
+            # path. n_brackets == 2 is untouched (see the branch below).
+            mode_norm = str(getattr(model, "me_default_exposure_mode", "adaptive")).strip().lower()
+        else:
+            mode_norm = "adaptive"
         if mode_norm not in ("adaptive", "fixed"):
             raise ValueError(
-                f"me_exposure_mode must be 'adaptive' or 'fixed', got {me_exposure_mode!r}"
+                f"me_exposure_mode must be 'adaptive' or 'fixed', got {mode_norm!r}"
             )
 
         if not self.asic._initialized:
