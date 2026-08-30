@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""GL128 STR/END native-space window vs SilverFast session 03/04 oracles."""
+"""Frozen 8200i SE STR/END window oracles — do not retarget to match new code."""
 
 from __future__ import annotations
 

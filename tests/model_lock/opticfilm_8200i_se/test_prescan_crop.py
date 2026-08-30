@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Prescan crop coordinate helpers."""
+"""Frozen 8200i SE prescan crop mapping — do not retarget to match new code."""
 
 from __future__ import annotations
 

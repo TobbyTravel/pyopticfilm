@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""GL128 multi-exposure configure tests."""
+"""Frozen 8200i SE ME configure / feed2 oracles — do not retarget to match new code."""
 
 from __future__ import annotations
 

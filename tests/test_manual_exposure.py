@@ -32,7 +32,7 @@ def _reg_exposure(usb: MockScannerTransport) -> int:
 
 
 def _mock_gl128_session() -> tuple[Gl128ScanSession, MockScannerTransport]:
-    """For direct ``_configure()`` calls — motor moves off (as in test_me_gl128_configure.py)."""
+    """For direct ``_configure()`` calls — motor moves off (as in model_lock ME configure)."""
     usb = MockScannerTransport()
     asic = create_asic(GenesysUsbProtocol(usb), MODEL_8200I_SE)
     asic._motor_moves_enabled = False
