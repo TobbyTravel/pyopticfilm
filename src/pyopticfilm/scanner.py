@@ -46,9 +46,12 @@ logger = get_logger(__name__)
 #   <dpi>:x0,y0,x1,y1   -> custom pass, e.g. 600:0.0,0.0,1.0,0.12
 #
 # Scanner.scan(gl128_prime=False) skips the pass entirely for that call
-# (debug/testing only — expect ~30 px of first-scan position drift). It does
-# not mark the scanner as primed, so a later call without the override still
-# primes normally.
+# (expect ~30 px of first-scan position drift on models where priming is
+# actually needed). It does not mark the scanner as primed, so a later call
+# without the override still primes normally. Leave gl128_prime unset (None)
+# to use the model's own default (Model.default_gl128_prime) — True for
+# every model except the 8100 V2, which defaults to False as of 2026-08-30
+# (see model_8100_v2.py).
 _PRIME_ENV = "POF_GL128_PRIME"
 _PRIME_DEFAULT = (600, (0.0, 0.0, 1.0, 0.12))
 
@@ -302,7 +305,7 @@ class Scanner:
         single_pass_exposure: int | None = None,
         me_short_exposure: int | None = None,
         me_long_exposure: int | None = None,
-        gl128_prime: bool = True,
+        gl128_prime: bool | None = None,
     ) -> ScanImage:
         # Fail fast on bad manual-exposure input before touching the ASIC.
         validate_manual_exposure(single_pass_exposure, label="single_pass_exposure")
@@ -332,6 +335,8 @@ class Scanner:
             "me_short_exposure": me_short_exposure,
             "me_long_exposure": me_long_exposure,
         }
+        if gl128_prime is None:
+            gl128_prime = bool(getattr(self._model, "default_gl128_prime", True))
         if getattr(self._model, "asic", "") == "GL128" and not self._gl128_primed:
             if not gl128_prime:
                 # Debug/testing only: skip the discarded pass for this call.

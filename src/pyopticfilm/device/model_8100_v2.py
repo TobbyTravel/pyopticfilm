@@ -103,6 +103,17 @@ class Model8100V2(Model8200iSE):
     # V2 uses feed2=13128 for all scan types (top of TA window), not SE's 13560.
     ladder_feed2_steps: int = 13128
 
+    # 2026-08-30: real-hardware isolation testing (repeated, 5-for-5 clean
+    # trials at 1200/1800/7200dpi) found the motor slope-table fix
+    # (_upload_fast_slopes' use_slow parameter, gl128.py, see PR #40) resolves
+    # a mechanical fault seen during hardware testing. Priming was off in
+    # every one of those clean trials; priming ON has not yet been separately
+    # re-tested now that the slope table is fixed, so this is a precautionary
+    # default matching what's actually been proven safe on real V2 hardware,
+    # not a claim that priming itself is dangerous. Still fully overridable
+    # via Scanner.scan(gl128_prime=True) or a host's own UI toggle.
+    default_gl128_prime: bool = False
+
     def shading_strip_clocks(self, resolution: int, *, dvdset: bool) -> tuple[int, int, int]:
         """Return ``(dummy, clk_a, clk_b)`` for a shading strip.
 

@@ -307,6 +307,17 @@ class Model8200iSE:
     #: PPI below this share the 600 dpi ASIC programming (session 13).
     min_asic_dpi: int = _MIN_ASIC_DPI
 
+    #: Default for ``Scanner.scan(gl128_prime=...)`` when the caller passes
+    #: ``None`` (leaves the choice to the model) rather than an explicit
+    #: ``True``/``False``. SE default: unchanged, prime on. GL128 priming was
+    #: introduced (and its ~30-46px first-pass positioning benefit measured)
+    #: on the 8100 V2 specifically — it has never been independently
+    #: confirmed as needed on SE hardware, so this default is inherited
+    #: assumption, not SE-specific evidence. Worth its own re-evaluation and
+    #: benchmark on real SE hardware at some point; see ``Model8100V2`` for
+    #: the V2 override and its own caveats.
+    default_gl128_prime: bool = True
+
     x_size_mm: float = 36.0
     y_size_mm: float = 44.0
 
