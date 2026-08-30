@@ -1408,9 +1408,18 @@ class Gl128:
             )
         return int(limit_mm * self.model.feed_steps_per_inch / MM_PER_INCH)
 
-    def _upload_fast_slopes(self) -> None:
-        """Upload the fast motor ramp to both AHB slope windows."""
-        slope = _u16_table_bytes(SLOPE_TABLE_FAST)
+    def _upload_fast_slopes(self, *, use_slow: bool = False) -> None:
+        """Upload the motor ramp to both AHB slope windows.
+
+        2026-08-30: two independent real USB captures of the vendor driver
+        show every positioning feed pair uploading ``SLOPE_TABLE_FAST`` for
+        the first (reference) feed but ``SLOPE_TABLE_SLOW`` for the second
+        (final positioning) feed — exact byte match in both sources, every
+        time. This function previously always used the fast ramp
+        regardless of caller, which produced a real mechanical fault on
+        the 8100 V2 (see the issue this fix closes).
+        """
+        slope = _u16_table_bytes(SLOPE_TABLE_SLOW if use_slow else SLOPE_TABLE_FAST)
         r = self.registers
         self.protocol.write_ahb(r.AHB_SLOPE_SCAN, slope)
         self.protocol.write_ahb(r.AHB_SLOPE_FAST, slope)
@@ -1442,12 +1451,19 @@ class Gl128:
         *,
         timeout_s: float = 30.0,
         require_motion: bool = True,
+        use_slow_slope: bool = False,
     ) -> None:
         """Replay the captured fast-feed recipe (see MOTOR.md).
 
         Does **not** write ``0x0d`` before ``0x0f`` — feeds in the capture start
-        with ``0x0f = 0x01`` alone. Completion is the vendor probe at
-        ``wIndex=0x21`` returning ``0x04``.
+        with ``0x0f = 0x01`` alone. Completion is either the model's vendor
+        probe (``model.feed_probe_index``, SE only — see that attribute's
+        docstring) returning ``0x04``, or the ``0x101`` status register's
+        ``FEEDFSH`` bit (confirmed on both models; the only signal used on
+        the 8100 V2).
+
+        ``use_slow_slope``: pass ``True`` for the final positioning feed —
+        see ``_upload_fast_slopes``'s docstring for the capture evidence.
         """
         steps = max(0, int(steps))
         if steps == 0:
@@ -1461,7 +1477,7 @@ class Gl128:
         self._write_many(setup)
         self.protocol.write_u24(r.REG_FEEDL, steps)
         self._write(r.REG_0x02, r.MTRPWR | r.FASTFED)  # 0x18
-        self._upload_fast_slopes()
+        self._upload_fast_slopes(use_slow=use_slow_slope)
         # This recipe deliberately does not clear the counter, so the probe and
         # FEEDFSH still carry the previous feed's completion. Sample them now so
         # the wait below knows not to believe the first "done" it sees.
@@ -1610,7 +1626,7 @@ class Gl128:
             second,
         )
         self._feed_capture(first, timeout_s=timeout_s / 2, require_motion=True)
-        self._feed_capture(second, timeout_s=timeout_s / 2, require_motion=True)
+        self._feed_capture(second, timeout_s=timeout_s / 2, require_motion=True, use_slow_slope=True)
         end = self.read_status_reliable()
         logger.info("GL128 positioned for scan (status 0x%02x)", end.raw)
         if end.is_at_home:
