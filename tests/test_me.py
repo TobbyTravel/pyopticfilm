@@ -67,6 +67,44 @@ def test_assemble_expose_base_false_preserves_me_ratio():
     assert ratio_exposed < 1.5
 
 
+def test_locked_usb_end_drop_allows_me_merge_when_edges_differ():
+    """ME short/long with unequal dark END columns merge when drop is locked."""
+    from pyopticfilm.scan.geometry import compute_geometry
+    from pyopticfilm.scan.pipeline import ImagePipeline
+
+    pipe = ImagePipeline(MODEL_8200I_SE)
+    geometry = compute_geometry(3600, model=MODEL_8200I_SE, area=(0.15, 0.2, 0.7, 0.6))
+    assert geometry.usb_end_drop == 48
+    h = max(4, geometry.lines)
+    w = geometry.pixels
+    short = np.full((h, w, 3), 12_000, dtype=np.uint16)
+    short[:, -24:, :] = 100
+    long = np.full((h, w, 3), 36_000, dtype=np.uint16)
+
+    pipe.reduce_y_oversample = lambda rgb, _g: rgb  # type: ignore[method-assign]
+    pipe.apply_line_shifts = lambda rgb, _g: rgb  # type: ignore[method-assign]
+    pipe.apply_y_stagger = lambda rgb, _g: rgb  # type: ignore[method-assign]
+    pipe.apply_host_downsample = lambda rgb, _g: rgb  # type: ignore[method-assign]
+
+    pipe.decode_rgb = lambda *_a, **_k: short.copy()  # type: ignore[method-assign]
+    out_s = pipe.assemble(b"S", geometry, dark=None, white=None, expose_base=False)
+    locked = pipe.last_usb_end_drop
+    assert locked == 24
+
+    pipe.decode_rgb = lambda *_a, **_k: long.copy()  # type: ignore[method-assign]
+    out_l_unlocked = pipe.assemble(b"L", geometry, dark=None, white=None, expose_base=False)
+    assert out_l_unlocked.shape[1] != out_s.shape[1]
+
+    out_l = pipe.assemble(
+        b"L", geometry, dark=None, white=None, expose_base=False, usb_end_drop=locked
+    )
+    assert out_s.shape == out_l.shape
+    result = merge_exposures_result(
+        out_s, out_l, exposure_short=14000, exposure_long=42000
+    )
+    assert result.rgb.shape == out_s.shape
+
+
 def test_assemble_expose_base_false_skips_makeup_hooks():
     from pyopticfilm.scan.geometry import compute_geometry
     from pyopticfilm.scan.pipeline import ImagePipeline

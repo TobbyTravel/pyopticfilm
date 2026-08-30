@@ -103,6 +103,9 @@ class ImagePipeline:
 
     def __init__(self, model: FilmModel = MODEL_8200I) -> None:
         self.model = model
+        #: Columns dropped from the USB ENDPIXEL side on the last :meth:`assemble`.
+        #: Multi-pass callers lock the short-plane value for long/IR assemble.
+        self.last_usb_end_drop: int = 0
 
     @staticmethod
     def _inset_slice(h: int, w: int, inset: float) -> tuple[slice, slice] | None:
@@ -444,15 +447,18 @@ class ImagePipeline:
         white: np.ndarray | None = None,
         planar: bool | None = None,
         expose_base: bool = True,
+        usb_end_drop: int | None = None,
     ) -> np.ndarray:
         """Decode USB RGB and apply calib / optional film-base makeup.
 
         ``expose_base=False`` skips scalar peak stretch and border clamp so ME
         short/long planes stay linear (SilverFast-wire scale) for host merge.
 
-        Image width equals the programmed STR/END span minus a content-aware
-        ENDPIXEL dummy trim (capped at ``geometry.usb_end_drop``). Pcap 7200
-        may still drop dummy URB columns via :func:`trim_to_optical_span`.
+        Image width equals the programmed STR/END span minus an ENDPIXEL dummy
+        trim (capped at ``geometry.usb_end_drop``). With ``usb_end_drop=None``
+        the trim is content-aware; pass an ``int`` to reuse a locked drop from
+        an earlier plane (ME short → long/IR) so widths match. Pcap 7200 may
+        still drop dummy URB columns via :func:`trim_to_optical_span`.
         """
         rgb = self.decode_rgb(raw, geometry=geometry, planar=planar)
         rgb = self.reduce_y_oversample(rgb, geometry)
@@ -461,7 +467,11 @@ class ImagePipeline:
         rgb = self.apply_host_downsample(rgb, geometry)
         rgb = trim_to_optical_span(rgb, geometry)
         cap = 0 if geometry.disable_buffer_full_move else int(getattr(geometry, "usb_end_drop", 0) or 0)
-        drop = count_usb_end_dummy_columns(rgb, max_drop=cap)
+        if usb_end_drop is None:
+            drop = count_usb_end_dummy_columns(rgb, max_drop=cap)
+        else:
+            drop = max(0, min(int(usb_end_drop), cap, max(0, rgb.shape[1] - 8)))
+        self.last_usb_end_drop = drop
         if drop > 0:
             rgb = np.ascontiguousarray(rgb[:, : rgb.shape[1] - drop, :])
             logger.info(

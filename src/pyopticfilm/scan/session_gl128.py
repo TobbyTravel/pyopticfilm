@@ -411,6 +411,9 @@ class Gl128ScanSession(ScanSession):
         rgb_long = None
         ir_plane = None
         exposure_decision = None
+        # Content-aware ENDPIXEL drop from the short plane; reuse for long/IR
+        # so merge/align see matching widths (edge DN differs across exposures).
+        locked_usb_end_drop: int | None = None
 
         def _acquire_pass(
             *,
@@ -422,7 +425,7 @@ class Gl128ScanSession(ScanSession):
             long_pass: bool,
             manual: bool = False,
         ):
-            nonlocal rgb_short, rgb_long, ir_plane
+            nonlocal rgb_short, rgb_long, ir_plane, locked_usb_end_drop
 
             def _prog(p: float, _i: int = idx) -> None:
                 if progress is not None:
@@ -487,6 +490,8 @@ class Gl128ScanSession(ScanSession):
             planar = getattr(self.asic, "usb_planar_rgb", None)
             if planar is None:
                 planar = bool(getattr(self.model, "usb_planar_rgb", False))
+            # Short discovers the dummy trim; later planes reuse that drop.
+            drop_override = None if key == "color_short" else locked_usb_end_drop
             rgb = self.pipeline.assemble(
                 raw,
                 geometry,
@@ -496,9 +501,10 @@ class Gl128ScanSession(ScanSession):
                 # Keep ME colour (and IR) planes linear — per-plane expose_film_base
                 # collapses the short/long ratio. Makeup runs once on the deliverable.
                 expose_base=False,
+                usb_end_drop=drop_override,
             )
-
             if key == "color_short":
+                locked_usb_end_drop = int(self.pipeline.last_usb_end_drop)
                 rgb_short = rgb
             elif key == "color_long":
                 rgb_long = rgb
