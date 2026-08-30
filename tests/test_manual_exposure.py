@@ -300,3 +300,63 @@ def test_scanner_scan_single_pass_exposure_not_implemented_for_non_gl128():
             scanner.scan(resolution=900, area=_TINY, apply_calib=False, single_pass_exposure=5000)
     finally:
         scanner.close()
+
+
+# --- n_brackets (N-way ME) -------------------------------------------------
+
+
+def test_n_brackets_default_matches_two_bracket_debug():
+    session, _usb = _mock_gl128_session_armed()
+    session.run(resolution=1800, area=_TINY, apply_calib=False, multi_exposure=True)
+    debug = session.last_me_debug
+    assert debug.brackets is not None
+    assert len(debug.brackets) == 2
+    assert debug.brackets[0].exposure == debug.exposure_short
+    assert debug.brackets[-1].exposure == debug.exposure_long
+
+
+def test_n_brackets_five_captures_five_ascending_exposures():
+    session, _usb = _mock_gl128_session_armed()
+    session.run(
+        resolution=1800,
+        area=_TINY,
+        apply_calib=False,
+        multi_exposure=True,
+        n_brackets=5,
+    )
+    debug = session.last_me_debug
+    assert debug.brackets is not None
+    assert len(debug.brackets) == 5
+    exposures = [b.exposure for b in debug.brackets]
+    assert exposures == sorted(exposures)
+    assert len(set(exposures)) == 5
+    assert exposures[0] == debug.exposure_short
+    assert exposures[-1] == debug.exposure_long
+
+
+def test_n_brackets_nine_is_accepted():
+    session, _usb = _mock_gl128_session_armed()
+    session.run(
+        resolution=1800,
+        area=_TINY,
+        apply_calib=False,
+        multi_exposure=True,
+        n_brackets=9,
+    )
+    assert len(session.last_me_debug.brackets) == 9
+
+
+@pytest.mark.parametrize("n_brackets", [1, 10])
+def test_n_brackets_out_of_range_raises(n_brackets):
+    scanner = Scanner.open_fake(MODEL_8200I_SE)
+    try:
+        with pytest.raises(ValueError):
+            scanner.scan(
+                resolution=1800,
+                area=_TINY,
+                apply_calib=False,
+                multi_exposure=True,
+                n_brackets=n_brackets,
+            )
+    finally:
+        scanner.close()

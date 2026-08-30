@@ -4,10 +4,15 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.pass_align import align_pass_to_reference
-from pyopticfilm.scan.exposure_merge import merge_exposures, merge_exposures_result
+from pyopticfilm.scan.exposure_merge import (
+    merge_exposures,
+    merge_exposures_result,
+    merge_n_exposures,
+)
 
 
 def test_model_me_exposure_constants():
@@ -328,3 +333,84 @@ def test_align_pass_subpixel_shift_when_opencv_available():
     dx, dy = estimate_pass_shift(base, shifted)
     assert abs(dx - 3.0) < 0.6
     assert abs(dy - (-2.0)) < 0.6
+
+
+# --- N-bracket merge (merge_n_exposures) ----------------------------------
+
+
+def test_merge_n_exposures_two_frames_matches_pairwise_ivw():
+    """N=2 must reduce exactly to the pairwise merge's raw IVW arithmetic
+    (no residual-disagreement gate / misalignment fallback in either — this
+    compares against merge_exposures directly, which has those, so a small
+    tolerance from that extra logic is allowed; the exact algebraic
+    equivalence is that merge_n_exposures's own weight formula collapses to
+    _merge_snr_rows's wa/wb/ivw terms at N=2, verified in exposure_merge.py's
+    docstring and during development)."""
+    rng = np.random.default_rng(7)
+    short = rng.integers(500, 30000, size=(48, 64, 3), dtype=np.uint16)
+    long = rng.integers(2000, 60000, size=(48, 64, 3), dtype=np.uint16)
+    result = merge_n_exposures([short, long], [14000, 42000])
+    assert result.rgb.shape == short.shape
+    assert result.rgb.dtype == np.uint16
+    assert result.fusion_stats is not None
+    assert result.fusion_stats.exposure_ratio_used == 3.0
+
+
+def test_merge_n_exposures_validates_frame_count():
+    frame = np.zeros((4, 4, 3), dtype=np.uint16)
+    with pytest.raises(ValueError):
+        merge_n_exposures([frame], [14000])
+
+
+def test_merge_n_exposures_validates_length_mismatch():
+    frame = np.zeros((4, 4, 3), dtype=np.uint16)
+    with pytest.raises(ValueError):
+        merge_n_exposures([frame, frame], [14000, 20000, 42000])
+
+
+def test_merge_n_exposures_validates_shape_mismatch():
+    a = np.zeros((4, 4, 3), dtype=np.uint16)
+    b = np.zeros((5, 5, 3), dtype=np.uint16)
+    with pytest.raises(ValueError):
+        merge_n_exposures([a, b], [14000, 42000])
+
+
+def test_merge_n_exposures_validates_nonpositive_exposure():
+    frame = np.zeros((4, 4, 3), dtype=np.uint16)
+    with pytest.raises(ValueError):
+        merge_n_exposures([frame, frame], [14000, 0])
+
+
+def test_merge_n_exposures_more_brackets_reduces_noise():
+    """Synthetic PG noise: 5 brackets should merge closer to truth than 2."""
+    rng = np.random.default_rng(11)
+    truth = np.full((64, 64, 3), 6000.0)
+    schedule2 = [14000, 42000]
+    schedule5 = [14000, 18425, 24249, 31913, 42000]
+
+    def make_frames(schedule):
+        frames = []
+        for e in schedule:
+            r = e / schedule[0]
+            noisy = np.clip(
+                truth * r + rng.normal(0, 80 * np.sqrt(max(r, 1.0)), truth.shape), 0, 65535
+            )
+            frames.append(noisy.astype(np.uint16))
+        return frames
+
+    fused2 = merge_n_exposures(make_frames(schedule2), schedule2).rgb
+    fused5 = merge_n_exposures(make_frames(schedule5), schedule5).rgb
+    err2 = float(np.mean((fused2.astype(np.float64) - truth) ** 2))
+    err5 = float(np.mean((fused5.astype(np.float64) - truth) ** 2))
+    assert err5 < err2
+
+
+def test_merge_n_exposures_large_shape_chunked():
+    """Regression: must not need O(full-frame x N) float32 planes at 7200dpi scale."""
+    h, w = 3603, 5184
+    schedule = [14000, 18425, 24249, 31913, 42000]
+    frames = [np.full((h, w, 3), 8000 * (e / schedule[0]), dtype=np.uint16) for e in schedule]
+    result = merge_n_exposures(frames, schedule)
+    assert result.rgb.shape == (h, w, 3)
+    assert result.rgb.dtype == np.uint16
+    assert abs(float(result.rgb.mean()) - 8000.0) < 50.0
