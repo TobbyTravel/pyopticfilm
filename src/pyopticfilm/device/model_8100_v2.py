@@ -119,6 +119,14 @@ class Model8100V2(Model8200iSE):
     # (slow reference feed, fast final feed). See
     # Gl128.position_for_full_frame_scan.
     use_slow_final_positioning_feed: bool = True
+    # 2026-08-30: n_brackets > 2 (N-bracket ME) validated on real V2 hardware
+    # specifically at the fixed 42000 top exposure (SilverFast known-good
+    # colour-long, see clamp_me_long_for_dpi). Real per-frame adaptive
+    # selection has not been separately validated for the N-bracket path on
+    # this model, so brackets stay pinned to that one proven-safe value by
+    # default. Still fully overridable via Scanner.scan(me_exposure_mode=
+    # "adaptive"). Does not affect n_brackets == 2, which is unchanged.
+    me_default_exposure_mode: str = "fixed"
 
     def shading_strip_clocks(self, resolution: int, *, dvdset: bool) -> tuple[int, int, int]:
         """Return ``(dummy, clk_a, clk_b)`` for a shading strip.

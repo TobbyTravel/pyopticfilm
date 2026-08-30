@@ -417,6 +417,15 @@ class Model8200iSE:
     me_dense_percentile: float = 5.0
     #: Subtracted before dense stats; 0 when host calib already dark-subtracted.
     me_black_level: float = 0.0
+    #: Default me_exposure_mode ("adaptive"/"fixed") when a caller passes
+    #: n_brackets > 1 to Scanner.scan() without an explicit override — SE
+    #: has no dedicated real-hardware exposure-selection validation the way
+    #: V2 does (see Model8100V2's override), so content-driven adaptive
+    #: selection is the SE default. An explicit me_exposure_mode always
+    #: wins regardless of this default; n_brackets == 2 is unaffected
+    #: (always "adaptive" unless explicitly overridden, unchanged from
+    #: before this attribute existed).
+    me_default_exposure_mode: str = "adaptive"
     #: GL845-shaped ``starty`` base only. The SE never feeds ``geometry.starty``;
     #: FEEDL steps use :attr:`feed_steps_per_inch` instead.
     motor_base_ydpi: int = 7200
