@@ -24,19 +24,7 @@ def _method_args(name: str) -> tuple[list[str], list[str]]:
 
 def test_run_scan_accepts_positional_signal_args():
     positional, keyword_only = _method_args("run_scan")
-    assert positional == [
-        "target",
-        "dpi",
-        "ir_pass",
-        "me_pass",
-        "crop_norm",
-        "apply_calib",
-        "me_exposure_mode",
-        "single_pass_exposure",
-        "me_short_exposure",
-        "me_long_exposure",
-        "gl128_prime",
-    ]
+    assert positional == ["request"]
     assert keyword_only == []
 
 
@@ -45,3 +33,20 @@ def test_run_prescan_accepts_positional_signal_args():
     positional, keyword_only = _method_args("run_prescan")
     assert positional == ["target", "apply_calib", "gl128_prime"]
     assert keyword_only == []
+
+
+def test_request_scan_is_single_object_signal():
+    tree = ast.parse(_WORKER.read_text(encoding="utf-8"))
+    names = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
+    assert "ScanRequest" in names
+    for node in tree.body:
+        if not (isinstance(node, ast.ClassDef) and node.name == "ScanWorker"):
+            continue
+        for item in node.body:
+            if isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name) and target.id == "request_scan":
+                        assert isinstance(item.value, ast.Call)
+                        assert len(item.value.args) == 1
+                        return
+    raise AssertionError("ScanWorker.request_scan not found")

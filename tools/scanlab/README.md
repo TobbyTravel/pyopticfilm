@@ -136,8 +136,10 @@ discarded GL128 priming pass.
 Full-window preview. Drag with the left mouse button to set a normalized crop.
 Scan uses that crop in the same image coordinates as the prescan preview
 (orientation corrected in ``ImagePipeline.assemble()``).
-Clear the crop by changing device, or by starting a new rubber-band that is too
-small to keep.
+A click or rubber-band too small to keep leaves the current crop in place.
+Right-click the preview to clear it; changing device or running a new Prescan
+also clears the crop. The status bar reports ``crop applied W×H`` or
+``full window`` after Scan.
 
 ### Color short / Scan
 

@@ -31,7 +31,9 @@ from tools.scanlab.backend import (
     LabTarget,
     device_banner,
     format_crop_status,
+    format_scan_window_note,
     lab_crop_scan_meta,
+    lab_scan_kwargs,
     lab_scan_needs_motor_warning,
     list_lab_targets,
     nonse_safe_y_fraction,
@@ -50,7 +52,7 @@ from tools.scanlab.capture_pcap import (
     motor_register_diff,
 )
 from tools.scanlab.widgets import ImageTabPage
-from tools.scanlab.worker import ScanWorker
+from tools.scanlab.worker import ScanRequest, ScanWorker
 
 
 class ScanLabWindow(QMainWindow):
@@ -68,6 +70,7 @@ class ScanLabWindow(QMainWindow):
         self._loaded_me_long = None
         self._last_prescan_dpi: int | None = None
         self._pending_crop_meta: dict | None = None
+        self._pending_crop_norm: tuple[float, float, float, float] | None = None
         self._thread = QThread(self)
         self._worker = ScanWorker()
         self._worker.moveToThread(self._thread)
@@ -911,22 +914,27 @@ class ScanLabWindow(QMainWindow):
             )
             return
         self._pending_crop_meta = None
+        self._pending_crop_norm = crop
         if crop is not None:
             self._pending_crop_meta = lab_crop_scan_meta(
                 target.model, dpi=dpi, crop_norm=crop
             )
+        scan_kw = lab_scan_kwargs(target.model, dpi=dpi, kind="scan", crop_norm=crop)
         self._worker.request_scan.emit(
-            target,
-            dpi,
-            self.ir_pass.isChecked(),
-            self.me_pass.isChecked(),
-            crop,
-            self.apply_calib.isChecked(),
-            "fixed" if self.me_fixed_long.isChecked() else "adaptive",
-            single_pass_exposure,
-            me_short_exposure,
-            me_long_exposure,
-            self._gl128_prime_arg(),
+            ScanRequest(
+                target=target,
+                dpi=dpi,
+                ir_pass=self.ir_pass.isChecked(),
+                me_pass=self.me_pass.isChecked(),
+                apply_calib=self.apply_calib.isChecked(),
+                me_exposure_mode="fixed" if self.me_fixed_long.isChecked() else "adaptive",
+                single_pass_exposure=single_pass_exposure,
+                me_short_exposure=me_short_exposure,
+                me_long_exposure=me_long_exposure,
+                gl128_prime=self._gl128_prime_arg(),
+                crop_norm=crop,
+                scan_kw=scan_kw,
+            )
         )
 
     def _on_progress(self, value: float) -> None:
@@ -1052,6 +1060,11 @@ class ScanLabWindow(QMainWindow):
             ir_align = self._resolve_ir_align_shift(debug)
             if ir_align is not None:
                 msg += f"; {self._format_align_shift(ir_align)}"
+        msg += "; " + format_scan_window_note(
+            crop_norm=self._pending_crop_norm,
+            width=int(image.rgb.shape[1]),
+            height=int(image.rgb.shape[0]),
+        )
         crop_note = format_crop_status(self._pending_crop_meta)
         if crop_note:
             msg += f"; {crop_note}"

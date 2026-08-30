@@ -76,6 +76,23 @@ except ImportError:  # pragma: no cover
     _MOTOR_GATED_HINT = "GL128 motor moves are temporarily disabled."
 
 
+def image_feed2_steps(model: FilmModel, geometry: ScanGeometry) -> int:
+    """Second-feed steps for an image pass.
+
+    Prefer ``geometry.area``. If that tuple was dropped, reconstruct from
+    ``area_y1`` so a crop does not fall back to full-frame ``13704``.
+    """
+    feed_fn = getattr(model, "feed_to_scan_steps_for_area", None)
+    if not callable(feed_fn):
+        return int(getattr(model, "feed_to_scan_steps", 0) or 0)
+    area = geometry.area
+    if area is None:
+        y1 = float(getattr(geometry, "area_y1", 0.0) or 0.0)
+        if y1 > 1e-9:
+            area = (0.0, y1, 1.0, 1.0)
+    return int(feed_fn(area))
+
+
 class Gl128ScanSession(ScanSession):
     """GL128 scan state machine for OpticFilm 8200i SE and 8100 (V2)."""
 
@@ -258,12 +275,7 @@ class Gl128ScanSession(ScanSession):
         # grinding bug). Calibration passes stay put (no motor). Positioning is
         # skipped while motor moves are gated so configure unit tests stay safe.
         if not shading and getattr(self.asic, "_motor_moves_enabled", False):
-            feed_fn = getattr(model, "feed_to_scan_steps_for_area", None)
-            scan_steps = (
-                feed_fn(geometry.area)
-                if callable(feed_fn)
-                else model.feed_to_scan_steps
-            )
+            scan_steps = image_feed2_steps(model, geometry)
             # The scan must stop at the window end: feed2 + travel <= 27636
             # steps. Overrunning it is what ground the motor in the Lab.
             max_fn = getattr(model, "max_lincnt_for", None)
@@ -434,6 +446,19 @@ class Gl128ScanSession(ScanSession):
                             method,
                             geometry.resolution,
                         )
+
+            logger.info(
+                "GL128 pass %s dpi=%d area=%s feed2=%d lincnt=%d str=%d end=%d %dx%d",
+                key,
+                geometry.resolution,
+                geometry.area,
+                image_feed2_steps(model, geometry),
+                geometry.lincnt_register,
+                geometry.pixel_startx,
+                geometry.pixel_endx,
+                geometry.pixels,
+                geometry.lines,
+            )
 
             self._pass_exposure = exposure
             self._pass_long_exposure = bool(long_pass)

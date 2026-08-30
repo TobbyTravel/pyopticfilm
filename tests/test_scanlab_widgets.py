@@ -49,3 +49,16 @@ def test_rgb16_to_qimage_odd_width_and_downsample():
     preview = rgb16_to_qimage(wide, auto_level=True)
     assert not preview.isNull()
     assert max(preview.width(), preview.height()) <= MAX_DISPLAY_EDGE
+
+
+@pytest.mark.skipif(
+    not _pyqt6_gui_importable(),
+    reason="PyQt6 GUI libs unavailable (install lab extra + libEGL on Linux)",
+)
+def test_commit_crop_norm_keeps_current_when_candidate_is_none():
+    from tools.scanlab.widgets import commit_crop_norm
+
+    current = (0.1, 0.2, 0.9, 0.8)
+    assert commit_crop_norm(current, None) == current
+    assert commit_crop_norm(None, None) is None
+    assert commit_crop_norm(current, (0.2, 0.3, 0.7, 0.6)) == (0.2, 0.3, 0.7, 0.6)
