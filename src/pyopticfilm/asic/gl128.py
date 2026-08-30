@@ -1411,13 +1411,17 @@ class Gl128:
     def _upload_fast_slopes(self, *, use_slow: bool = False) -> None:
         """Upload the motor ramp to both AHB slope windows.
 
-        2026-08-30: two independent real USB captures of the vendor driver
-        show every positioning feed pair uploading ``SLOPE_TABLE_FAST`` for
-        the first (reference) feed but ``SLOPE_TABLE_SLOW`` for the second
-        (final positioning) feed — exact byte match in both sources, every
-        time. This function previously always used the fast ramp
-        regardless of caller, which produced a real mechanical fault on
-        the 8100 V2 (see the issue this fix closes).
+        2026-08-30: two independent real USB captures of the 8100 V2's
+        vendor driver show every positioning feed pair uploading
+        ``SLOPE_TABLE_FAST`` for the first (reference) feed but
+        ``SLOPE_TABLE_SLOW`` for the second (final positioning) feed —
+        exact byte match in both sources, every time. This function
+        previously always used the fast ramp regardless of caller, which
+        produced a real mechanical fault on the 8100 V2 (see the issue
+        this fix closes). Applying `use_slow` to the second feed is gated
+        per-model (``Model.use_slow_final_positioning_feed`` — see that
+        attribute's docstring) since this evidence is V2-only; SE behavior
+        is unchanged.
         """
         slope = _u16_table_bytes(SLOPE_TABLE_SLOW if use_slow else SLOPE_TABLE_FAST)
         r = self.registers
@@ -1626,7 +1630,8 @@ class Gl128:
             second,
         )
         self._feed_capture(first, timeout_s=timeout_s / 2, require_motion=True)
-        self._feed_capture(second, timeout_s=timeout_s / 2, require_motion=True, use_slow_slope=True)
+        use_slow_second_feed = bool(getattr(self.model, "use_slow_final_positioning_feed", False))
+        self._feed_capture(second, timeout_s=timeout_s / 2, require_motion=True, use_slow_slope=use_slow_second_feed)
         end = self.read_status_reliable()
         logger.info("GL128 positioned for scan (status 0x%02x)", end.raw)
         if end.is_at_home:

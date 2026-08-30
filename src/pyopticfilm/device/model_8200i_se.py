@@ -435,6 +435,17 @@ class Model8200iSE:
     #: half a millimetre and together cover the 25.59 mm window.
     feed_to_scan_bottom_steps: int = 20232
 
+    #: Whether the second (final positioning) feed in
+    #: ``position_for_full_frame_scan()`` uploads the slow motor ramp
+    #: instead of the fast one. Verified on the 8100 V2 from two independent
+    #: real captures (see ``Model8100V2``'s override and the linked issue);
+    #: **not independently verified on the SE** — SE hardware has not been
+    #: captured for this specific behavior, even though the raw
+    #: ``SLOPE_TABLE_FAST``/``SLOPE_TABLE_SLOW`` values themselves are
+    #: SE-session-derived. Defaults to the SE's original (unchanged)
+    #: behavior — fast for both feeds — until SE-specific evidence exists.
+    use_slow_final_positioning_feed: bool = False
+
     #: Largest single FEEDL observed in captures; refuse anything larger.
     max_feed_steps: int = 28292
 

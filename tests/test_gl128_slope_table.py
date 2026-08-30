@@ -14,11 +14,26 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from pyopticfilm.asic.gl128 import Gl128
+from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.device.select import create_asic
 from pyopticfilm.device.tables_8200i_se import SLOPE_TABLE_FAST, SLOPE_TABLE_SLOW
 from pyopticfilm.usb.fake import MockScannerTransport
 from pyopticfilm.usb.protocol import GenesysUsbProtocol
+
+
+def _track_ahb_writes(asic, protocol):
+    ahb_writes: list[bytes] = []
+    orig_write_ahb = protocol.write_ahb
+
+    def _tracking_write_ahb(addr, data):
+        r = asic.registers
+        if addr in (r.AHB_SLOPE_SCAN, r.AHB_SLOPE_FAST):
+            ahb_writes.append(bytes(data))
+        return orig_write_ahb(addr, data)
+
+    protocol.write_ahb = _tracking_write_ahb
+    return ahb_writes
 
 
 def _pack(words: tuple[int, ...]) -> bytes:
@@ -69,26 +84,15 @@ def test_feed_capture_threads_use_slow_slope_through(monkeypatch):
     asic._upload_fast_slopes.assert_called_once_with(use_slow=False)
 
 
-def test_position_for_full_frame_scan_uses_fast_then_slow(monkeypatch):
-    """End-to-end via mock hardware: first feed FAST, second feed SLOW."""
+def test_position_for_full_frame_scan_uses_fast_then_slow_on_v2(monkeypatch):
+    """End-to-end via mock hardware, 8100 V2: first feed FAST, second SLOW."""
     usb = MockScannerTransport()
     protocol = GenesysUsbProtocol(usb)
-    asic = create_asic(protocol, MODEL_8200I_SE)
+    asic = create_asic(protocol, MODEL_8100_V2)
     asic._motor_moves_enabled = True
+    ahb_writes = _track_ahb_writes(asic, protocol)
 
-    ahb_writes: list[bytes] = []
-    orig_write_ahb = protocol.write_ahb
-
-    def _tracking_write_ahb(addr, data):
-        r = asic.registers
-        if addr in (r.AHB_SLOPE_SCAN, r.AHB_SLOPE_FAST):
-            ahb_writes.append(bytes(data))
-        return orig_write_ahb(addr, data)
-
-    protocol.write_ahb = _tracking_write_ahb
-
-    asic.home_ready_for_test = True  # no-op marker; mock transport starts at home
-    asic.position_for_full_frame_scan(scan_steps=13704)
+    asic.position_for_full_frame_scan(scan_steps=13486)
 
     fast = _pack(SLOPE_TABLE_FAST)
     slow = _pack(SLOPE_TABLE_SLOW)
@@ -97,3 +101,23 @@ def test_position_for_full_frame_scan_uses_fast_then_slow(monkeypatch):
     assert ahb_writes[1] == fast
     assert ahb_writes[2] == slow
     assert ahb_writes[3] == slow
+
+
+def test_position_for_full_frame_scan_stays_fast_on_se(monkeypatch):
+    """Regression guard: SE is unaffected by the V2-only slope fix.
+
+    This evidence is V2-only (see Model8200iSE.use_slow_final_positioning_
+    feed's docstring) -- SE must keep using the fast ramp for both feeds,
+    exactly as before this fix, until SE-specific evidence exists.
+    """
+    usb = MockScannerTransport()
+    protocol = GenesysUsbProtocol(usb)
+    asic = create_asic(protocol, MODEL_8200I_SE)
+    asic._motor_moves_enabled = True
+    ahb_writes = _track_ahb_writes(asic, protocol)
+
+    asic.position_for_full_frame_scan(scan_steps=13704)
+
+    fast = _pack(SLOPE_TABLE_FAST)
+    assert len(ahb_writes) == 4
+    assert all(w == fast for w in ahb_writes), "SE must stay fast-fast, not fast-slow"
