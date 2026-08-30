@@ -7,6 +7,7 @@ import threading
 
 import pytest
 
+from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
 from pyopticfilm.device.model_8200i import MODEL_8200I
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.device.select import create_asic, model_is_scan_ready
@@ -137,6 +138,69 @@ def test_gl128_scanner_primes_once_before_first_requested_scan(monkeypatch):
         )
         assert len(runs) == 3
         assert statuses == ["scanning"]
+    finally:
+        scanner.close()
+
+
+def test_v2_defaults_to_no_priming_when_gl128_prime_unset(monkeypatch):
+    """2026-08-30: V2 defaults gl128_prime=False (see model_8100_v2.py);
+    SE and other models are unaffected (default_gl128_prime=True)."""
+    import pyopticfilm.scan.session as session_module
+
+    scanner = Scanner.open_fake(MODEL_8100_V2)
+    sentinel = object()
+    runs: list[dict[str, object]] = []
+    statuses: list[str] = []
+
+    class FakeSession:
+        last_me_debug = None
+
+        def run(self, **kwargs):
+            runs.append(kwargs)
+            return sentinel
+
+    monkeypatch.setattr(session_module, "create_session", lambda *args: FakeSession())
+    monkeypatch.delenv("POF_GL128_PRIME", raising=False)
+    try:
+        assert (
+            scanner.scan(
+                resolution=150,
+                area=_TINY,
+                apply_calib=False,
+                on_status=statuses.append,
+            )
+            is sentinel
+        )
+        # No priming pass by default on V2 -- only the requested scan runs.
+        assert len(runs) == 1
+        assert runs[0]["resolution"] == 150
+        assert statuses == ["prime_skipped", "scanning"]
+        assert scanner._gl128_primed is False
+    finally:
+        scanner.close()
+
+
+def test_v2_gl128_prime_true_still_overrides_the_default(monkeypatch):
+    """Explicit gl128_prime=True on V2 still primes despite the new default."""
+    import pyopticfilm.scan.session as session_module
+
+    scanner = Scanner.open_fake(MODEL_8100_V2)
+    sentinel = object()
+    runs: list[dict[str, object]] = []
+
+    class FakeSession:
+        last_me_debug = None
+
+        def run(self, **kwargs):
+            runs.append(kwargs)
+            return sentinel
+
+    monkeypatch.setattr(session_module, "create_session", lambda *args: FakeSession())
+    monkeypatch.delenv("POF_GL128_PRIME", raising=False)
+    try:
+        scanner.scan(resolution=150, area=_TINY, apply_calib=False, gl128_prime=True)
+        assert len(runs) == 2  # priming pass + the requested scan
+        assert scanner._gl128_primed is True
     finally:
         scanner.close()
 
