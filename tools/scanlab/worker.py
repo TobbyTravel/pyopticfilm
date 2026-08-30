@@ -34,11 +34,11 @@ class ScanWorker(QObject):
     failed = pyqtSignal(str)
     busy_changed = pyqtSignal(bool)
     calib_cleared = pyqtSignal(str)
-    #: target, apply_calib, gl128_prime
-    request_prescan = pyqtSignal(object, bool, bool)
+    #: target, apply_calib, gl128_prime (bool or None for model default)
+    request_prescan = pyqtSignal(object, bool, object)
     #: target, dpi, ir_pass, me_pass, crop_norm, apply_calib, me_exposure_mode,
     #: single_pass_exposure, me_short_exposure, me_long_exposure, gl128_prime
-    request_scan = pyqtSignal(object, int, bool, bool, object, bool, str, object, object, object, bool)
+    request_scan = pyqtSignal(object, int, bool, bool, object, bool, str, object, object, object, object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -119,7 +119,7 @@ class ScanWorker(QObject):
         self,
         target: LabTarget,
         apply_calib: bool = False,
-        gl128_prime: bool = True,
+        gl128_prime: bool | None = None,
     ) -> None:
         self._run(
             target,
@@ -129,7 +129,7 @@ class ScanWorker(QObject):
             me=False,
             crop=None,
             apply_calib=bool(apply_calib),
-            gl128_prime=bool(gl128_prime),
+            gl128_prime=gl128_prime,
         )
 
     def run_scan(
@@ -144,7 +144,7 @@ class ScanWorker(QObject):
         single_pass_exposure: int | None = None,
         me_short_exposure: int | None = None,
         me_long_exposure: int | None = None,
-        gl128_prime: bool = True,
+        gl128_prime: bool | None = None,
     ) -> None:
         self._run(
             target,
@@ -158,7 +158,7 @@ class ScanWorker(QObject):
             single_pass_exposure=single_pass_exposure,
             me_short_exposure=me_short_exposure,
             me_long_exposure=me_long_exposure,
-            gl128_prime=bool(gl128_prime),
+            gl128_prime=gl128_prime,
         )
 
     def _run(
@@ -175,7 +175,7 @@ class ScanWorker(QObject):
         single_pass_exposure: int | None = None,
         me_short_exposure: int | None = None,
         me_long_exposure: int | None = None,
-        gl128_prime: bool = True,
+        gl128_prime: bool | None = None,
     ) -> None:
         self.busy_changed.emit(True)
         self._cancel.clear()

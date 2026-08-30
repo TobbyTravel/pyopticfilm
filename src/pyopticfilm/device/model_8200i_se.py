@@ -309,14 +309,10 @@ class Model8200iSE:
 
     #: Default for ``Scanner.scan(gl128_prime=...)`` when the caller passes
     #: ``None`` (leaves the choice to the model) rather than an explicit
-    #: ``True``/``False``. SE default: unchanged, prime on. GL128 priming was
-    #: introduced (and its ~30-46px first-pass positioning benefit measured)
-    #: on the 8100 V2 specifically — it has never been independently
-    #: confirmed as needed on SE hardware, so this default is inherited
-    #: assumption, not SE-specific evidence. Worth its own re-evaluation and
-    #: benchmark on real SE hardware at some point; see ``Model8100V2`` for
-    #: the V2 override and its own caveats.
-    default_gl128_prime: bool = True
+    #: ``True``/``False``. Off: SilverFast on the SE never runs a discarded
+    #: first-scan AGOHOME-park pass, and the same default is proven safe on
+    #: the 8100 V2. Still fully overridable via ``Scanner.scan(gl128_prime=True)``.
+    default_gl128_prime: bool = False
 
     x_size_mm: float = 36.0
     y_size_mm: float = 44.0
@@ -445,17 +441,6 @@ class Model8200iSE:
     #: 13.06 mm height of the 09a crop above it, so the two halves overlap by
     #: half a millimetre and together cover the 25.59 mm window.
     feed_to_scan_bottom_steps: int = 20232
-
-    #: Whether the second (final positioning) feed in
-    #: ``position_for_full_frame_scan()`` uploads the slow motor ramp
-    #: instead of the fast one. Verified on the 8100 V2 from two independent
-    #: real captures (see ``Model8100V2``'s override and the linked issue);
-    #: **not independently verified on the SE** — SE hardware has not been
-    #: captured for this specific behavior, even though the raw
-    #: ``SLOPE_TABLE_FAST``/``SLOPE_TABLE_SLOW`` values themselves are
-    #: SE-session-derived. Defaults to the SE's original (unchanged)
-    #: behavior — fast for both feeds — until SE-specific evidence exists.
-    use_slow_final_positioning_feed: bool = False
 
     #: Largest single FEEDL observed in captures; refuse anything larger.
     max_feed_steps: int = 28292

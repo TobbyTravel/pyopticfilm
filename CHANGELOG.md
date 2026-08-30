@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **8200i SE positioning slope tables**: SilverFast uploads `SLOPE_TABLE_SLOW` for the first (reference) feed and `SLOPE_TABLE_FAST` for the second (final positioning) feed — 39/39 capture pairs. pyopticfilm previously used the fast ramp for both. The V2-only `use_slow_final_positioning_feed` flag is no longer on `Model8200iSE` (8100 V2 still uses fast-then-slow).
+
+### Changed
+
+- **8200i SE priming default**: `default_gl128_prime` is now `False` (same as the 8100 V2). `Scanner.scan()` with `gl128_prime` unset skips the discarded first-scan AGOHOME-park pass. Explicit `gl128_prime=True` still primes.
+
 ## [1.3.1] - 2026-08-29
 
 ### Added

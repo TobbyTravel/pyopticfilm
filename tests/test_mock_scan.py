@@ -108,10 +108,10 @@ def test_gl128_scanner_primes_once_before_first_requested_scan(monkeypatch):
                 area=_TINY,
                 apply_calib=False,
                 on_status=statuses.append,
+                gl128_prime=True,
             )
             is sentinel
         )
-        assert len(runs) == 2
         # Default prime: fixed small pass, independent of requested PPI/area.
         assert runs[0]["resolution"] == 600
         assert runs[0]["area"] == (0.0, 0.0, 1.0, 0.12)
@@ -125,6 +125,7 @@ def test_gl128_scanner_primes_once_before_first_requested_scan(monkeypatch):
         assert runs[1]["resolution"] == 150
         assert runs[1]["area"] == _TINY
         assert statuses == ["priming", "scanning"]
+        assert len(runs) == 2
 
         statuses.clear()
         assert (
@@ -142,12 +143,12 @@ def test_gl128_scanner_primes_once_before_first_requested_scan(monkeypatch):
         scanner.close()
 
 
-def test_v2_defaults_to_no_priming_when_gl128_prime_unset(monkeypatch):
-    """2026-08-30: V2 defaults gl128_prime=False (see model_8100_v2.py);
-    SE and other models are unaffected (default_gl128_prime=True)."""
+@pytest.mark.parametrize("model", [MODEL_8200I_SE, MODEL_8100_V2])
+def test_gl128_defaults_to_no_priming_when_gl128_prime_unset(monkeypatch, model):
+    """Both GL128 models default gl128_prime=False when the caller passes None."""
     import pyopticfilm.scan.session as session_module
 
-    scanner = Scanner.open_fake(MODEL_8100_V2)
+    scanner = Scanner.open_fake(model)
     sentinel = object()
     runs: list[dict[str, object]] = []
     statuses: list[str] = []
@@ -171,7 +172,6 @@ def test_v2_defaults_to_no_priming_when_gl128_prime_unset(monkeypatch):
             )
             is sentinel
         )
-        # No priming pass by default on V2 -- only the requested scan runs.
         assert len(runs) == 1
         assert runs[0]["resolution"] == 150
         assert statuses == ["prime_skipped", "scanning"]
@@ -236,14 +236,14 @@ def test_gl128_prime_skipped_when_gl128_prime_false(monkeypatch):
         assert statuses == ["prime_skipped", "scanning"]
         assert scanner._gl128_primed is False
 
-        # A later call without the override still primes normally, since
-        # skipping never marked the scanner as primed.
+        # Skipping never marked the scanner as primed; an explicit True still primes.
         statuses.clear()
         scanner.scan(
             resolution=150,
             area=_TINY,
             apply_calib=False,
             on_status=statuses.append,
+            gl128_prime=True,
         )
         assert len(runs) == 3
         assert runs[1]["resolution"] == 600  # the (now-run) discarded prime
@@ -279,6 +279,7 @@ def test_gl128_prime_ignores_caller_geometry_and_calib(monkeypatch):
             apply_calib=True,
             mode="infrared",
             infrared=True,
+            gl128_prime=True,
         )
         assert len(runs) == 2
         assert runs[0]["resolution"] == 600
@@ -310,7 +311,7 @@ def test_gl128_prime_env_override_full_and_custom(monkeypatch):
 
         monkeypatch.setattr(session_module, "create_session", lambda *args: FakeSession())
         try:
-            scanner.scan(resolution=3600, area=None, apply_calib=False)
+            scanner.scan(resolution=3600, area=None, apply_calib=False, gl128_prime=True)
         finally:
             scanner.close()
         return runs[0]

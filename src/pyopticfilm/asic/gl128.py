@@ -1411,17 +1411,15 @@ class Gl128:
     def _upload_fast_slopes(self, *, use_slow: bool = False) -> None:
         """Upload the motor ramp to both AHB slope windows.
 
-        2026-08-30: two independent real USB captures of the 8100 V2's
-        vendor driver show every positioning feed pair uploading
-        ``SLOPE_TABLE_FAST`` for the first (reference) feed but
-        ``SLOPE_TABLE_SLOW`` for the second (final positioning) feed —
-        exact byte match in both sources, every time. This function
-        previously always used the fast ramp regardless of caller, which
-        produced a real mechanical fault on the 8100 V2 (see the issue
-        this fix closes). Applying `use_slow` to the second feed is gated
-        per-model (``Model.use_slow_final_positioning_feed`` — see that
-        attribute's docstring) since this evidence is V2-only; SE behavior
-        is unchanged.
+        Positioning feed pairs are capture-faithful and opposite on the two
+        GL128 models. The 8100 V2 vendor driver uploads ``SLOPE_TABLE_FAST``
+        for the first (reference) feed and ``SLOPE_TABLE_SLOW`` for the
+        second (final positioning) feed; using fast for both caused a real
+        mechanical fault on V2 hardware. SilverFast on the 8200i SE is the
+        inverse: slow then fast (39/39 positioning pairs).
+        :meth:`position_for_full_frame_scan` selects the pair from
+        ``Model8100V2.use_slow_final_positioning_feed`` (V2 only; SE has no
+        such field). ``feed()`` still uploads the fast ramp.
         """
         slope = _u16_table_bytes(SLOPE_TABLE_SLOW if use_slow else SLOPE_TABLE_FAST)
         r = self.registers
@@ -1466,8 +1464,8 @@ class Gl128:
         ``FEEDFSH`` bit (confirmed on both models; the only signal used on
         the 8100 V2).
 
-        ``use_slow_slope``: pass ``True`` for the final positioning feed —
-        see ``_upload_fast_slopes``'s docstring for the capture evidence.
+        ``use_slow_slope``: pass ``True`` to upload ``SLOPE_TABLE_SLOW``
+        instead of the fast ramp — see ``_upload_fast_slopes``.
         """
         steps = max(0, int(steps))
         if steps == 0:
@@ -1629,9 +1627,15 @@ class Gl128:
             first,
             second,
         )
-        self._feed_capture(first, timeout_s=timeout_s / 2, require_motion=True)
-        use_slow_second_feed = bool(getattr(self.model, "use_slow_final_positioning_feed", False))
-        self._feed_capture(second, timeout_s=timeout_s / 2, require_motion=True, use_slow_slope=use_slow_second_feed)
+        # V2-only flag (True): fast then slow. SE has no such field → False:
+        # slow then fast, matching SilverFast (39/39 capture pairs).
+        use_slow_second = bool(getattr(self.model, "use_slow_final_positioning_feed", False))
+        self._feed_capture(
+            first, timeout_s=timeout_s / 2, require_motion=True, use_slow_slope=not use_slow_second
+        )
+        self._feed_capture(
+            second, timeout_s=timeout_s / 2, require_motion=True, use_slow_slope=use_slow_second
+        )
         end = self.read_status_reliable()
         logger.info("GL128 positioned for scan (status 0x%02x)", end.raw)
         if end.is_at_home:
