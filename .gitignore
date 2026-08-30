@@ -9,4 +9,3 @@ build/
 uv.lock
 *.log
 tools/scanlab/runs/
-me_debug_dump*/
