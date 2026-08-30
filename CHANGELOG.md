@@ -6,9 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-08-30
+
 ### Added
 
 - **Model-lock tests** (`tests/model_lock/`): frozen 8200i SE driver-path oracles (geometry, crop mapping, dummy trim, slope-table feed order, ME configure, Scan Lab window kwargs). Other-model fixes must specialize that model rather than retarget these asserts. Run with `uv run pytest -m model_lock`.
+
+### Fixed
+
+- **ME short/long width mismatch**: content-aware ENDPIXEL dummy trim could drop a different column count on short vs long (and IR) because edge DN differs — especially at 3600 dpi where the cap is larger. Multi-pass now discovers the drop on the short/first colour plane and reuses it for long and IR assemble so merge/align see matching widths. Single-pass stays content-aware.
 
 ## [1.3.2] - 2026-08-30
 

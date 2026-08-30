@@ -75,3 +75,47 @@ def test_assemble_keeps_left_frame_when_no_dummy(monkeypatch):
     out = _assemble_passthrough(monkeypatch, geo, rgb)
     assert out.shape[1] == geo.pixels
     assert int(out[:, 0, 0].mean()) > 10_000
+
+
+def test_locked_usb_end_drop_equalizes_me_short_long_widths(monkeypatch):
+    """Short discovers dark END columns; long without them must reuse that drop."""
+    from pyopticfilm.scan.exposure_merge import merge_exposures_result
+
+    geo = compute_geometry(1800, model=MODEL_8200I_SE, area=(0.15, 0.2, 0.7, 0.6))
+    assert geo.usb_end_drop == 24
+    h = max(4, geo.lines)
+    w = geo.pixels
+
+    short_raw = np.full((h, w, 3), 18_000, dtype=np.uint16)
+    short_raw[:, -16:, :] = 200  # 16 true dummy columns
+    long_raw = np.full((h, w, 3), 40_000, dtype=np.uint16)
+    # Long edge is bright — heuristic alone would drop 0.
+
+    pipe = ImagePipeline(MODEL_8200I_SE)
+    monkeypatch.setattr(pipe, "reduce_y_oversample", lambda arr, _g: arr)
+    monkeypatch.setattr(pipe, "apply_line_shifts", lambda arr, _g: arr)
+    monkeypatch.setattr(pipe, "apply_y_stagger", lambda arr, _g: arr)
+    monkeypatch.setattr(pipe, "apply_host_downsample", lambda arr, _g: arr)
+
+    monkeypatch.setattr(pipe, "decode_rgb", lambda *_a, **_k: short_raw.copy())
+    out_short_heuristic = pipe.assemble(b"", geo, dark=None, white=None, expose_base=False)
+    monkeypatch.setattr(pipe, "decode_rgb", lambda *_a, **_k: long_raw.copy())
+    out_long_heuristic = pipe.assemble(b"", geo, dark=None, white=None, expose_base=False)
+    assert out_short_heuristic.shape[1] != out_long_heuristic.shape[1]
+
+    monkeypatch.setattr(pipe, "decode_rgb", lambda *_a, **_k: short_raw.copy())
+    out_short = pipe.assemble(b"", geo, dark=None, white=None, expose_base=False)
+    locked = int(pipe.last_usb_end_drop)
+    assert locked == 16
+
+    monkeypatch.setattr(pipe, "decode_rgb", lambda *_a, **_k: long_raw.copy())
+    out_long = pipe.assemble(
+        b"", geo, dark=None, white=None, expose_base=False, usb_end_drop=locked
+    )
+    assert out_short.shape == out_long.shape
+    assert pipe.last_usb_end_drop == locked
+
+    merged = merge_exposures_result(
+        out_short, out_long, exposure_short=14000, exposure_long=42000
+    )
+    assert merged.rgb.shape == out_short.shape
