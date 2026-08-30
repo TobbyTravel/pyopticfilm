@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""GL128 adaptive bulk drain (no fixed pre-chunk sleep)."""
+"""Frozen 8200i SE USB quiet-drain pacing — do not retarget to match new code."""
 
 from __future__ import annotations
 

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Model-lock tests** (`tests/model_lock/`): frozen 8200i SE driver-path oracles (geometry, crop mapping, dummy trim, slope-table feed order, ME configure, Scan Lab window kwargs). Other-model fixes must specialize that model rather than retarget these asserts. Run with `uv run pytest -m model_lock`.
+
 ## [1.3.2] - 2026-08-30
 
 ### Fixed

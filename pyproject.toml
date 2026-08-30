@@ -54,6 +54,9 @@ lab = ["PyQt6>=6.6", "tifffile>=2024.2", "opencv-python-headless>=4.8"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "model_lock: frozen per-model driver oracles; do not retarget without explicit approval",
+]
 
 [tool.ruff]
 line-length = 120

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""SE preview_safe / Full-window geometry (no hardware)."""
+"""Frozen 8200i SE preview_safe / full-window geometry — do not retarget to match new code."""
 
 from __future__ import annotations
 

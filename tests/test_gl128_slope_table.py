@@ -99,28 +99,3 @@ def test_position_for_full_frame_scan_uses_fast_then_slow_on_v2(monkeypatch):
     assert ahb_writes[1] == fast
     assert ahb_writes[2] == slow
     assert ahb_writes[3] == slow
-
-
-def test_v2_only_flag_is_absent_on_se():
-    """SE must not expose the V2 slow-final-feed flag (hosts cannot select it)."""
-    assert not hasattr(MODEL_8200I_SE, "use_slow_final_positioning_feed")
-    assert MODEL_8100_V2.use_slow_final_positioning_feed is True
-
-
-def test_position_for_full_frame_scan_uses_slow_then_fast_on_se(monkeypatch):
-    """SE SilverFast: first feed SLOW, second FAST (inverse of V2)."""
-    usb = MockScannerTransport()
-    protocol = GenesysUsbProtocol(usb)
-    asic = create_asic(protocol, MODEL_8200I_SE)
-    asic._motor_moves_enabled = True
-    ahb_writes = _track_ahb_writes(asic, protocol)
-
-    asic.position_for_full_frame_scan(scan_steps=13704)
-
-    fast = _pack(SLOPE_TABLE_FAST)
-    slow = _pack(SLOPE_TABLE_SLOW)
-    assert len(ahb_writes) == 4  # 2 windows x 2 feeds
-    assert ahb_writes[0] == slow
-    assert ahb_writes[1] == slow
-    assert ahb_writes[2] == fast
-    assert ahb_writes[3] == fast
