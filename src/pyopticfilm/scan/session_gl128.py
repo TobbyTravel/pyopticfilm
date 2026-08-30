@@ -665,18 +665,27 @@ class Gl128ScanSession(ScanSession):
 
         primary = rgb_short
         fusion_stats = None
+        # Shared across both branches below — the adaptive/fixed decision and
+        # manual-override bookkeeping don't depend on n_brackets.
+        exposure_proposed = None if exposure_decision is None else exposure_decision.proposed
+        exposure_reason = (
+            "manual-override"
+            if long_manual
+            else (None if exposure_decision is None else exposure_decision.reason)
+        )
+        me_alpha = float(getattr(model, "me_noise_alpha", 1.0))
+        me_beta = float(getattr(model, "me_noise_beta", 4096.0))
+
         if multi_exposure and n_brackets == 2 and rgb_long is not None:
             shift = align_shift_long if align_passes else (0.0, 0.0)
-            alpha = float(getattr(model, "me_noise_alpha", 1.0))
-            beta = float(getattr(model, "me_noise_beta", 4096.0))
             merged = merge_exposures_result(
                 rgb_short,
                 rgb_long,
                 exposure_short=exp_short,
                 exposure_long=exp_long,
                 align_shift=shift,
-                alpha=alpha,
-                beta=beta,
+                alpha=me_alpha,
+                beta=me_beta,
             )
             primary = merged.rgb
             fusion_stats = merged.fusion_stats
@@ -688,14 +697,8 @@ class Gl128ScanSession(ScanSession):
                 fusion_stats=fusion_stats,
                 align_shift_long=align_shift_long,
                 align_shift_ir=align_shift_ir,
-                exposure_proposed=(
-                    None if exposure_decision is None else exposure_decision.proposed
-                ),
-                exposure_reason=(
-                    "manual-override"
-                    if long_manual
-                    else (None if exposure_decision is None else exposure_decision.reason)
-                ),
+                exposure_proposed=exposure_proposed,
+                exposure_reason=exposure_reason,
                 brackets=[
                     BracketDebug(rgb=rgb_short, exposure=exp_short, align_shift=None),
                     BracketDebug(rgb=rgb_long, exposure=exp_long, align_shift=align_shift_long),
@@ -724,11 +727,11 @@ class Gl128ScanSession(ScanSession):
                     e,
                     None if shift is None else (round(shift[0], 3), round(shift[1], 3)),
                 )
+            # Backward-compat field: shift of the top/last bracket (same role
+            # as the 2-bracket case's "shift of the long pass").
             align_shift_long = bracket_debugs[-1].align_shift
 
-            alpha = float(getattr(model, "me_noise_alpha", 1.0))
-            beta = float(getattr(model, "me_noise_beta", 4096.0))
-            merged = merge_n_exposures(frames, exposures, alpha=alpha, beta=beta)
+            merged = merge_n_exposures(frames, exposures, alpha=me_alpha, beta=me_beta)
             primary = merged.rgb
             fusion_stats = merged.fusion_stats
             self.last_me_debug = MeScanDebug(
@@ -739,14 +742,8 @@ class Gl128ScanSession(ScanSession):
                 fusion_stats=fusion_stats,
                 align_shift_long=align_shift_long,
                 align_shift_ir=align_shift_ir,
-                exposure_proposed=(
-                    None if exposure_decision is None else exposure_decision.proposed
-                ),
-                exposure_reason=(
-                    "manual-override"
-                    if long_manual
-                    else (None if exposure_decision is None else exposure_decision.reason)
-                ),
+                exposure_proposed=exposure_proposed,
+                exposure_reason=exposure_reason,
                 brackets=bracket_debugs,
             )
 
