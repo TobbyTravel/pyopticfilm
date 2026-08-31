@@ -50,24 +50,23 @@ _LINE_PERIOD_TO_SECONDS = 1.0 / 4_500_000.0
 #: empty (start/stop creep). Applied only when quiet drain is on.
 _QUIET_DRAIN_LAG = 1.05
 
-#: ME colour-long ``REG_EXPOSURE`` floor (short bin / SilverFast ME short).
-_ME_LONG_MIN = 14_000
-#: ME colour-long ceiling at non-7200 PPI (dynamic / raised longs).
-_ME_LONG_MAX = 85_000
-#: ME colour-long ceiling at 7200 dpi (SilverFast known-good colour-long).
-_ME_LONG_MAX_AT_7200 = 42_000
-
-
-def clamp_me_long_for_dpi(resolution: int, exp_long: int) -> int:
+def clamp_me_long_for_dpi(
+    resolution: int, exp_long: int, model: FilmModel | None = None
+) -> int:
     """Clamp ME colour-long exposure for the requested PPI.
 
-    At 7200 dpi the long bin is capped at 42000 (SilverFast parity / HW-safe).
-    At other PPI the allowed range is 14000–85000.
+    Floor and DPI-keyed ceiling come from ``model``
+    (:attr:`~pyopticfilm.device.model_8200i_se.Model8200iSE.exposure_short` /
+    :meth:`~pyopticfilm.device.model_8200i_se.Model8200iSE.me_long_exposure_ceiling`
+    — the single source of truth shared with adaptive selection and any
+    clamped manual override). Defaults to the 8200i SE table (14000 floor,
+    42000 at 7200 dpi, 85000 elsewhere) when no model is given.
     """
+    mdl = model if model is not None else MODEL_8200I_SE
     value = int(exp_long)
-    if int(resolution) == 7200:
-        return min(max(value, _ME_LONG_MIN), _ME_LONG_MAX_AT_7200)
-    return min(max(value, _ME_LONG_MIN), _ME_LONG_MAX)
+    floor = int(getattr(mdl, "exposure_short", 14_000))
+    ceiling = mdl.me_long_exposure_ceiling(int(resolution))
+    return min(max(value, floor), ceiling)
 
 
 try:
@@ -131,6 +130,7 @@ class Gl128ScanSession(ScanSession):
         single_pass_exposure: int | None = None,
         me_short_exposure: int | None = None,
         me_long_exposure: int | None = None,
+        me_target_exposure: int | None = None,
         n_brackets: int = 2,
         **kwargs,
     ):  # type: ignore[no-untyped-def]
@@ -141,6 +141,13 @@ class Gl128ScanSession(ScanSession):
         validate_manual_exposure(single_pass_exposure, label="single_pass_exposure")
         validate_manual_exposure(me_short_exposure, label="me_short_exposure")
         validate_manual_exposure(me_long_exposure, label="me_long_exposure")
+        validate_manual_exposure(me_target_exposure, label="me_target_exposure")
+        if me_long_exposure is not None and me_target_exposure is not None:
+            raise ValueError(
+                "me_long_exposure (unrestricted debug override) and "
+                "me_target_exposure (model-envelope-clamped) are mutually "
+                "exclusive — pass only one."
+            )
         if not (2 <= n_brackets <= 9):
             raise ValueError(f"n_brackets must be between 2 and 9, got {n_brackets!r}")
         if multi_exposure or (infrared and kwargs.get("mode", "color") == "color"):
@@ -158,6 +165,7 @@ class Gl128ScanSession(ScanSession):
                 me_exposure_mode=me_exposure_mode,
                 me_short_exposure=me_short_exposure,
                 me_long_exposure=me_long_exposure,
+                me_target_exposure=me_target_exposure,
                 n_brackets=n_brackets,
                 **kwargs,
             )
@@ -357,6 +365,7 @@ class Gl128ScanSession(ScanSession):
         me_exposure_mode: str | None = None,
         me_short_exposure: int | None = None,
         me_long_exposure: int | None = None,
+        me_target_exposure: int | None = None,
         n_brackets: int = 2,
     ):
         from pyopticfilm.image import ScanImage
@@ -543,9 +552,9 @@ class Gl128ScanSession(ScanSession):
 
         assert rgb_short is not None
 
-        long_manual = me_long_exposure is not None
+        long_manual = me_long_exposure is not None or me_target_exposure is not None
         if multi_exposure:
-            if long_manual:
+            if me_long_exposure is not None:
                 # Explicit override: use the caller's value verbatim and skip
                 # adaptive/fixed selection, the DPI clamp, and the hardware-max
                 # clamp entirely — me_exposure_mode does not apply here.
@@ -555,19 +564,44 @@ class Gl128ScanSession(ScanSession):
                     exp_long,
                     mode_norm,
                 )
+            elif me_target_exposure is not None:
+                # "Manual" bracket target for end-user selection (NegPy): the
+                # caller's value is honored, but held inside the same
+                # per-model floor/ceiling adaptive uses (model.exposure_short /
+                # model.me_long_exposure_ceiling) — unlike me_long_exposure,
+                # which is a raw, unrestricted Scan Lab debug escape hatch.
+                requested = int(me_target_exposure)
+                exp_long = clamp_me_long_for_dpi(geometry.resolution, requested, model=model)
+                if exp_long != requested:
+                    logger.warning(
+                        "ME target exposure clamped at %d dpi: %d -> %d",
+                        geometry.resolution,
+                        requested,
+                        exp_long,
+                    )
+                logger.info(
+                    "ME long exposure: manual-target requested=%d selected=%d "
+                    "(me_exposure_mode=%s ignored)",
+                    requested,
+                    exp_long,
+                    mode_norm,
+                )
             else:
-                # DPI-aware ME long ceiling (7200 → 42k; other PPI → 85k).
+                # DPI-aware ME long ceiling — model.me_long_exposure_ceiling()
+                # is the single source of truth (see clamp_me_long_for_dpi).
                 dpi_adaptive_max = clamp_me_long_for_dpi(
                     geometry.resolution,
                     int(getattr(model, "me_adaptive_max_exposure", exp_long)),
+                    model=model,
                 )
                 dpi_hardware_max = clamp_me_long_for_dpi(
                     geometry.resolution,
                     int(getattr(model, "me_hardware_max_exposure", exp_long)),
+                    model=model,
                 )
                 if mode_norm == "fixed":
                     exposure_decision = fixed_long_exposure(
-                        clamp_me_long_for_dpi(geometry.resolution, exp_long),
+                        clamp_me_long_for_dpi(geometry.resolution, exp_long, model=model),
                         short_rgb=rgb_short,
                         short_exposure=exp_short,
                         black_level=float(getattr(model, "me_black_level", 0.0)),
@@ -585,10 +619,10 @@ class Gl128ScanSession(ScanSession):
                         adaptive_max=dpi_adaptive_max,
                         hardware_max=dpi_hardware_max,
                         max_ratio=float(getattr(model, "me_max_exposure_ratio", 5.0)),
-                        default_long=clamp_me_long_for_dpi(geometry.resolution, exp_long),
+                        default_long=clamp_me_long_for_dpi(geometry.resolution, exp_long, model=model),
                     )
                 exp_long = int(exposure_decision.selected)
-                clamped = clamp_me_long_for_dpi(geometry.resolution, exp_long)
+                clamped = clamp_me_long_for_dpi(geometry.resolution, exp_long, model=model)
                 if clamped != exp_long:
                     logger.warning(
                         "ME colour-long exposure clamped at %d dpi: %d → %d",
@@ -680,8 +714,8 @@ class Gl128ScanSession(ScanSession):
         # manual-override bookkeeping don't depend on n_brackets.
         exposure_proposed = None if exposure_decision is None else exposure_decision.proposed
         exposure_reason = (
-            "manual-override"
-            if long_manual
+            "manual-target" if me_target_exposure is not None
+            else "manual-override" if long_manual
             else (None if exposure_decision is None else exposure_decision.reason)
         )
         me_alpha = float(getattr(model, "me_noise_alpha", 1.0))

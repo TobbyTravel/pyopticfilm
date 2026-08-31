@@ -213,6 +213,76 @@ def test_me_long_manual_overrides_exposure_mode(me_exposure_mode):
     assert session.last_me_debug.exposure_reason == "manual-override"
 
 
+# --- ME target: clamped manual bracket selection (NegPy) ------------------
+
+
+def test_me_target_exposure_within_envelope_reaches_register_unchanged():
+    session, _usb = _mock_gl128_session_armed()
+    session.run(
+        resolution=1800,
+        area=_TINY,
+        apply_calib=False,
+        multi_exposure=True,
+        me_target_exposure=60000,
+    )
+    assert session.last_me_debug.exposure_long == 60000
+    assert session.last_me_debug.exposure_reason == "manual-target"
+
+
+def test_me_target_exposure_below_floor_is_clamped_to_exposure_short():
+    session, _usb = _mock_gl128_session_armed()
+    session.run(
+        resolution=1800,
+        area=_TINY,
+        apply_calib=False,
+        multi_exposure=True,
+        me_target_exposure=5000,  # below exposure_short=14000
+    )
+    assert session.last_me_debug.exposure_long == MODEL_8200I_SE.exposure_short
+
+
+def test_me_target_exposure_above_dpi_ceiling_is_clamped_at_7200dpi():
+    """Unlike me_long_exposure, me_target_exposure stays inside the DPI ceiling."""
+    session, _usb = _mock_gl128_session_armed()
+    session.run(
+        resolution=7200,
+        area=_TINY,
+        apply_calib=False,
+        multi_exposure=True,
+        me_target_exposure=150000,
+    )
+    assert session.last_me_debug.exposure_long == 42000
+
+
+def test_me_target_exposure_clamped_to_v2_flat_ceiling_off_7200dpi():
+    """V2's ceiling is pinned at 42000 for every DPI, not just 7200 (SE's shape)."""
+    session, _usb = _mock_gl128_session_armed_for(MODEL_8100_V2)
+    session.run(
+        resolution=1800,
+        area=_TINY,
+        apply_calib=False,
+        multi_exposure=True,
+        me_target_exposure=80000,
+    )
+    assert session.last_me_debug.exposure_long == 42000
+
+
+def test_me_target_exposure_and_me_long_exposure_are_mutually_exclusive():
+    scanner = Scanner.open_fake(MODEL_8200I_SE)
+    try:
+        with pytest.raises(ValueError):
+            scanner.scan(
+                resolution=150,
+                area=_TINY,
+                apply_calib=False,
+                me_long_exposure=50000,
+                me_target_exposure=50000,
+            )
+        assert not scanner._asic._initialized
+    finally:
+        scanner.close()
+
+
 def test_me_long_default_none_uses_adaptive_selection():
     session, _usb = _mock_gl128_session_armed()
     session.run(
