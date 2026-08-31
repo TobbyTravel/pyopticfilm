@@ -339,13 +339,21 @@ def test_align_pass_subpixel_shift_when_opencv_available():
 
 
 def test_merge_n_exposures_two_frames_matches_pairwise_ivw():
-    """N=2 must reduce exactly to the pairwise merge's raw IVW arithmetic
-    (no residual-disagreement gate / misalignment fallback in either — this
-    compares against merge_exposures directly, which has those, so a small
-    tolerance from that extra logic is allowed; the exact algebraic
-    equivalence is that merge_n_exposures's own weight formula collapses to
-    _merge_snr_rows's wa/wb/ivw terms at N=2, verified in exposure_merge.py's
-    docstring and during development)."""
+    """N=2 must reduce exactly to the pairwise merge's arithmetic, including
+    the residual-disagreement gate and misalignment fallback (there is
+    exactly one non-reference bracket at N=2, so merge_n_exposures's
+    per-bracket loop collapses to _merge_snr_rows's wa/wb/ivw/c_res_eff/
+    prefer/misaligned terms directly — verified in exposure_merge.py's
+    docstring and during development).
+
+    Not bit-for-bit against merge_exposures_result: that function additionally
+    estimates the *actual* image-fit exposure ratio via
+    _estimate_exposure_ratio rather than trusting the nominal
+    exposure_long/exposure_short, a difference that predates this feature and
+    is out of scope here. Both use exp_long/exp_short as the nominal ratio's
+    numerator/denominator, so exposure_ratio_used matches; rgb only matches
+    when the data-fit ratio equals the nominal one (verified separately by
+    the ratio-uniform frames below)."""
     rng = np.random.default_rng(7)
     short = rng.integers(500, 30000, size=(48, 64, 3), dtype=np.uint16)
     long = rng.integers(2000, 60000, size=(48, 64, 3), dtype=np.uint16)
@@ -354,6 +362,26 @@ def test_merge_n_exposures_two_frames_matches_pairwise_ivw():
     assert result.rgb.dtype == np.uint16
     assert result.fusion_stats is not None
     assert result.fusion_stats.exposure_ratio_used == 3.0
+
+    # Uniform-ratio frames: the data-fit ratio in merge_exposures_result
+    # converges to the nominal ratio, so the two paths must agree exactly.
+    truth = rng.uniform(2000.0, 10000.0, size=(48, 64, 1)) * np.ones((1, 1, 3))
+    short_u = np.clip(truth, 0, 65535).astype(np.uint16)
+    long_u = np.clip(truth * 3.0, 0, 65535).astype(np.uint16)
+    result_u = merge_n_exposures([short_u, long_u], [14000, 42000])
+    pairwise_u = merge_exposures_result(
+        short_u, long_u, exposure_short=14000, exposure_long=42000, align_shift=(0.0, 0.0)
+    )
+    # Data-fit ratio in merge_exposures_result is ~3.0 but not exactly (float
+    # fit noise), so allow a tiny per-pixel tolerance rather than bit-exact.
+    assert np.max(
+        np.abs(result_u.rgb.astype(np.int32) - pairwise_u.rgb.astype(np.int32))
+    ) <= 2
+    assert result_u.fusion_stats is not None
+    assert pairwise_u.fusion_stats is not None
+    assert result_u.fusion_stats.mean_residual_confidence == pytest.approx(
+        pairwise_u.fusion_stats.mean_residual_confidence, abs=1e-4
+    )
 
 
 def test_merge_n_exposures_validates_frame_count():
@@ -379,6 +407,63 @@ def test_merge_n_exposures_validates_nonpositive_exposure():
     frame = np.zeros((4, 4, 3), dtype=np.uint16)
     with pytest.raises(ValueError):
         merge_n_exposures([frame, frame], [14000, 0])
+
+
+def test_merge_n_exposures_guard_limits_channel_split_at_shifted_bracket():
+    """N-bracket generalization of test_merge_guard_limits_channel_split_at_shifted_edge:
+    one misregistered non-reference bracket among several must not split
+    R/G/B via IVW at the disagreement edge."""
+    h, w = 64, 64
+    level_lo = 8000
+    level_hi = 15000
+    schedule = [14000, 24249, 42000]
+    frames = []
+    for e in schedule:
+        r = e / schedule[0]
+        frame = np.full((h, w, 3), round(level_lo * r), dtype=np.uint16)
+        frame[: h // 2, :, :] = round(level_hi * r)
+        frames.append(frame)
+    # Misregister only the middle bracket at the edge — same style of shift
+    # as the pairwise guard test.
+    frames[1] = np.roll(frames[1], 2, axis=0)
+
+    result = merge_n_exposures(frames, schedule)
+    row = h // 2
+    px = result.rgb[row, w // 2].astype(np.float64)
+    spread = float(px.max() - px.min())
+    assert spread < 400.0
+
+
+def test_merge_n_exposures_disagreeing_bracket_lowers_mean_residual_confidence():
+    """A bracket that disagrees sharply with the reference *in a spatially
+    localized way* should pull the worst-case (min) per-pixel confidence
+    down vs all brackets agreeing. (A globally uniform disagreement would be
+    fully absorbed by the per-bracket bias-correcting z-median and prove
+    nothing — the gate only fires on *local* deviation from that median.)"""
+    h, w = 32, 32
+    schedule = [14000, 24249, 42000]
+    rng = np.random.default_rng(3)
+
+    def make_agreeing():
+        truth = rng.uniform(2000.0, 10000.0, size=(h, w, 1)) * np.ones((1, 1, 3))
+        return [
+            np.clip(truth * (e / schedule[0]), 0, 65535).astype(np.uint16) for e in schedule
+        ]
+
+    agreeing = make_agreeing()
+    disagreeing = [f.copy() for f in agreeing]
+    # Bracket 1: one corner patch spikes far off its expected scale, the rest
+    # of the frame stays consistent — a local, not global, disagreement.
+    disagreeing[1][: h // 4, : w // 4, :] = 60000
+
+    result_agree = merge_n_exposures(agreeing, schedule)
+    result_disagree = merge_n_exposures(disagreeing, schedule)
+    assert result_agree.fusion_stats is not None
+    assert result_disagree.fusion_stats is not None
+    assert (
+        result_disagree.fusion_stats.mean_residual_confidence
+        < result_agree.fusion_stats.mean_residual_confidence
+    )
 
 
 def test_merge_n_exposures_more_brackets_reduces_noise():
