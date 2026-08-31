@@ -320,6 +320,8 @@ GL128_SHARED_FIELDS: frozenset[str] = frozenset(
         "me_adaptive_max_exposure",
         "me_hardware_max_exposure",
         "me_max_exposure_ratio",
+        "me_long_exposure_ceiling_by_dpi",
+        "me_long_exposure_ceiling_default",
         "me_target_dense_dn",
         "me_dense_percentile",
         "me_black_level",
@@ -432,6 +434,16 @@ class Gl128Common:
     me_adaptive_max_exposure: int = 85000
     me_hardware_max_exposure: int = 85000
     me_max_exposure_ratio: float = 7.0
+    #: DPI-keyed ME colour-long ceiling override (SilverFast known-good value
+    #: at 7200 dpi: 42000). Missing DPI entries fall back to
+    #: :attr:`me_long_exposure_ceiling_default`. Single source of truth for
+    #: :func:`pyopticfilm.scan.session_gl128.clamp_me_long_for_dpi` and any
+    #: clamped manual ME override — see :meth:`me_long_exposure_ceiling`.
+    me_long_exposure_ceiling_by_dpi: Mapping[int, int] = field(
+        default_factory=lambda: {7200: 42000}
+    )
+    #: Ceiling at any DPI not listed in :attr:`me_long_exposure_ceiling_by_dpi`.
+    me_long_exposure_ceiling_default: int = 85000
     me_target_dense_dn: float = 10000.0
     me_dense_percentile: float = 5.0
     me_black_level: float = 0.0
@@ -518,6 +530,16 @@ class Gl128Common:
     def image_exposure(self, *, long_exposure: bool = False) -> int:
         """``REG_EXPOSURE`` for short or long ME bracket."""
         return int(self.exposure_long if long_exposure else self.exposure_short)
+
+    def me_long_exposure_ceiling(self, resolution: int) -> int:
+        """DPI-aware ME colour-long ceiling — single source of truth for
+        adaptive selection, N-bracket scheduling, and any clamped manual
+        override (see :attr:`me_long_exposure_ceiling_by_dpi`)."""
+        return int(
+            self.me_long_exposure_ceiling_by_dpi.get(
+                int(resolution), self.me_long_exposure_ceiling_default
+            )
+        )
 
     def feed_to_scan_steps_for_area(
         self,

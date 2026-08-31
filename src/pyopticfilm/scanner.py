@@ -305,6 +305,7 @@ class Scanner:
         single_pass_exposure: int | None = None,
         me_short_exposure: int | None = None,
         me_long_exposure: int | None = None,
+        me_target_exposure: int | None = None,
         gl128_prime: bool | None = None,
         n_brackets: int = 2,
     ) -> ScanImage:
@@ -312,6 +313,13 @@ class Scanner:
         validate_manual_exposure(single_pass_exposure, label="single_pass_exposure")
         validate_manual_exposure(me_short_exposure, label="me_short_exposure")
         validate_manual_exposure(me_long_exposure, label="me_long_exposure")
+        validate_manual_exposure(me_target_exposure, label="me_target_exposure")
+        if me_long_exposure is not None and me_target_exposure is not None:
+            raise ValueError(
+                "me_long_exposure (unrestricted debug override) and "
+                "me_target_exposure (model-envelope-clamped) are mutually "
+                "exclusive — pass only one."
+            )
         if not (2 <= n_brackets <= 9):
             raise ValueError(f"n_brackets must be between 2 and 9, got {n_brackets!r}")
         self._ensure_scan_ready()
@@ -337,6 +345,7 @@ class Scanner:
             "single_pass_exposure": single_pass_exposure,
             "me_short_exposure": me_short_exposure,
             "me_long_exposure": me_long_exposure,
+            "me_target_exposure": me_target_exposure,
             "n_brackets": n_brackets,
         }
         if gl128_prime is None:
