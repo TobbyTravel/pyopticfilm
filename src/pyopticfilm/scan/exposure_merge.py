@@ -370,6 +370,43 @@ def _merge_snr(
     return out, stats
 
 
+def _subsample_for_stats_n(frames: list[np.ndarray]) -> list[np.ndarray]:
+    """N-frame generalization of :func:`_subsample_for_stats` (stride shared
+    across all frames, derived from ``frames[0]``'s shape)."""
+    h, w = frames[0].shape[:2]
+    sy = max(1, h // _STATS_MAX_SIDE)
+    sx = max(1, w // _STATS_MAX_SIDE)
+    if sy == 1 and sx == 1:
+        return frames
+    return [f[::sy, ::sx] for f in frames]
+
+
+def _estimate_z_median_n(
+    frames: list[np.ndarray],
+    exposures: list[int],
+    *,
+    alpha: float,
+    beta: float,
+) -> list[float]:
+    """Per-bracket global residual-gate median vs ``frames[0]``, generalizing
+    :func:`_estimate_z_median` to N brackets (one median per non-reference
+    bracket, same subsampled-luma z statistic)."""
+    subs = _subsample_for_stats_n(frames)
+    lum_ref = subs[0].astype(np.float32).mean(axis=2)
+    va_lum = alpha * np.maximum(lum_ref, 0.0) + beta
+    e0 = float(exposures[0])
+    medians: list[float] = []
+    for raw, e in zip(subs[1:], exposures[1:], strict=True):
+        raw_f = raw.astype(np.float32)
+        r = float(e) / e0
+        lum_raw = raw_f.mean(axis=2)
+        xb_lum = lum_raw / r
+        vb_lum = (alpha * np.maximum(lum_raw, 0.0) + beta) / (r * r)
+        z = (lum_ref - xb_lum) / np.sqrt(np.maximum(va_lum + vb_lum, 1e-12))
+        medians.append(float(np.median(z)))
+    return medians
+
+
 def merge_n_exposures(
     frames: list[np.ndarray],
     exposures: list[int],
@@ -384,11 +421,28 @@ def merge_n_exposures(
     ``sum(w_i * x_i) / sum(w_i)`` are algebraically identical to
     :func:`_merge_snr_rows`'s ``wa``/``wb``/``ivw`` when there are only two
     brackets, since bracket 0 is always the reference scale (``r_0 = 1``).
+    The residual-disagreement gate and misalignment fallback below are the
+    same generalization: at N=2 there is exactly one non-reference bracket,
+    so ``c_res_eff``/``prefer``/``misaligned`` collapse to
+    :func:`_merge_snr_rows`'s formulas exactly.
 
-    Unlike :func:`merge_exposures_result`, this does **not** apply the
-    2-way merge's residual-disagreement gate (``z``/``c_res_eff``) or
-    misalignment edge-fallback (``ivw_spread``/``prefer``/``misaligned``) —
-    a deliberate v1 scope cut (see PR description), not an oversight.
+    Residual-disagreement gate: for each non-reference bracket ``i``, a
+    z-score of its luma vs ``frames[0]`` (bias-corrected by a global,
+    subsampled per-bracket median — see :func:`_estimate_z_median_n`) yields
+    a per-pixel confidence ``c_res_i``. The pixel's overall confidence is the
+    *worst* (minimum) across all brackets — one bracket disagreeing sharply
+    with the reference is enough to distrust the pure IVW blend there. Where
+    confidence is low, the output blends toward ``prefer``: the single
+    bracket with the highest individual weight at that pixel (the N-way
+    equivalent of the pairwise "pick short or long, whichever is more
+    trusted" fallback).
+
+    Misalignment edge fallback: when both the worst per-bracket luma
+    disagreement and the merged IVW's cross-channel spread exceed their
+    thresholds (fringing from residual sub-pixel misregistration), the pixel
+    falls back to ``frames[0]`` verbatim — same thresholds and shape as the
+    2-way merge's ``misaligned`` gate.
+
     Frames must already be pairwise-aligned to ``frames[0]`` by the caller
     (e.g. via repeated :func:`pyopticfilm.pass_align.align_pass_to_reference`
     calls) — this function does no alignment of its own.
@@ -402,7 +456,9 @@ def merge_n_exposures(
         MergeResult with the fused uint16 HxWx3 array and FusionStats
         (``mean_short_weight``/``mean_long_weight`` report bracket 0 / the
         last bracket specifically, for compatibility with the 2-way stats
-        shape; ``exposure_ratio_used`` is ``exposures[-1] / exposures[0]``).
+        shape; ``exposure_ratio_used`` is ``exposures[-1] / exposures[0]``;
+        ``mean_residual_confidence`` is the mean of the per-pixel overall
+        ``c_res_eff`` across the frame, same meaning as the 2-way stat).
 
     Raises:
         ValueError: fewer than 2 frames, mismatched lengths/shapes, or a
@@ -427,53 +483,88 @@ def merge_n_exposures(
             )
 
     e0 = float(exposures[0])
+    ratios = [float(e) / e0 for e in exposures]
     h, w = ref.shape[:2]
     out = np.empty((h, w, 3), dtype=np.uint16)
     w0_sum = 0.0
     wn_sum = 0.0
     n_weights = 0
     zero_count = 0
+    c_res_sum = 0.0
     total_pixels = int(h * w)
+
+    z_medians = _estimate_z_median_n(frames, exposures, alpha=alpha, beta=beta)
 
     for y0 in range(0, h, _MERGE_CHUNK_ROWS):
         y1 = min(h, y0 + _MERGE_CHUNK_ROWS)
-        acc = None
-        w_sum = None
-        w_first = None
-        w_last = None
-        all_zero_conf = None  # True where every bracket's confidence is ~0
-        for raw, e in zip(frames, exposures, strict=True):
+        raw_fs: list[np.ndarray] = []
+        xs: list[np.ndarray] = []
+        cs: list[np.ndarray] = []
+        weights: list[np.ndarray] = []
+        for raw, r in zip(frames, ratios, strict=True):
             raw_f = np.asarray(raw[y0:y1], dtype=np.float32)
-            r = float(e) / e0
             x = raw_f / r
-            c = _smooth_confidence(raw_f, floor=_SNR_FLOOR, clip_start=_SNR_CLIP_START, clip_end=_SNR_CLIP_END)
+            c = _smooth_confidence(
+                raw_f, floor=_SNR_FLOOR, clip_start=_SNR_CLIP_START, clip_end=_SNR_CLIP_END
+            )
             v = (alpha * np.maximum(raw_f, 0.0) + beta) / (r * r)
             weight = c / np.maximum(v, 1e-12)
-            zero_here = c <= 1e-6
-            if acc is None:
-                acc = weight * x
-                w_sum = weight
-                w_first = weight
-                all_zero_conf = zero_here
-            else:
-                acc += weight * x
-                w_sum += weight
-                all_zero_conf &= zero_here
-            w_last = weight
-        merged_chunk = acc / np.maximum(w_sum, 1e-12)
-        out[y0:y1] = np.clip(merged_chunk, 0, 65535).astype(np.uint16)
-        w0_sum += float(w_first.sum())
-        wn_sum += float(w_last.sum())
-        n_weights += int(w_first.size)
-        # both_zero_pix equivalent: every bracket (all 3 channels) near-zero confidence.
+            raw_fs.append(raw_f)
+            xs.append(x)
+            cs.append(c)
+            weights.append(weight)
+
+        acc = weights[0] * xs[0]
+        w_sum = weights[0].copy()
+        all_zero_conf = cs[0] <= 1e-6
+        for x, c, weight in zip(xs[1:], cs[1:], weights[1:], strict=True):
+            acc += weight * x
+            w_sum += weight
+            all_zero_conf &= c <= 1e-6
+        ivw = acc / np.maximum(w_sum, 1e-12)
+
+        lum_ref = xs[0].mean(axis=2)
+        va_lum = alpha * np.maximum(lum_ref, 0.0) + beta
+        c_res_eff = np.ones_like(lum_ref, dtype=np.float32)
+        lum_diff_max = np.zeros_like(lum_ref, dtype=np.float32)
+        for raw_f, x, c, r, z_median in zip(
+            raw_fs[1:], xs[1:], cs[1:], ratios[1:], z_medians, strict=True
+        ):
+            lum_raw = raw_f.mean(axis=2)
+            lum_x = x.mean(axis=2)
+            vb_lum = (alpha * np.maximum(lum_raw, 0.0) + beta) / (r * r)
+            z = (lum_ref - lum_x) / np.sqrt(np.maximum(va_lum + vb_lum, 1e-12))
+            z_local = z - z_median
+            c_res_i = _residual_confidence(z_local)
+            gate_i = np.minimum(cs[0], c).mean(axis=2)
+            c_res_eff_i = 1.0 - gate_i * (1.0 - c_res_i)
+            c_res_eff = np.minimum(c_res_eff, c_res_eff_i)
+            lum_diff_max = np.maximum(lum_diff_max, np.abs(lum_ref - lum_x))
+
+        weight_stack = np.stack(weights, axis=0)
+        x_stack = np.stack(xs, axis=0)
+        best_idx = np.argmax(weight_stack, axis=0)
+        prefer = np.take_along_axis(x_stack, best_idx[np.newaxis, ...], axis=0)[0]
+
+        merged = c_res_eff[..., np.newaxis] * ivw + (1.0 - c_res_eff[..., np.newaxis]) * prefer
+        ivw_spread = np.max(ivw, axis=2) - np.min(ivw, axis=2)
+        misaligned = (lum_diff_max > _LUMA_DISAGREE_TAU) & (ivw_spread > _IVW_CHANNEL_SPREAD_TAU)
+        chunk = np.where(misaligned[..., np.newaxis], xs[0], merged)
+        chunk = np.where(all_zero_conf, 0.0, chunk)
+
+        out[y0:y1] = np.clip(chunk, 0, 65535).astype(np.uint16)
+        w0_sum += float(weights[0].sum())
+        wn_sum += float(weights[-1].sum())
+        n_weights += int(weights[0].size)
         zero_count += int(np.count_nonzero(np.all(all_zero_conf, axis=-1)))
+        c_res_sum += float(c_res_eff.sum())
 
     stats = FusionStats(
         mean_short_weight=w0_sum / max(n_weights, 1),
         mean_long_weight=wn_sum / max(n_weights, 1),
         zero_weight_pixels=zero_count,
         total_pixels=total_pixels,
-        mean_residual_confidence=None,
+        mean_residual_confidence=c_res_sum / max(total_pixels, 1),
         exposure_ratio_used=float(exposures[-1]) / e0,
     )
     return MergeResult(rgb=out, fusion_stats=stats)
