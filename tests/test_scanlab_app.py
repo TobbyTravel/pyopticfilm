@@ -43,6 +43,7 @@ def _run_app_script(body: str) -> str:
         text=True,
         timeout=30,
         env={"QT_QPA_PLATFORM": "offscreen", **_env()},
+        check=False,
     )
     assert result.returncode == 0, (
         f"subprocess failed (exit {result.returncode}):\n"

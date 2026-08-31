@@ -56,6 +56,7 @@ def _pyqt6_widget_constructible() -> bool:
             text=True,
             timeout=30,
             env={"QT_QPA_PLATFORM": "offscreen", **_minimal_env()},
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -89,6 +90,7 @@ def _run_me_controls_script(body: str) -> str:
         text=True,
         timeout=30,
         env={"QT_QPA_PLATFORM": "offscreen", **_minimal_env()},
+        check=False,
     )
     assert result.returncode == 0, (
         f"subprocess failed (exit {result.returncode}):\n"
