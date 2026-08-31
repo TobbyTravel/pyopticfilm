@@ -427,6 +427,13 @@ class Model8200iSE:
     me_dense_percentile: float = 5.0
     #: Subtracted before dense stats; 0 when host calib already dark-subtracted.
     me_black_level: float = 0.0
+    #: Provisional Poisson-Gaussian DN^2 noise model for IVW merge fusion
+    #: (var ~= alpha*mean + beta); matches exposure_merge.py's own
+    #: _SNR_ALPHA/_SNR_BETA module defaults. Override per model once a
+    #: real flat-field fit is available (see
+    #: exposure_merge.estimate_pg_noise_params).
+    me_noise_alpha: float = 1.0
+    me_noise_beta: float = 4096.0
     #: Default me_exposure_mode ("adaptive"/"fixed") when a caller passes
     #: n_brackets > 1 to Scanner.scan() without an explicit override — SE
     #: has no dedicated real-hardware exposure-selection validation the way

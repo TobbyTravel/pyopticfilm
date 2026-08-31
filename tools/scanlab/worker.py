@@ -40,6 +40,11 @@ class ScanRequest:
     single_pass_exposure: int | None = None
     me_short_exposure: int | None = None
     me_long_exposure: int | None = None
+    #: Clamped "manual" ME bracket target (held inside the model's own
+    #: floor/ceiling envelope) — distinct from me_long_exposure, which is
+    #: the raw, unrestricted Scan Lab debug override. Mutually exclusive
+    #: with me_long_exposure (enforced by Scanner.scan()).
+    me_target_exposure: int | None = None
     gl128_prime: bool | None = None
     crop_norm: tuple[float, float, float, float] | None = None
     scan_kw: dict[str, Any] | None = None
@@ -170,6 +175,7 @@ class ScanWorker(QObject):
             single_pass_exposure=request.single_pass_exposure,
             me_short_exposure=request.me_short_exposure,
             me_long_exposure=request.me_long_exposure,
+            me_target_exposure=request.me_target_exposure,
             gl128_prime=request.gl128_prime,
             scan_kw=request.scan_kw,
             n_brackets=int(request.n_brackets),
@@ -189,6 +195,7 @@ class ScanWorker(QObject):
         single_pass_exposure: int | None = None,
         me_short_exposure: int | None = None,
         me_long_exposure: int | None = None,
+        me_target_exposure: int | None = None,
         gl128_prime: bool | None = None,
         scan_kw: dict[str, Any] | None = None,
         n_brackets: int = 2,
@@ -235,6 +242,7 @@ class ScanWorker(QObject):
                     single_pass_exposure=single_pass_exposure,
                     me_short_exposure=me_short_exposure,
                     me_long_exposure=me_long_exposure,
+                    me_target_exposure=me_target_exposure,
                     gl128_prime=gl128_prime,
                     n_brackets=n_brackets,
                     **scan_kw,
