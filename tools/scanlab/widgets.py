@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import numpy as np
 from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QIntValidator, QPainter, QPen, QPixmap
@@ -381,14 +383,14 @@ class MeMode:
     FIXED_FAST = "fixed_fast"
     N_EXPOSURE = "n_exposure"
 
-    _LABELS = {
+    _LABELS: ClassVar[dict[str, str]] = {
         OFF: "Off",
         DYNAMIC: "Dynamic (adaptive long exposure)",
         FIXED_FAST: "Fixed Fast (long pinned at 42k)",
         N_EXPOSURE: "N-Exposure (2-9 brackets)",
     }
     #: Combo item order — OFF first so index 0 is always the safe default.
-    ORDER = (OFF, DYNAMIC, FIXED_FAST, N_EXPOSURE)
+    ORDER: ClassVar[tuple[str, ...]] = (OFF, DYNAMIC, FIXED_FAST, N_EXPOSURE)
 
 
 class MeControls(QWidget):
