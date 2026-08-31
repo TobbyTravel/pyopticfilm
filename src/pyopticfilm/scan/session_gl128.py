@@ -23,7 +23,7 @@ from collections.abc import Callable
 from pyopticfilm.asic.gl128 import DEFAULT_IMAGE_USB_PACE_S
 from pyopticfilm.asic.registers import Gl128Registers
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
-from pyopticfilm.device.protocol import AsicDriver, FilmModel
+from pyopticfilm.device.protocol import AsicDriver, FilmModel, MultiExposureFilmModel
 from pyopticfilm.exceptions import AsicError, ScanCancelled, ScanError
 from pyopticfilm.logging import get_logger
 from pyopticfilm.scan.calibrate import Calibrator
@@ -51,7 +51,7 @@ _LINE_PERIOD_TO_SECONDS = 1.0 / 4_500_000.0
 _QUIET_DRAIN_LAG = 1.05
 
 def clamp_me_long_for_dpi(
-    resolution: int, exp_long: int, model: FilmModel | None = None
+    resolution: int, exp_long: int, model: MultiExposureFilmModel | None = None
 ) -> int:
     """Clamp ME colour-long exposure for the requested PPI.
 
@@ -64,7 +64,7 @@ def clamp_me_long_for_dpi(
     """
     mdl = model if model is not None else MODEL_8200I_SE
     value = int(exp_long)
-    floor = int(getattr(mdl, "exposure_short", 14_000))
+    floor = int(mdl.exposure_short)
     ceiling = mdl.me_long_exposure_ceiling(int(resolution))
     return min(max(value, floor), ceiling)
 
@@ -134,10 +134,10 @@ class Gl128ScanSession(ScanSession):
         n_brackets: int = 2,
         **kwargs,
     ):  # type: ignore[no-untyped-def]
-        """Refuse unless the ASIC explicitly arms motor moves."""
-        if not getattr(self.asic, "_motor_moves_enabled", False):
-            raise AsicError(_MOTOR_GATED_HINT)
-        # Fail fast on bad manual-exposure input before any register write.
+        # Fail fast on bad manual-exposure input before any ASIC state check —
+        # same order as Scanner.scan() so a direct-session caller sees the
+        # same ValueError a Scanner.scan() caller would, not an unrelated
+        # AsicError from the motor gate below.
         validate_manual_exposure(single_pass_exposure, label="single_pass_exposure")
         validate_manual_exposure(me_short_exposure, label="me_short_exposure")
         validate_manual_exposure(me_long_exposure, label="me_long_exposure")
@@ -150,6 +150,9 @@ class Gl128ScanSession(ScanSession):
             )
         if not (2 <= n_brackets <= 9):
             raise ValueError(f"n_brackets must be between 2 and 9, got {n_brackets!r}")
+        # Refuse unless the ASIC explicitly arms motor moves.
+        if not getattr(self.asic, "_motor_moves_enabled", False):
+            raise AsicError(_MOTOR_GATED_HINT)
         if multi_exposure or (infrared and kwargs.get("mode", "color") == "color"):
             if infrared and not getattr(self.model, "supports_infrared", False):
                 raise ScanError(
@@ -587,8 +590,13 @@ class Gl128ScanSession(ScanSession):
                     mode_norm,
                 )
             else:
-                # DPI-aware ME long ceiling — model.me_long_exposure_ceiling()
-                # is the single source of truth (see clamp_me_long_for_dpi).
+                # Intersect each model envelope field with the DPI ceiling —
+                # not a redundant re-expression of me_long_exposure_ceiling():
+                # a model may set me_adaptive_max_exposure/me_hardware_max_
+                # exposure below the DPI ceiling, and clamp_me_long_for_dpi
+                # correctly picks the smaller of the two. They only equal the
+                # ceiling outright for SE/V2 today because both fields are
+                # >= every DPI's ceiling on those two models.
                 dpi_adaptive_max = clamp_me_long_for_dpi(
                     geometry.resolution,
                     int(getattr(model, "me_adaptive_max_exposure", exp_long)),
