@@ -127,6 +127,14 @@ class Model8100V2(Model8200iSE):
     # default. Still fully overridable via Scanner.scan(me_exposure_mode=
     # "adaptive"). Does not affect n_brackets == 2, which is unchanged.
     me_default_exposure_mode: str = "fixed"
+    # 2026-08-31: V2 hardware validation of the ME long ceiling has only
+    # covered 42000 (see me_default_exposure_mode above) — no per-DPI data
+    # yet the way the SE's 7200-dpi-vs-other split has. Until further
+    # hardware testing, pin the ceiling flat at 42000 for every resolution
+    # (no DPI-keyed entries → every lookup falls through to the default).
+    # Loosen this once V2 is validated at higher exposures / other DPIs.
+    me_long_exposure_ceiling_by_dpi: Mapping[int, int] = field(default_factory=dict)
+    me_long_exposure_ceiling_default: int = 42000
 
     def shading_strip_clocks(self, resolution: int, *, dvdset: bool) -> tuple[int, int, int]:
         """Return ``(dummy, clk_a, clk_b)`` for a shading strip.
