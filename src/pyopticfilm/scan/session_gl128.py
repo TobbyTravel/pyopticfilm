@@ -752,9 +752,9 @@ class Gl128ScanSession(ScanSession):
         elif multi_exposure and n_brackets > 2 and bracket_planes:
             # Align every non-short bracket to rgb_short individually (same
             # function used for the single long bracket above, looped), then
-            # fuse with the N-way IVW generalization. See exposure_merge.py::
-            # merge_n_exposures for what this deliberately omits vs the 2-way
-            # merge (residual-disagreement gate, misalignment fallback).
+            # fuse with the N-way IVW generalization — see exposure_merge.py::
+            # merge_n_exposures, which also carries the residual-disagreement
+            # gate and misalignment fallback from the 2-way merge.
             frames = [rgb_short]
             exposures = [exp_short]
             bracket_debugs = [BracketDebug(rgb=rgb_short, exposure=exp_short, align_shift=None)]
