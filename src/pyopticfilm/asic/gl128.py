@@ -109,16 +109,8 @@ _STATIONARY_DATA_READY: frozenset[int] = frozenset({0xBD, 0xA9, 0xAD, 0x9C})
 #: After an image pass, hardware ``0x02`` may still have MTRPWR|AGOHOME (park
 #: leaves it alone) and SCAN may still be settling. Stationary START while
 #: ``MOTORENB`` is set hangs as ``0xcd`` (HOME|BUFEMPTY|LAMP|MOTORENB).
-#:
-#: On real hardware, right after a long high-DPI pass (e.g. a 7200dpi bracket)
-#: the *first* stationary probe of the next remeasure can itself take several
-#: seconds to respond even though ``wait_until_at_home`` already confirmed
-#: HOME|~MOTORENB moments earlier — the device stays busy settling past what
-#: the status bits show. 2.0s was tuned for lower-DPI/shorter passes and left
-#: no margin for this; a real 5-bracket 7200dpi run observed ~7.6s of silence
-#: before the first response, still unready 9s+ later across every retry.
-_STATIONARY_IDLE_WAIT_S = 15.0
-_STATIONARY_START_RETRIES = 2
+_STATIONARY_IDLE_WAIT_S = 2.0
+_STATIONARY_START_RETRIES = 1
 
 #: Vendor probe ``wIndex`` polled during fast feeds until it returns this.
 _FEED_PROBE_INDEX = 0x21
@@ -506,7 +498,7 @@ class Gl128:
         self,
         size: int = AFE_STRIP_BYTES,
         *,
-        timeout_s: float = 15.0,
+        timeout_s: float = 5.0,
     ) -> bytes:
         """Read one stationary 16-bit AFE strip. Does not move the carriage."""
         if not self._initialized:
