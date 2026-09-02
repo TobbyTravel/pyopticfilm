@@ -3,8 +3,11 @@
 """OpticFilm 8100 V2 model definition (GL128).
 
 The 8100 V2 (``07b3:1824``) uses the GL128 ASIC and is closely related to the
-8200i SE (``07b3:1825``).  Five constants differ from the SE, all derived from
-USB captures of the V2 Windows driver (capture session Aug 2026).
+8200i SE (``07b3:1825``).  It subclasses :class:`Gl128Common` (shared tables),
+**not** :class:`~pyopticfilm.device.model_8200i_se.Model8200iSE`, so SE capture
+constants cannot leak through inheritance.  Five constants differ from the SE,
+all derived from USB captures of the V2 Windows driver (capture session Aug
+2026).
 
 **feed_to_scan_steps = 13 128**
     The V2's full-frame colour scan starts at the top of the TA window (second
@@ -23,7 +26,7 @@ USB captures of the V2 Windows driver (capture session Aug 2026).
     3203) — uses 16 035 instead.  The difference of +72 shifts the pixel-clock
     budget and would produce timing errors on V2 hardware if the SE value is
     used.  Only 7200 dpi is confirmed; all other DPI entries are inherited from
-    the SE.
+    the shared GL128 map.
 
 **shading_strip_clocks: white-strip dummy at 7200 dpi = 0x10**
     The white shading strip on V2 uses dummy register 0x2B = 0x10 (frame 2257)
@@ -34,11 +37,11 @@ USB captures of the V2 Windows driver (capture session Aug 2026).
     the same value).
 
 **max_image_lincnt_by_feed2 = {13128: 29012}**
-    The SE inherits a regression fixture table mapping second-feed distances to
-    capture LINCNT values.  At key 13 128, the SE entry is 4 836 (a 1200 dpi
-    preview from SE session 03).  V2 capture shows LINCNT = 29 012 at
-    feed2 = 13 128 — the full-frame 7200 dpi image pass.  The V2 table contains
-    only the confirmed V2 entry; SE-specific entries are not meaningful here.
+    The SE regression fixture maps second-feed distances to capture LINCNT
+    values.  At key 13 128, the SE entry is 4 836 (a 1200 dpi preview from SE
+    session 03).  V2 capture shows LINCNT = 29 012 at feed2 = 13 128 — the
+    full-frame 7200 dpi image pass.  The V2 table contains only the confirmed
+    V2 entry; SE-specific entries are not meaningful here.
     *Capture evidence*: ``04_color_7200.pcapng`` frame 3203, registers
     0x25–0x27 = 0x00 0x71 0x54 = 29 012.
 
@@ -58,31 +61,27 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from pyopticfilm.device.model_8200i_se import _LPERIOD_BY_DPI, Model8200iSE
+from pyopticfilm.device.gl128_common import LPERIOD_BY_DPI, Gl128Common
 
 # V2 7200 dpi LPERIOD observed in all three scan phases (dark/white shading and
-# image pass): 16 035.  All other DPI entries are carried over from the SE.
+# image pass): 16 035.  All other DPI entries are carried over from the shared
+# GL128 map (SE session 13).
 _LPERIOD_BY_DPI_V2: dict[int, int] = {
-    **_LPERIOD_BY_DPI,
+    **LPERIOD_BY_DPI,
     7200: 16035,
 }
 
 
 @dataclass(frozen=True)
-class Model8100V2(Model8200iSE):
+class Model8100V2(Gl128Common):
     """OpticFilm 8100 V2 — GL128 sibling of the 8200i SE without IR.
 
     See module docstring for the five capture-derived overrides.
     """
 
     name: str = "plustek-opticfilm-8100-v2"
-    vendor: str = "PLUSTEK"
     model: str = "OpticFilm 8100 (V2)"
-    asic: str = "GL128"
-    usb_vendor_id: int = 0x07B3
     usb_product_id: int = 0x1824
-
-    scan_ready: bool = True
     supports_infrared: bool = False
 
     # Capture-derived override: V2 full-frame scan starts at the TA window top.
@@ -95,7 +94,6 @@ class Model8100V2(Model8200iSE):
     )
 
     # V2 capture LINCNT at feed2=13128: 29012 (full-frame 7200 dpi, frame 3203).
-    # SE inherits {13128: 4836} — a 1200 dpi preview entry that is wrong for V2.
     max_image_lincnt_by_feed2: Mapping[int, int] = field(
         default_factory=lambda: {13128: 29012}
     )
@@ -103,34 +101,18 @@ class Model8100V2(Model8200iSE):
     # V2 uses feed2=13128 for all scan types (top of TA window), not SE's 13560.
     ladder_feed2_steps: int = 13128
 
-    # 2026-08-30: real-hardware isolation testing (repeated, 5-for-5 clean
-    # trials at 1200/1800/7200dpi) found the motor slope-table fix
-    # (_upload_fast_slopes' use_slow parameter, gl128.py, see PR #40) resolves
-    # a mechanical fault seen during hardware testing. Priming was off in
-    # every one of those clean trials; priming ON has not yet been separately
-    # re-tested now that the slope table is fixed, so this is a precautionary
-    # default matching what's actually been proven safe on real V2 hardware,
-    # not a claim that priming itself is dangerous. Still fully overridable
-    # via Scanner.scan(gl128_prime=True) or a host's own UI toggle.
-    default_gl128_prime: bool = False
     # V2-only: second (final positioning) feed uses SLOPE_TABLE_SLOW.
     # Two independent V2 captures (plus recovered 04_color_7200.pcapng).
-    # 8200i SE has no such field — SilverFast there is the inverse
-    # (slow reference feed, fast final feed). See
-    # Gl128.position_for_full_frame_scan.
+    # 8200i SE is the inverse (slow reference feed, fast final feed).
     use_slow_final_positioning_feed: bool = True
 
     def shading_strip_clocks(self, resolution: int, *, dvdset: bool) -> tuple[int, int, int]:
         """Return ``(dummy, clk_a, clk_b)`` for a shading strip.
 
         V2 white shading at 7200 dpi uses dummy=0x10 (SE computes 0x17 from
-        ``dummy_by_dpi``).  All other cases delegate to the SE implementation.
-        Capture evidence: ``04_color_7200.pcapng`` frame 2257, reg 0x2B = 0x10.
-
-        Dark shading dummy is 0x17 on both V2 and SE: the SE driver falls back
-        to ``dummy_by_dpi[7200]`` at 7200 dpi (``shading_dark_dummy_by_dpi``
-        has no entry for DPISET 7200), and V2 frame 1661 confirms 0x17.
-        No override is needed for the dark strip.
+        ``dummy_by_dpi``).  All other cases delegate to the shared
+        implementation.  Capture evidence: ``04_color_7200.pcapng`` frame 2257,
+        reg 0x2B = 0x10.
         """
         if dvdset and self.asic_dpi_for(resolution) == 7200:
             return 0x10, 0x01, 0x01

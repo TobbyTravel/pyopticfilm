@@ -4,7 +4,7 @@
 SANE genesys has no GL128 command set, so none of this is ported from SANE.
 Every register write below replays what the Windows driver does in the USB
 captures under ``captures/8200i-se/``; the model tables live in
-``pyopticfilm.device.model_8200i_se`` (8100 V2 subclasses those tables; no IR).
+``pyopticfilm.device.gl128_common`` (8100 V2 is a sibling leaf, not an SE subclass).
 
 Differences from :class:`~pyopticfilm.asic.gl845.Gl845` that matter here:
 
@@ -26,7 +26,8 @@ from typing import Literal
 
 from pyopticfilm.asic.registers import Gl128Registers
 from pyopticfilm.asic.status import ScannerStatus
-from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE, Model8200iSE
+from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
+from pyopticfilm.device.protocol import Gl128Model
 from pyopticfilm.device.tables_8200i_se import (
     SLOPE_TABLE_FAST,
     SLOPE_TABLE_SLOW,
@@ -191,7 +192,7 @@ class Gl128:
     def __init__(
         self,
         protocol: GenesysUsbProtocol,
-        model: Model8200iSE = MODEL_8200I_SE,
+        model: Gl128Model = MODEL_8200I_SE,
     ) -> None:
         self.protocol = protocol
         self.model = model
@@ -1418,8 +1419,8 @@ class Gl128:
         mechanical fault on V2 hardware. SilverFast on the 8200i SE is the
         inverse: slow then fast (39/39 positioning pairs).
         :meth:`position_for_full_frame_scan` selects the pair from
-        ``Model8100V2.use_slow_final_positioning_feed`` (V2 only; SE has no
-        such field). ``feed()`` still uploads the fast ramp.
+        ``model.use_slow_final_positioning_feed`` (required GL128 knob: True on
+        V2, False on SE). ``feed()`` still uploads the fast ramp.
         """
         slope = _u16_table_bytes(SLOPE_TABLE_SLOW if use_slow else SLOPE_TABLE_FAST)
         r = self.registers
@@ -1627,9 +1628,8 @@ class Gl128:
             first,
             second,
         )
-        # V2-only flag (True): fast then slow. SE has no such field → False:
-        # slow then fast, matching SilverFast (39/39 capture pairs).
-        use_slow_second = bool(getattr(self.model, "use_slow_final_positioning_feed", False))
+        # Required GL128 knob: V2 True (fast then slow); SE False (slow then fast).
+        use_slow_second = bool(self.model.use_slow_final_positioning_feed)
         self._feed_capture(
             first, timeout_s=timeout_s / 2, require_motion=True, use_slow_slope=not use_slow_second
         )

@@ -5,7 +5,10 @@ alwaysApply: true
 
 # Model lock tests
 
-`tests/model_lock/` holds frozen **driver-path** oracles per hardware-validated model (today: `opticfilm_8200i_se` only).
+`tests/model_lock/` holds frozen **driver-path** oracles per hardware-validated model:
+
+- `tests/model_lock/opticfilm_8200i_se/`
+- `tests/model_lock/opticfilm_8100_v2/`
 
 ## Never without an explicit user request
 
@@ -17,7 +20,7 @@ Do **not** add a lock folder for another model unless the user asks.
 
 ## When lock tests fail
 
-- Change is for a **different** model: specialize that model (flags, subclass, session branch). Leave SE (or other lock) oracles unchanged.
+- Change is for a **different** model: specialize that model (flags, leaf class, session branch). Leave other lock oracles unchanged.
 - User is working on the **lock model's** driver: **stop and ask** before changing expected values. A failure may be a real regression.
 
 ## Allowed without asking

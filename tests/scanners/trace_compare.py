@@ -19,6 +19,32 @@ from scanners.fake_usb import UsbTransaction
 # GL845 status register encoded in GET_REGISTER wIndex: 0x22 + (0x41 << 8).
 _STATUS_READ_INDEX = (0x22 + (0x41 << 8)) & 0xFFFF
 
+# GL128 optical / scan-setup registers (STR/END at 0x82/0x85, LPERIOD at 0x28).
+GL128_OPTICAL_REGISTER_KEYS: tuple[int, ...] = (
+    0x01,  # SCAN / SHDAREA / DVDSET
+    0x02,  # motor / AGOHOME
+    0x2B,  # dummy
+    0x2C,
+    0x2D,  # DPISET
+    0x25,
+    0x26,
+    0x27,  # LINCNT
+    0x28,
+    0x29,
+    0x2A,  # LPERIOD
+    0x82,
+    0x83,
+    0x84,  # STRPIXEL
+    0x85,
+    0x86,
+    0x87,  # ENDPIXEL
+    0x7D,
+    0x7E,
+    0x7F,  # EXPOSURE
+    0xA5,
+    0xAB,  # pixel clock
+)
+
 # Optical / scan-setup registers compared against SANE (not the full boot blast).
 OPTICAL_REGISTER_KEYS: tuple[int, ...] = (
     0x01,  # SCAN / SHDAREA / DVDSET
