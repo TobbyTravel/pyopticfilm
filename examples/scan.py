@@ -114,6 +114,12 @@ def main() -> int:
         if getattr(model, "supports_infrared", False):
             infrared = _prompt_yes_no("Enable infrared dust plane (IR)?")
 
+    n_brackets = 2
+    if multi_exposure:
+        raw_n = input("ME brackets [2] (2-9): ").strip()
+        if raw_n:
+            n_brackets = int(raw_n)
+
     if args.out is not None:
         out = args.out
     else:
@@ -134,6 +140,7 @@ def main() -> int:
             geometry=geometry,
             multi_exposure=multi_exposure,
             infrared=infrared,
+            n_brackets=n_brackets,
             progress=_progress,
         )
 

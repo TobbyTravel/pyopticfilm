@@ -11,6 +11,7 @@ from pyopticfilm.scan.me_exposure import (
     choose_long_exposure,
     clamp_long_exposure,
     fixed_long_exposure,
+    geometric_bracket_schedule,
     select_long_exposure,
 )
 
@@ -147,3 +148,15 @@ def test_model_adaptive_envelope_defaults():
     assert MODEL_8200I_SE.me_hardware_max_exposure == 85000
     assert MODEL_8200I_SE.me_max_exposure_ratio == 7.0
     assert MODEL_8200I_SE.me_target_dense_dn == 10000.0
+
+
+def test_geometric_bracket_schedule_two_is_just_the_top():
+    assert geometric_bracket_schedule(14000, 42000, 2) == [42000]
+
+
+def test_geometric_bracket_schedule_five_ends_on_top():
+    schedule = geometric_bracket_schedule(14000, 42000, 5)
+    assert len(schedule) == 4
+    assert schedule[-1] == 42000
+    assert schedule == sorted(schedule)
+    assert schedule[0] > 14000

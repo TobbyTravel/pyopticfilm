@@ -36,7 +36,7 @@ Other OpticFilm models **enumerate and open**: you can read status, turn the lam
 
 - Color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host; infrared is available only on supported hardware)
 - Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour; 8200i SE only among the hardware-tested set)
-- Multi-exposure (ME) on GL128 hardware-tested models (8200i SE and 8100 V2): short + adaptive long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
+- Multi-exposure (ME) on GL128 hardware-tested models (8200i SE and 8100 V2): short + adaptive long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); optional `n_brackets=3..9` captures extra geometrically spaced exposures and fuses them the same way. Bracket planes via `Scanner.last_me_debug`
 - Manual exposure overrides on GL128 (`single_pass_exposure` / `me_short_exposure` / `me_long_exposure`) for testing/debugging: bypass the adaptive/hardware-max clamps and write an exact `REG_EXPOSURE` value (24-bit register range), never applied to the discarded priming pass
 - Priming-pass override on GL128 (`gl128_prime=True` to run the discarded AGOHOME-park pass; both hardware-tested models default to skipping it)
 - Optional crop via normalized `area` (`x1, y1, x2, y2` in 0–1)
@@ -145,6 +145,19 @@ with Scanner.open() as scanner:
         print(debug.exposure_short, debug.exposure_long)  # e.g. 14000, 42000…85000
         print(debug.exposure_proposed, debug.exposure_reason)
 ```
+
+Optional N-bracket ME (still defaults to today's 2-bracket path when omitted):
+
+```python
+image = scanner.scan(
+    resolution=1800,
+    mode="color",
+    multi_exposure=True,
+    n_brackets=5,  # 2–9; 2 is the existing short+long path
+)
+```
+
+``me_target_exposure`` is a clamped manual top bracket (same 2-bracket PPI envelope as adaptive, except the 8100 V2 pins 42000 when ``n_brackets > 2``). It is mutually exclusive with the unrestricted debug override ``me_long_exposure``.
 
 Manual exposure overrides (GL128; debugging/testing only): send an exact
 ``REG_EXPOSURE`` value that bypasses the adaptive selection, DPI clamp, and

@@ -218,6 +218,29 @@ def select_long_exposure(
     )
 
 
+def geometric_bracket_schedule(
+    exp_short: int, exp_long: int, n_brackets: int
+) -> list[int]:
+    """Non-short exposures geometrically spaced between floor and top long.
+
+    Returns ``n_brackets - 1`` values; the last is exactly ``exp_long``.
+    ``n_brackets == 2`` is ``[exp_long]``.
+    """
+    n = int(n_brackets)
+    short = int(exp_short)
+    long = int(exp_long)
+    if n < 2:
+        raise ValueError(f"n_brackets must be >= 2, got {n_brackets!r}")
+    if short <= 0 or long <= 0:
+        raise ValueError(f"exposures must be positive, got short={short} long={long}")
+    if n == 2:
+        return [long]
+    ratio = long / short
+    schedule = [round(short * (ratio ** (i / (n - 1)))) for i in range(1, n)]
+    schedule[-1] = long
+    return schedule
+
+
 def fixed_long_exposure(
     exposure_long: int,
     *,

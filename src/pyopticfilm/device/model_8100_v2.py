@@ -106,6 +106,21 @@ class Model8100V2(Gl128Common):
     # 8200i SE is the inverse (slow reference feed, fast final feed).
     use_slow_final_positioning_feed: bool = True
 
+    #: Default ``me_exposure_mode`` when ``n_brackets > 2`` and the caller
+    #: does not pass an explicit mode. N-bracket ME on this model was
+    #: hardware-validated at the fixed 42000 top; ``n_brackets == 2`` still
+    #: defaults to ``"adaptive"``.
+    me_default_exposure_mode: str = "fixed"
+
+    def me_n_bracket_long_exposure_ceiling(self, resolution: int) -> int:
+        """Pin N-bracket (``n_brackets > 2``) longs at 42000 for every DPI.
+
+        The only top exposure validated on real V2 hardware for N-bracket ME.
+        Two-bracket scans still use :meth:`me_long_exposure_ceiling` /
+        ``clamp_me_long_for_dpi`` (85000 at non-7200).
+        """
+        return 42_000
+
     def shading_strip_clocks(self, resolution: int, *, dvdset: bool) -> tuple[int, int, int]:
         """Return ``(dummy, clk_a, clk_b)`` for a shading strip.
 

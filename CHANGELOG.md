@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Cross-model GL128 safeguards**: required-field `Gl128Model` contract, sibling-diff catalog (`GL128_DIVERGENT_FIELDS`), and 8100 V2 model-lock oracles so a fix for one hardware-tested GL128 model cannot silently retarget the other. Contributor policy is in `CONTRIBUTING.md`.
 - **GL128 setup goldens**: Mock-USB register programs for 8200i SE and 8100 V2 at 1200 / 1800 / 7200 dpi (`tests/traces/python/8200i_se/`, `tests/traces/python/8100_v2/`). Regenerate with `python tools/dump_gl128_setup_trace.py`.
+- **N-bracket multi-exposure** (`n_brackets=2..9` on `Scanner.scan`): geometrically spaced colour exposures fused with N-way IVW. Default `n_brackets=2` is today's short + adaptive-long path. Optional `me_target_exposure` is a clamped manual top (mutually exclusive with the unrestricted `me_long_exposure` debug override). Scan Lab uses one Multi-exposure dropdown (Off / Dynamic / Fixed Fast / N-Exposure).
 
 ### Changed
 

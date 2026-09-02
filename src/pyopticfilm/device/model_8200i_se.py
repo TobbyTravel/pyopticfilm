@@ -81,5 +81,10 @@ class Model8200iSE(Gl128Common):
     #: Required GL128 knob (V2 is the inverse). Do not omit this field.
     use_slow_final_positioning_feed: bool = False
 
+    #: Default ``me_exposure_mode`` when ``n_brackets > 2`` and the caller
+    #: does not pass an explicit mode. ``n_brackets == 2`` always defaults to
+    #: ``"adaptive"`` regardless of this field.
+    me_default_exposure_mode: str = "adaptive"
+
 
 MODEL_8200I_SE = Model8200iSE()

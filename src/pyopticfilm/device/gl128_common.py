@@ -261,6 +261,7 @@ GL128_DIVERGENT_FIELDS: frozenset[str] = frozenset(
         "max_image_lincnt_by_feed2",
         "ladder_feed2_steps",
         "use_slow_final_positioning_feed",
+        "me_default_exposure_mode",
     }
 )
 
@@ -323,6 +324,8 @@ GL128_SHARED_FIELDS: frozenset[str] = frozenset(
         "me_target_dense_dn",
         "me_dense_percentile",
         "me_black_level",
+        "me_noise_alpha",
+        "me_noise_beta",
         "motor_base_ydpi",
         "optical_resolution",
         "feed_steps_per_inch",
@@ -434,6 +437,9 @@ class Gl128Common:
     me_target_dense_dn: float = 10000.0
     me_dense_percentile: float = 5.0
     me_black_level: float = 0.0
+    #: Poisson-Gaussian DN² model for IVW merge (matches exposure_merge defaults).
+    me_noise_alpha: float = 1.0
+    me_noise_beta: float = 4096.0
     motor_base_ydpi: int = 7200
     optical_resolution: int = 7200
     feed_steps_per_inch: int = 14400
@@ -465,6 +471,7 @@ class Gl128Common:
         max_image_lincnt_by_feed2: Mapping[int, int]
         ladder_feed2_steps: int
         use_slow_final_positioning_feed: bool
+        me_default_exposure_mode: str
 
     @property
     def max_area_mm(self) -> tuple[float, float]:
@@ -517,6 +524,23 @@ class Gl128Common:
     def image_exposure(self, *, long_exposure: bool = False) -> int:
         """``REG_EXPOSURE`` for short or long ME bracket."""
         return int(self.exposure_long if long_exposure else self.exposure_short)
+
+    def me_long_exposure_ceiling(self, resolution: int) -> int:
+        """2-bracket ME colour-long ceiling (same numbers as ``clamp_me_long_for_dpi``).
+
+        7200 dpi is capped at 42000 (SilverFast known-good colour-long). Other
+        PPI allow up to 85000.
+        """
+        return 42_000 if int(resolution) == 7200 else 85_000
+
+    def me_n_bracket_long_exposure_ceiling(self, resolution: int) -> int:
+        """ME colour-long ceiling used when ``n_brackets > 2``.
+
+        Defaults to :meth:`me_long_exposure_ceiling`. The 8100 V2 overrides
+        this to pin 42000 at every DPI (the only N-bracket top validated on
+        that hardware so far). ``n_brackets == 2`` does not call this.
+        """
+        return self.me_long_exposure_ceiling(resolution)
 
     def feed_to_scan_steps_for_area(
         self,

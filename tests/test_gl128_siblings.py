@@ -61,6 +61,8 @@ def test_divergent_fields_match_capture_catalog():
     assert MODEL_8100_V2.ladder_feed2_steps == 13128
     assert MODEL_8200I_SE.use_slow_final_positioning_feed is False
     assert MODEL_8100_V2.use_slow_final_positioning_feed is True
+    assert MODEL_8200I_SE.me_default_exposure_mode == "adaptive"
+    assert MODEL_8100_V2.me_default_exposure_mode == "fixed"
     assert MODEL_8200I_SE.lperiod_by_dpi[7200] == 15963
     assert MODEL_8100_V2.lperiod_by_dpi[7200] == 16035
     assert dict(MODEL_8200I_SE.max_image_lincnt_by_feed2) == {
@@ -70,6 +72,14 @@ def test_divergent_fields_match_capture_catalog():
         20232: 3700,
     }
     assert dict(MODEL_8100_V2.max_image_lincnt_by_feed2) == {13128: 29012}
+
+
+def test_n_bracket_ceiling_pins_only_on_v2():
+    assert MODEL_8200I_SE.me_long_exposure_ceiling(1800) == 85000
+    assert MODEL_8200I_SE.me_n_bracket_long_exposure_ceiling(1800) == 85000
+    assert MODEL_8100_V2.me_long_exposure_ceiling(1800) == 85000
+    assert MODEL_8100_V2.me_n_bracket_long_exposure_ceiling(1800) == 42000
+    assert MODEL_8100_V2.me_long_exposure_ceiling(7200) == 42000
 
 
 def test_every_public_field_is_catalogued():

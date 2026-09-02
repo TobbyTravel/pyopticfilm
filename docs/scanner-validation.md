@@ -108,6 +108,11 @@ clamped by PPI before the long pass runs:
 - **7200 dpi:** 14000–42000 (42000 is the SilverFast known-good colour-long).
 - **Other PPI:** 14000–85000.
 
+That table is the 2-bracket (`n_brackets=2`, the default) envelope for both
+GL128 models. When `n_brackets > 2`, the 8100 V2 additionally pins the top
+bracket at 42000 at every DPI (the only N-bracket top validated on that
+hardware so far). The 8200i SE keeps the same PPI table for N-bracket scans.
+
 The short bin is unchanged. Single-pass (non-ME) scans are not affected.
 Raised longs (model override / dynamic ME) are capped; stock `exposure_long`
 of 42000 is already within both ranges.

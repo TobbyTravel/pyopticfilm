@@ -133,6 +133,9 @@ class Gl128Model(FilmModel, Protocol):
     me_target_dense_dn: float
     me_dense_percentile: float
     me_black_level: float
+    me_noise_alpha: float
+    me_noise_beta: float
+    me_default_exposure_mode: str
     feed_steps_per_inch: int
     feed_to_reference_steps: int
     feed_to_scan_steps: int
@@ -162,6 +165,10 @@ class Gl128Model(FilmModel, Protocol):
     ) -> int: ...
 
     def image_exposure(self, *, long_exposure: bool = False) -> int: ...
+
+    def me_long_exposure_ceiling(self, resolution: int) -> int: ...
+
+    def me_n_bracket_long_exposure_ceiling(self, resolution: int) -> int: ...
 
     def feed_to_scan_steps_for_area(
         self,
