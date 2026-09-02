@@ -97,6 +97,91 @@ class FilmModel(Protocol):
 
 
 @runtime_checkable
+class Gl128Model(FilmModel, Protocol):
+    """Required knobs for GL128 scan-ready models (8200i SE and 8100 V2).
+
+    Shared-session / ASIC code must read these as real attributes — do not
+    introduce ``getattr(model, "new_knob", se_default)`` for GL128-specific
+    behaviour. Add the field here and on **every** GL128 leaf model instead.
+    """
+
+    usb_image_depth: int
+    usb_image_lincnt_half_lines: bool
+    usb_calib_depth: int
+    usb_planar_rgb: bool
+    mirror_x: bool
+    calib_uses_native_dpiset: bool
+    pixel_alignment: int
+    optical_span_alignment: int
+    strpixel_native_units: bool
+    optical_end_inactive_native: int
+    min_asic_dpi: int
+    default_gl128_prime: bool
+    lincnt_includes_line_shift: bool
+    image_lincnt_per_line: int
+    y_oversampled: bool
+    lperiod_by_dpi: Mapping[int, int]
+    dummy_by_dpi: Mapping[int, int]
+    pixel_clock_by_dpi: Mapping[int, int]
+    pixel_clock_long_by_dpi: Mapping[int, int]
+    exposure_short: int
+    exposure_long: int
+    me_adaptive_min_exposure: int
+    me_adaptive_max_exposure: int
+    me_hardware_max_exposure: int
+    me_max_exposure_ratio: float
+    me_target_dense_dn: float
+    me_dense_percentile: float
+    me_black_level: float
+    feed_steps_per_inch: int
+    feed_to_reference_steps: int
+    feed_to_scan_steps: int
+    feed_to_scan_top_steps: int
+    feed_to_scan_bottom_steps: int
+    max_feed_steps: int
+    scan_window_end_steps: int
+    max_image_lincnt_by_feed2: Mapping[int, int]
+    ladder_feed2_steps: int
+    ladder_lincnt_by_dpi: Mapping[int, int]
+    use_slow_final_positioning_feed: bool
+
+    def asic_dpi_for(self, resolution: int) -> int: ...
+
+    def oversample_for(self, resolution: int) -> int: ...
+
+    def line_period_for(self, resolution: int) -> int: ...
+
+    def shading_strip_clocks(
+        self, resolution: int, *, dvdset: bool
+    ) -> tuple[int, int, int]: ...
+
+    def channel_exposure_for(self, resolution: int, *, exposure: int | None = None) -> int: ...
+
+    def pixel_clock_for_image(
+        self, resolution: int, *, long_exposure: bool = False
+    ) -> int: ...
+
+    def image_exposure(self, *, long_exposure: bool = False) -> int: ...
+
+    def feed_to_scan_steps_for_area(
+        self,
+        area: tuple[float, float, float, float] | None = None,
+    ) -> int: ...
+
+    def max_lincnt_for_feed2(self, feed2: int) -> int | None: ...
+
+    def max_travel_steps_for_feed2(self, feed2: int) -> int: ...
+
+    def max_lincnt_for(self, feed2: int, resolution: int) -> int: ...
+
+    def travel_mm_for_lincnt(self, lincnt: int, resolution: int) -> float: ...
+
+    def lincnt_for_travel_mm(self, travel_mm: float, resolution: int) -> int: ...
+
+    def ladder_lincnt_for(self, resolution: int) -> int: ...
+
+
+@runtime_checkable
 class AsicDriver(Protocol):
     """Chip ops used by Scanner / ScanSession / Calibrator."""
 

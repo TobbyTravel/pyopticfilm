@@ -18,7 +18,9 @@ successful park.
 | **Experimental** | Tables and session code exist; `scan()`, `home()`, `park()`, and `calibrate()` stay locked. |
 
 The GL128 models (8200i SE and 8100 V2) are capture-derived (not a SANE port).
-SANE is not an oracle for them. The 8100 V2 shares SE tables but has no IR.
+SANE is not an oracle for them. Register-program goldens for `init` + configure
+are under `tests/traces/python/8200i_se/` and `tests/traces/python/8100_v2/`.
+The 8100 V2 shares SE-identical tables via `Gl128Common` but has no IR.
 
 ## Architecture
 
@@ -220,8 +222,37 @@ Flip `MODEL_8200I.scan_ready` only after a successful image + park on hardware.
 - Firmware-specific behaviour
 - Real USB timing and disconnect races
 
+## Hardware sign-off (scan-ready / lock-oracle edits)
+
+CI cannot run a physical scanner. Before flipping `scan_ready` or changing that
+model's files under `tests/model_lock/`, confirm on **that** hardware:
+
+- Park / AGOHOME return to home
+- Full-frame colour at 1200, 1800, and 7200 dpi
+- A cropped window
+- Multi-exposure colour
+- Infrared, if the model has an IR channel
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md).
+
 ## GL128 (8200i SE and 8100 V2)
 
 Use USB captures → golden traces when converting existing PCAP/PCAPNG files.
 Do not compare the GL128 path to SANE genesys (there is no GL128 command set).
-The 8100 V2 is a capture-derived sibling of the 8200i SE (shared tables; no IR).
+The 8100 V2 is a capture-derived sibling of the 8200i SE (shared `Gl128Common`
+tables; no IR). It does not subclass the SE model class.
+
+CI goldens for ASIC `init()` + `Gl128ScanSession._configure()` (motors gated)
+live at:
+
+- `tests/traces/python/8200i_se/{1200,1800,7200}_rgb16_setup.json`
+- `tests/traces/python/8100_v2/{1200,1800,7200}_rgb16_setup.json`
+
+Regenerate after an intentional GL128 setup-register change:
+
+```bash
+python tools/dump_gl128_setup_trace.py
+```
+
+Review the optical-register diff. Do not copy SE JSON over V2 (or the reverse)
+to make CI green.

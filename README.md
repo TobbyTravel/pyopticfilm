@@ -264,6 +264,9 @@ If you have a non-scan-ready OpticFilm and want to help validate scanning, open 
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for model-lock policy and how to specialize
+GL128 siblings (8200i SE vs 8100 V2) without retargeting frozen oracles.
+
 ```bash
 uv sync --all-groups
 uv run ruff check .
