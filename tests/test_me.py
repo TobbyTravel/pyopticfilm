@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
-from pyopticfilm.pass_align import align_pass_to_reference
+from pyopticfilm.pass_align import align_pass_to_reference, align_pass_to_reference_banded
 from pyopticfilm.scan.exposure_merge import (
     merge_exposures,
     merge_exposures_result,
@@ -335,16 +335,46 @@ def test_align_pass_subpixel_shift_when_opencv_available():
     assert abs(dy - (-2.0)) < 0.6
 
 
+def test_align_pass_tall_crop_accepts_large_dy_within_height_guard():
+    """A tall/narrow crop window (e.g. a multi-frame strip scan) can have a
+    real, correctable dy that is small relative to frame height but large
+    relative to frame width — the guard must judge each axis against its
+    own dimension, not reject a real height-scale shift using a
+    width-derived threshold (regression for the 1096x6700 ghosting seen on
+    real 8100 V2 hardware, where a real dy=-195.81 was ~9x a width-only
+    guard but only ~3% of the frame's height)."""
+    try:
+        import cv2  # noqa: F401
+    except ImportError:
+        return
+    from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift
+
+    rng = np.random.default_rng(2)
+    # Narrow, tall crop window, same aspect ratio ballpark as the repro
+    # (1096x6700). Height-derived guard = max(16, 0.02*1340) = 26.8;
+    # width-derived guard (the pre-fix behavior) = max(16, 0.02*220) = 16.
+    base = rng.integers(1000, 20000, (1340, 220, 3), dtype=np.uint16)
+    # dy=20 clears the height guard (26.8) but would be rejected by a
+    # width-only guard (16) — the bug this test guards against.
+    shifted, _ = align_pass_to_reference(base, base, shift=(0.0, 20.0))
+    _dx, dy = estimate_pass_shift(base, shifted)
+    assert abs(dy - 20.0) < 1.0, f"real height-scale dy was rejected: got dy={dy}"
+
+
 # --- N-bracket merge (merge_n_exposures) ----------------------------------
 
 
 def test_merge_n_exposures_two_frames_matches_pairwise_ivw():
-    """N=2 must reduce exactly to the pairwise merge's arithmetic, including
-    the residual-disagreement gate and misalignment fallback (there is
-    exactly one non-reference bracket at N=2, so merge_n_exposures's
-    per-bracket loop collapses to _merge_snr_rows's wa/wb/ivw/c_res_eff/
-    prefer/misaligned terms directly — verified in exposure_merge.py's
-    docstring and during development).
+    """N=2 must reduce exactly to the pairwise merge's confidence/IVW
+    arithmetic (there is exactly one non-reference bracket at N=2, so
+    merge_n_exposures's per-bracket loop collapses to _merge_snr_rows's
+    wa/wb/ivw/c_res_eff/prefer terms directly). The misalignment *fallback*
+    is deliberately NOT required to match: merge_n_exposures uses a
+    luma-only gate (see its docstring) while _merge_snr_rows still ANDs in
+    a cross-channel-spread check, kept as-is for the n_brackets==2
+    production path's byte-identical guarantee. Neither of this test's
+    synthetic scenes exercises that specific divergence (no real
+    misregistration is introduced here), so the two still agree below.
 
     Not bit-for-bit against merge_exposures_result: that function additionally
     estimates the *actual* image-fit exposure ratio via
@@ -382,6 +412,115 @@ def test_merge_n_exposures_two_frames_matches_pairwise_ivw():
     assert result_u.fusion_stats.mean_residual_confidence == pytest.approx(
         pairwise_u.fusion_stats.mean_residual_confidence, abs=1e-4
     )
+
+
+def test_merge_n_exposures_misalign_gate_is_luma_only_not_chroma_spread():
+    """Regression for the ghosting seen on real 8100 V2 hardware (skin/cream
+    fabric ghosted while the high-chroma striped strap stayed sharp).
+
+    Two real-hardware-shaped failure modes, both wrong, ruled out here:
+
+    - AND-ing in cross-channel spread (the original 2-way gate's shape)
+      misses genuine misregistration on neutral/flat-toned content: a real
+      luma disagreement there doesn't move R/G/B apart from each other, so
+      the AND never fires and the ghost blends straight through.
+    - OR-ing spread in instead (rather than dropping it) is worse: any
+      well-aligned saturated color patch has max(R,G,B)-min(R,G,B) far
+      above the spread threshold from real scene color alone, so OR-gating
+      makes *every* pixel fall back to frames[0] — no fusion at all, even
+      with zero real misalignment.
+
+    Luma-only avoids both: near-untouched fusion on a well-aligned,
+    saturated-color scene, and a near-total fallback-to-frames[0] on a
+    genuinely drifted neutral gradient (protecting it from ghosting)."""
+    rng = np.random.default_rng(3)
+    h, w = 64, 64
+
+    # Well-aligned, saturated RGB patches — must NOT collapse to frames[0].
+    truth = np.zeros((h, w, 3), dtype=np.float64)
+    truth[:, : w // 3] = [40000, 4000, 4000]
+    truth[:, w // 3 : 2 * w // 3] = [4000, 40000, 4000]
+    truth[:, 2 * w // 3 :] = [4000, 4000, 40000]
+    truth += rng.normal(0, 200, truth.shape)
+    short = np.clip(truth / 3.0, 0, 65535).astype(np.uint16)
+    long = np.clip(truth, 0, 65535).astype(np.uint16)
+    colorful_result = merge_n_exposures([short, long], [14000, 42000])
+    assert colorful_result.fusion_stats is not None
+    assert colorful_result.fusion_stats.mean_residual_confidence > 0.9, (
+        "well-aligned saturated color incorrectly triggered the misalignment fallback"
+    )
+
+    # Genuinely drifted (5px), low-chroma (near-neutral) gradient — MUST
+    # fall back to frames[0] rather than ghost.
+    grad = np.linspace(5000, 50000, h)[:, None, None] * np.ones((1, w, 3))
+    grad += rng.normal(0, 100, grad.shape)
+    short_n = np.clip(grad / 3.0, 0, 65535).astype(np.uint16)
+    long_n = np.roll(np.clip(grad, 0, 65535).astype(np.uint16), 5, axis=0)
+    neutral_result = merge_n_exposures([short_n, long_n], [14000, 42000])
+    diff_from_short = np.abs(
+        neutral_result.rgb.astype(np.float64) - short_n.astype(np.float64)
+    ).mean()
+    assert diff_from_short < 5.0, (
+        f"drifted neutral content was not protected by the misalignment fallback "
+        f"(mean diff from frames[0]: {diff_from_short})"
+    )
+
+
+def test_align_pass_to_reference_banded_recovers_progressive_drift():
+    """A tall pass with drift that grows along the feed axis (not a constant
+    offset) — the real-hardware shape of the bug: mid-frame content near
+    wherever the whole-frame estimate anchored came out sharp, while
+    top/bottom (far from it) still ghosted even after applying that single
+    global shift. Row-banded alignment should track the profile and leave
+    a small residual at both ends, not just in the middle."""
+    try:
+        import cv2  # noqa: F401
+    except ImportError:
+        return
+
+    rng = np.random.default_rng(5)
+    h, w = 2400, 300
+    # Strong texture throughout so every band has a trustworthy peak.
+    base = rng.integers(1000, 40000, (h, w, 3), dtype=np.uint16).astype(np.float64)
+
+    # True per-row drift: linear from 0px (top) to 40px (bottom) — a
+    # progressive feed slip, not one rigid shift.
+    true_dy = np.linspace(0.0, 40.0, h)
+    row_idx = np.clip(np.arange(h) - np.round(true_dy).astype(int), 0, h - 1)
+    moving = base[row_idx].astype(np.uint16)
+    reference = base.astype(np.uint16)
+
+    warped, (dx, dy_center) = align_pass_to_reference_banded(reference, moving)
+    assert abs(dx) < 1.0
+    # Profile's midpoint should be ~half the total 40px drift (sign follows
+    # this module's existing shift convention, verified by the residual
+    # checks below rather than assumed here).
+    assert abs(abs(dy_center) - 20.0) < 3.0
+
+    # Compare against the whole-frame rigid alignment on the same pair — it
+    # can only fit one number for the entire frame, so it necessarily
+    # favors wherever that number happens to be closest to correct (the
+    # real-hardware bug: sharp near the anchor, still ghosted far from it).
+    whole_frame, _ = align_pass_to_reference(reference, moving)
+
+    def _residual(a, b, y0, y1):
+        return np.abs(
+            a[y0:y1].astype(np.float64) - b[y0:y1].astype(np.float64)
+        ).mean()
+
+    band = 200
+    top_whole = _residual(reference, whole_frame, 0, band)
+    bottom_whole = _residual(reference, whole_frame, h - band, h)
+    top_banded = _residual(reference, warped, 0, band)
+    bottom_banded = _residual(reference, warped, h - band, h)
+
+    # Row-banded must beat whole-frame rigid at BOTH extremes. (This
+    # particular profile is symmetric around the frame's midpoint, so a
+    # single global shift lands close to the average and is similarly
+    # wrong at both ends rather than trading one off against the other —
+    # banded still tracks the true per-row drift and clearly outperforms.)
+    assert top_banded < 0.75 * top_whole, (top_whole, top_banded)
+    assert bottom_banded < 0.75 * bottom_whole, (bottom_whole, bottom_banded)
 
 
 def test_merge_n_exposures_validates_frame_count():
