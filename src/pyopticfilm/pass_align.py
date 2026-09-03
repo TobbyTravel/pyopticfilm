@@ -15,19 +15,30 @@ from pyopticfilm.logging import get_logger
 logger = get_logger(__name__)
 
 _ALIGN_PROBE_WIDTH = 1024
-_ALIGN_MAX_SHIFT_FRAC = 0.02
 _REFINE_ROI_SIDE = 2048
 _REFINE_MAX_RESIDUAL = 2.0
 
+# Trust gate for a phase-correlation result: cv2.phaseCorrelate's own
+# peak-sharpness score, not shift magnitude. Real hardware drift on this
+# GL128 platform is routinely 20-40px+ (jboneng/pyopticfilm#33's own
+# benchmark measured up to ~42px) — a magnitude-based cutoff rejects real,
+# correctable shifts no matter how it's scaled to the frame. A weak/
+# ambiguous correlation peak (low response) is what actually indicates an
+# untrustworthy result — e.g. the bogus ~46px lock onto low-texture content
+# noted in jboneng/pyopticfilm#14 — regardless of the shift's size.
+_ALIGN_MIN_RESPONSE = 0.05
+# Generous absolute sanity ceiling on top of the response gate — catches
+# only a truly pathological result (e.g. a shift larger than the frame
+# itself), not a plausible-but-large real one.
+_ALIGN_SANITY_MAX_FRAC = 0.5
+
 # Row-banded alignment (see align_pass_to_reference_banded): a tall pass can
 # drift progressively along the feed axis rather than by one constant
-# offset (near-pure Y-axis drift, worse at high DPI/long feeds — see
-# jboneng/pyopticfilm#33), so a single whole-frame shift under- or
-# over-corrects depending on how far a region sits from wherever the
-# dominant texture anchored the estimate.
+# offset, so a single whole-frame shift under- or over-corrects depending
+# on how far a region sits from wherever the dominant texture anchored the
+# estimate.
 _ALIGN_BAND_COUNT = 8
 _ALIGN_BAND_MIN_HEIGHT = 256  # below this, banding has too little signal per band
-_ALIGN_BAND_MIN_RESPONSE = 0.05  # cv2.phaseCorrelate's own peak-sharpness score
 _ALIGN_BAND_OUTLIER_PX = 8.0
 
 Shift2D = tuple[float, float]
@@ -91,19 +102,24 @@ def _roi_luminance(image: np.ndarray, y0: int, x0: int, rh: int, rw: int) -> np.
     return roi.astype(np.float32)
 
 
-def _phase_correlate_shift(ref: np.ndarray, mov: np.ndarray, *, scale: float) -> Shift2D:
+def _phase_correlate_shift(
+    ref: np.ndarray, mov: np.ndarray, *, scale: float
+) -> tuple[float, float, float]:
+    """Returns ``(dx, dy, response)`` — response is cv2.phaseCorrelate's own
+    peak-sharpness score (0..1ish), the trust signal used by both the
+    whole-frame guard and the row-banded per-band filter."""
     try:
         import cv2
     except ImportError:
-        return (0.0, 0.0)
+        return (0.0, 0.0, 0.0)
     if ref.size == 0 or mov.size == 0 or ref.shape != mov.shape:
-        return (0.0, 0.0)
+        return (0.0, 0.0, 0.0)
     h, w = ref.shape[:2]
     win = cv2.createHanningWindow((w, h), cv2.CV_32F)
-    (dx, dy), _resp = cv2.phaseCorrelate(
+    (dx, dy), resp = cv2.phaseCorrelate(
         np.ascontiguousarray(mov), np.ascontiguousarray(ref), win
     )
-    return float(dx * scale), float(dy * scale)
+    return float(dx * scale), float(dy * scale), float(resp)
 
 
 def _refine_pass_shift(
@@ -128,30 +144,32 @@ def _refine_pass_shift(
     x0 = max(0, (w - rw) // 2)
     ref_lum = _roi_luminance(reference, y0, x0, rh, rw)
     mov_lum = _roi_luminance(warped, y0, x0, rh, rw)
-    ddx, ddy = _phase_correlate_shift(ref_lum, mov_lum, scale=1.0)
-    if max(abs(ddx), abs(ddy)) > _REFINE_MAX_RESIDUAL:
+    ddx, ddy, resp = _phase_correlate_shift(ref_lum, mov_lum, scale=1.0)
+    if resp < _ALIGN_MIN_RESPONSE or max(abs(ddx), abs(ddy)) > _REFINE_MAX_RESIDUAL:
         return coarse
     return dx0 + ddx, dy0 + ddy
 
 
-def _shift_exceeds_guard(dx: float, dy: float, full_w: int, full_h: int) -> bool:
-    """True when ``dx``/``dy`` looks like a bogus phase-correlation result.
-
-    Each axis is checked against its own dimension — a tall crop/strip window
-    can have a legitimately large vertical drift relative to its (narrow)
-    width, and a wide window can have a legitimately large horizontal drift
-    relative to its (short) height. Judging both axes off a single
-    width-derived guard rejects real, correctable shifts on non-square
-    windows (e.g. a 1096x6700 strip crop, where a ~200px real dy is only
-    ~3% of height but ~9x a width-derived guard).
-    """
-    guard_x = max(16.0, _ALIGN_MAX_SHIFT_FRAC * full_w)
-    guard_y = max(16.0, _ALIGN_MAX_SHIFT_FRAC * full_h)
+def _shift_is_pathological(dx: float, dy: float, full_w: int, full_h: int) -> bool:
+    """Last-resort absolute sanity ceiling — a shift larger than half the
+    frame's own dimension isn't a plausible pass-to-pass drift regardless of
+    correlation confidence. Judges each axis against its own dimension (a
+    tall crop/strip window can have a legitimately large dy relative to its
+    narrow width, and vice versa for a wide window)."""
+    guard_x = _ALIGN_SANITY_MAX_FRAC * full_w
+    guard_y = _ALIGN_SANITY_MAX_FRAC * full_h
     return abs(dx) > guard_x or abs(dy) > guard_y
 
 
 def estimate_pass_shift(reference: np.ndarray, moving: np.ndarray) -> Shift2D:
-    """Estimate ``(dx, dy)`` (sub-pixel when OpenCV is available) for ``moving`` → ``reference``."""
+    """Estimate ``(dx, dy)`` (sub-pixel when OpenCV is available) for ``moving`` → ``reference``.
+
+    Trusts the phase-correlation peak's own sharpness (response), not shift
+    magnitude, to decide whether to use the result — see
+    ``_ALIGN_MIN_RESPONSE``. Real hardware drift on this platform is
+    routinely large (tens of px); a magnitude-based cutoff rejected real,
+    correctable shifts no matter how it was scaled to the frame.
+    """
     if not opencv_align_available():
         warn_if_align_unavailable("pass")
         return (0.0, 0.0)
@@ -163,18 +181,26 @@ def estimate_pass_shift(reference: np.ndarray, moving: np.ndarray) -> Shift2D:
     ref_lum = _luminance_plane(ref)
     mov_lum = _luminance_plane(mov)
     scale = max(1.0, full_w / _ALIGN_PROBE_WIDTH)
-    dx, dy = _phase_correlate_shift(ref_lum, mov_lum, scale=scale)
-    if _shift_exceeds_guard(dx, dy, full_w, full_h):
+    dx, dy, resp = _phase_correlate_shift(ref_lum, mov_lum, scale=scale)
+    if resp < _ALIGN_MIN_RESPONSE:
         logger.warning(
-            "pass_align: shift (%.2f, %.2f) exceeds guard — using unaligned",
+            "pass_align: shift (%.2f, %.2f) has low peak response (%.3f) — using unaligned",
+            dx,
+            dy,
+            resp,
+        )
+        return (0.0, 0.0)
+    if _shift_is_pathological(dx, dy, full_w, full_h):
+        logger.warning(
+            "pass_align: shift (%.2f, %.2f) exceeds sanity ceiling — using unaligned",
             dx,
             dy,
         )
         return (0.0, 0.0)
     dx, dy = _refine_pass_shift(ref, mov, (dx, dy))
-    if _shift_exceeds_guard(dx, dy, full_w, full_h):
+    if _shift_is_pathological(dx, dy, full_w, full_h):
         logger.warning(
-            "pass_align: refined shift (%.2f, %.2f) exceeds guard — using unaligned",
+            "pass_align: refined shift (%.2f, %.2f) exceeds sanity ceiling — using unaligned",
             dx,
             dy,
         )
@@ -300,7 +326,7 @@ def _band_shift_profile(
     Splits the frame into ``n_bands`` horizontal strips, phase-correlates
     each independently, and fits a line across the trustworthy bands' row
     centers instead of trusting one whole-frame shift. Bands below
-    ``_ALIGN_BAND_MIN_RESPONSE`` peak sharpness (too little local texture to
+    ``_ALIGN_MIN_RESPONSE`` peak sharpness (too little local texture to
     trust) are dropped before fitting; one more outlier band is dropped and
     the line refit if the initial fit's worst residual exceeds
     ``_ALIGN_BAND_OUTLIER_PX``, so a single aliased/low-texture band can't
@@ -313,9 +339,7 @@ def _band_shift_profile(
     trustworthy peak to fit a line at all. Callers should fall back to
     :func:`estimate_pass_shift` in that case.
     """
-    try:
-        import cv2
-    except ImportError:
+    if not opencv_align_available():
         return None
     ref = np.asarray(reference)
     mov = np.asarray(moving)
@@ -332,15 +356,12 @@ def _band_shift_profile(
         y1 = h if i == n_bands - 1 else y0 + band_h
         ref_lum = _luminance_plane(ref[y0:y1])
         mov_lum = _luminance_plane(mov[y0:y1])
-        win = cv2.createHanningWindow((ref_lum.shape[1], ref_lum.shape[0]), cv2.CV_32F)
-        (dx, dy), resp = cv2.phaseCorrelate(
-            np.ascontiguousarray(mov_lum), np.ascontiguousarray(ref_lum), win
-        )
-        if resp < _ALIGN_BAND_MIN_RESPONSE:
+        dx, dy, resp = _phase_correlate_shift(ref_lum, mov_lum, scale=scale)
+        if resp < _ALIGN_MIN_RESPONSE:
             continue  # too little texture in this band to trust its peak
         centers.append((y0 + y1) / 2.0)
-        dxs.append(dx * scale)
-        dys.append(dy * scale)
+        dxs.append(dx)
+        dys.append(dy)
     if len(centers) < max(3, n_bands // 2):
         return None
     c = np.asarray(centers, dtype=np.float64)
