@@ -19,6 +19,17 @@ _ALIGN_MAX_SHIFT_FRAC = 0.02
 _REFINE_ROI_SIDE = 2048
 _REFINE_MAX_RESIDUAL = 2.0
 
+# Row-banded alignment (see align_pass_to_reference_banded): a tall pass can
+# drift progressively along the feed axis rather than by one constant
+# offset (near-pure Y-axis drift, worse at high DPI/long feeds — see
+# jboneng/pyopticfilm#33), so a single whole-frame shift under- or
+# over-corrects depending on how far a region sits from wherever the
+# dominant texture anchored the estimate.
+_ALIGN_BAND_COUNT = 8
+_ALIGN_BAND_MIN_HEIGHT = 256  # below this, banding has too little signal per band
+_ALIGN_BAND_MIN_RESPONSE = 0.05  # cv2.phaseCorrelate's own peak-sharpness score
+_ALIGN_BAND_OUTLIER_PX = 8.0
+
 Shift2D = tuple[float, float]
 
 _cv2_warned = False
@@ -123,6 +134,22 @@ def _refine_pass_shift(
     return dx0 + ddx, dy0 + ddy
 
 
+def _shift_exceeds_guard(dx: float, dy: float, full_w: int, full_h: int) -> bool:
+    """True when ``dx``/``dy`` looks like a bogus phase-correlation result.
+
+    Each axis is checked against its own dimension — a tall crop/strip window
+    can have a legitimately large vertical drift relative to its (narrow)
+    width, and a wide window can have a legitimately large horizontal drift
+    relative to its (short) height. Judging both axes off a single
+    width-derived guard rejects real, correctable shifts on non-square
+    windows (e.g. a 1096x6700 strip crop, where a ~200px real dy is only
+    ~3% of height but ~9x a width-derived guard).
+    """
+    guard_x = max(16.0, _ALIGN_MAX_SHIFT_FRAC * full_w)
+    guard_y = max(16.0, _ALIGN_MAX_SHIFT_FRAC * full_h)
+    return abs(dx) > guard_x or abs(dy) > guard_y
+
+
 def estimate_pass_shift(reference: np.ndarray, moving: np.ndarray) -> Shift2D:
     """Estimate ``(dx, dy)`` (sub-pixel when OpenCV is available) for ``moving`` → ``reference``."""
     if not opencv_align_available():
@@ -132,12 +159,12 @@ def estimate_pass_shift(reference: np.ndarray, moving: np.ndarray) -> Shift2D:
     mov = np.asarray(moving)
     if ref.shape[:2] != mov.shape[:2]:
         return (0.0, 0.0)
-    full_w = ref.shape[1]
+    full_h, full_w = ref.shape[:2]
     ref_lum = _luminance_plane(ref)
     mov_lum = _luminance_plane(mov)
     scale = max(1.0, full_w / _ALIGN_PROBE_WIDTH)
     dx, dy = _phase_correlate_shift(ref_lum, mov_lum, scale=scale)
-    if max(abs(dx), abs(dy)) > max(16.0, _ALIGN_MAX_SHIFT_FRAC * full_w):
+    if _shift_exceeds_guard(dx, dy, full_w, full_h):
         logger.warning(
             "pass_align: shift (%.2f, %.2f) exceeds guard — using unaligned",
             dx,
@@ -145,7 +172,7 @@ def estimate_pass_shift(reference: np.ndarray, moving: np.ndarray) -> Shift2D:
         )
         return (0.0, 0.0)
     dx, dy = _refine_pass_shift(ref, mov, (dx, dy))
-    if max(abs(dx), abs(dy)) > max(16.0, _ALIGN_MAX_SHIFT_FRAC * full_w):
+    if _shift_exceeds_guard(dx, dy, full_w, full_h):
         logger.warning(
             "pass_align: refined shift (%.2f, %.2f) exceeds guard — using unaligned",
             dx,
@@ -263,6 +290,189 @@ def align_pass_to_reference(
     if abs(dx) < 1e-9 and abs(dy) < 1e-9:
         return mov, (0.0, 0.0)
     return _warp_shift(mov, dx, dy), (dx, dy)
+
+
+def _band_shift_profile(
+    reference: np.ndarray, moving: np.ndarray, *, n_bands: int = _ALIGN_BAND_COUNT
+) -> tuple[float, np.ndarray] | None:
+    """Per-row-band ``(dx, dy)`` estimate fit to a per-row ``dy(y)`` line.
+
+    Splits the frame into ``n_bands`` horizontal strips, phase-correlates
+    each independently, and fits a line across the trustworthy bands' row
+    centers instead of trusting one whole-frame shift. Bands below
+    ``_ALIGN_BAND_MIN_RESPONSE`` peak sharpness (too little local texture to
+    trust) are dropped before fitting; one more outlier band is dropped and
+    the line refit if the initial fit's worst residual exceeds
+    ``_ALIGN_BAND_OUTLIER_PX``, so a single aliased/low-texture band can't
+    skew the whole profile.
+
+    Returns ``(dx, dy_per_row)`` — a single representative dx (this
+    hardware's drift is near-pure Y-axis; see the module docstring) and a
+    length-``h`` array of the fitted dy for every row — or ``None`` when the
+    frame is too short to band usefully, or too few bands produced a
+    trustworthy peak to fit a line at all. Callers should fall back to
+    :func:`estimate_pass_shift` in that case.
+    """
+    try:
+        import cv2
+    except ImportError:
+        return None
+    ref = np.asarray(reference)
+    mov = np.asarray(moving)
+    h, w = ref.shape[:2]
+    if h < n_bands * _ALIGN_BAND_MIN_HEIGHT:
+        return None
+    band_h = h // n_bands
+    scale = max(1.0, w / _ALIGN_PROBE_WIDTH)
+    centers: list[float] = []
+    dxs: list[float] = []
+    dys: list[float] = []
+    for i in range(n_bands):
+        y0 = i * band_h
+        y1 = h if i == n_bands - 1 else y0 + band_h
+        ref_lum = _luminance_plane(ref[y0:y1])
+        mov_lum = _luminance_plane(mov[y0:y1])
+        win = cv2.createHanningWindow((ref_lum.shape[1], ref_lum.shape[0]), cv2.CV_32F)
+        (dx, dy), resp = cv2.phaseCorrelate(
+            np.ascontiguousarray(mov_lum), np.ascontiguousarray(ref_lum), win
+        )
+        if resp < _ALIGN_BAND_MIN_RESPONSE:
+            continue  # too little texture in this band to trust its peak
+        centers.append((y0 + y1) / 2.0)
+        dxs.append(dx * scale)
+        dys.append(dy * scale)
+    if len(centers) < max(3, n_bands // 2):
+        return None
+    c = np.asarray(centers, dtype=np.float64)
+    d = np.asarray(dys, dtype=np.float64)
+    slope, intercept = np.polyfit(c, d, 1)
+    resid = np.abs(d - (slope * c + intercept))
+    if len(c) > 3 and resid.max() > _ALIGN_BAND_OUTLIER_PX:
+        keep = resid < resid.max()
+        if keep.sum() >= 3:
+            slope, intercept = np.polyfit(c[keep], d[keep], 1)
+    dy_per_row = slope * np.arange(h, dtype=np.float64) + intercept
+    # Sanity floor: a fitted drift spanning more than half the frame's own
+    # height across the pass isn't a physically plausible feed drift — more
+    # likely a bad fit through mostly-untrustworthy bands. Fall back rather
+    # than apply it.
+    if float(np.max(dy_per_row) - np.min(dy_per_row)) > 0.5 * h:
+        return None
+    return float(np.median(dxs)), dy_per_row
+
+
+def _fill_row_shift_border(out: np.ndarray, dx: float, dy_per_row: np.ndarray) -> np.ndarray:
+    """Per-row generalization of :func:`_fill_shift_border`.
+
+    Any row whose source (``y - dy_per_row[y]``) sampled outside
+    ``[0, h-1]`` pulled in ``BORDER_CONSTANT`` padding from
+    :func:`_warp_row_shifts` — replace it with the nearest valid row's
+    content instead, same rationale as the constant-shift version.
+    """
+    h, w = out.shape[:2]
+    result = np.array(out, copy=True)
+    bx = int(np.ceil(abs(float(dx))))
+    if 0 < bx < w:
+        if dx > 0:
+            result[:, :bx] = result[:, bx : bx + 1]
+        else:
+            result[:, w - bx :] = result[:, w - bx - 1 : w - bx]
+    src_y = np.arange(h, dtype=np.float64) - dy_per_row
+    valid_rows = np.flatnonzero((src_y >= 0) & (src_y <= h - 1))
+    if valid_rows.size and valid_rows.size < h:
+        first_valid, last_valid = valid_rows[0], valid_rows[-1]
+        if first_valid > 0:
+            result[:first_valid] = result[first_valid]
+        if last_valid < h - 1:
+            result[last_valid + 1 :] = result[last_valid]
+    return result
+
+
+def _warp_row_shifts(mov: np.ndarray, dx: float, dy_per_row: np.ndarray) -> np.ndarray:
+    """Like :func:`_warp_shift` but with a per-row dy instead of one constant
+    shift for the whole frame — requires OpenCV (callers only reach this
+    once :func:`_band_shift_profile` has already required it)."""
+    import cv2
+
+    h, w = mov.shape[:2]
+    map_x = np.broadcast_to((np.arange(w, dtype=np.float32) - dx), (h, w)).copy()
+    map_y = np.broadcast_to(
+        (np.arange(h, dtype=np.float32) - dy_per_row.astype(np.float32))[:, np.newaxis], (h, w)
+    ).copy()
+    if mov.ndim == 3:
+        planes = [
+            cv2.remap(
+                mov[:, :, c],
+                map_x,
+                map_y,
+                interpolation=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=0,
+            )
+            for c in range(mov.shape[2])
+        ]
+        out = np.stack(planes, axis=2)
+    else:
+        out = cv2.remap(
+            mov,
+            map_x,
+            map_y,
+            interpolation=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+    if np.issubdtype(mov.dtype, np.integer):
+        out = np.clip(np.rint(out), 0, np.iinfo(mov.dtype).max).astype(mov.dtype)
+    else:
+        out = out.astype(mov.dtype, copy=False)
+    return _fill_row_shift_border(out, dx, dy_per_row)
+
+
+def align_pass_to_reference_banded(
+    reference: np.ndarray, moving: np.ndarray
+) -> tuple[np.ndarray, Shift2D]:
+    """Row-banded generalization of :func:`align_pass_to_reference`.
+
+    Fits a per-row ``dy(y)`` profile (see :func:`_band_shift_profile`)
+    instead of one whole-frame rigid shift, so progressive/non-rigid drift
+    along a tall pass is corrected across the whole frame instead of only
+    wherever the dominant texture happened to anchor a single global
+    estimate (real hardware repro: mid-frame content near the anchor came
+    out sharp while top/bottom — far from it — still ghosted, even after
+    accepting a whole-frame shift).
+
+    Falls back to the whole-frame :func:`align_pass_to_reference` (and its
+    existing guard) when the frame is too short to band usefully, or when
+    too few bands produced a trustworthy peak to fit a line.
+
+    Returns the warped array and ``(dx, dy_at_center)`` — a representative
+    single shift pair for logging/debug display, even though the actual
+    per-row correction varies along the frame.
+    """
+    if not opencv_align_available():
+        warn_if_align_unavailable("banded pass")
+        return align_pass_to_reference(reference, moving)
+    ref = np.asarray(reference)
+    mov = np.asarray(moving)
+    if mov.size == 0 or ref.shape[:2] != mov.shape[:2]:
+        return mov, (0.0, 0.0)
+    profile = _band_shift_profile(ref, mov)
+    if profile is None:
+        return align_pass_to_reference(ref, mov)
+    dx, dy_per_row = profile
+    h = ref.shape[0]
+    if abs(dx) < 1e-9 and float(np.max(np.abs(dy_per_row))) < 1e-9:
+        return mov, (0.0, 0.0)
+    warped = _warp_row_shifts(mov, dx, dy_per_row)
+    dy_lo, dy_hi = float(dy_per_row[0]), float(dy_per_row[-1])
+    logger.info(
+        "pass_align: banded profile dx=%.2f dy(row)=%.2f..%.2f (slope=%.4f px/row)",
+        dx,
+        dy_lo,
+        dy_hi,
+        (dy_hi - dy_lo) / max(1, h - 1),
+    )
+    return warped, (dx, float(dy_per_row[h // 2]))
 
 
 def align_ir_to_rgb(rgb: np.ndarray, ir: np.ndarray) -> np.ndarray:
