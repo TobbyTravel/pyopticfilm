@@ -437,11 +437,36 @@ def merge_n_exposures(
     equivalent of the pairwise "pick short or long, whichever is more
     trusted" fallback).
 
-    Misalignment edge fallback: when both the worst per-bracket luma
-    disagreement and the merged IVW's cross-channel spread exceed their
-    thresholds (fringing from residual sub-pixel misregistration), the pixel
-    falls back to ``frames[0]`` verbatim — same thresholds and shape as the
-    2-way merge's ``misaligned`` gate.
+    Misalignment edge fallback: when the worst per-bracket luma disagreement
+    exceeds its threshold, the pixel falls back to ``frames[0]`` verbatim.
+    Deliberately luma-only — no cross-channel-spread requirement, unlike the
+    2-way merge's ``misaligned`` gate (which ANDs in a spread check — see
+    :func:`_merge_snr_rows`, kept as-is to preserve the ``n_brackets == 2``
+    production path's byte-identical guarantee). Measured empirically on
+    both directions of this tradeoff:
+
+    - Requiring cross-channel spread too (the 2-way gate's AND) misses real
+      Y-axis drift on flat/neutral-toned content (skin, cream fabric — see
+      jboneng/pyopticfilm#33 for independently measured Y-only drift on
+      this hardware): misregistered-but-neutral pixels disagree badly in
+      luminance but stay close to grey either way, so the AND never fires
+      and the ghosting blends straight through — the original real-hardware
+      bug this function's fallback is meant to catch.
+    - OR-ing spread in instead (rather than dropping it) is *worse*: any
+      saturated, well-aligned color patch has ``max(R,G,B)-min(R,G,B)``
+      far above ``_IVW_CHANNEL_SPREAD_TAU`` from real scene color alone —
+      verified on a synthetic well-aligned RGB-patch scene, where OR-gating
+      made every pixel fall back to ``frames[0]``, i.e. no fusion at all.
+    - Luma disagreement alone reproduced neither failure in the same
+      checks: ~0% false-trigger on a well-aligned saturated-color scene and
+      a well-aligned sharp achromatic edge, ~100% correct-trigger on a
+      genuinely 5px-drifted neutral gradient.
+
+    So N=2 through this function is *not* bit-for-bit against
+    :func:`_merge_snr_rows` on frames where the dropped spread condition
+    would have mattered — the N=2 equivalence documented above is, in
+    general, only for the confidence/IVW arithmetic itself (see
+    ``test_merge_n_exposures_two_frames_matches_pairwise_ivw``).
 
     Frames must already be pairwise-aligned to ``frames[0]`` by the caller
     (e.g. via repeated :func:`pyopticfilm.pass_align.align_pass_to_reference`
@@ -547,8 +572,9 @@ def merge_n_exposures(
         prefer = np.take_along_axis(x_stack, best_idx[np.newaxis, ...], axis=0)[0]
 
         merged = c_res_eff[..., np.newaxis] * ivw + (1.0 - c_res_eff[..., np.newaxis]) * prefer
-        ivw_spread = np.max(ivw, axis=2) - np.min(ivw, axis=2)
-        misaligned = (lum_diff_max > _LUMA_DISAGREE_TAU) & (ivw_spread > _IVW_CHANNEL_SPREAD_TAU)
+        # Luma disagreement alone — no cross-channel spread requirement, see
+        # the misalignment-edge-fallback docstring above.
+        misaligned = lum_diff_max > _LUMA_DISAGREE_TAU
         chunk = np.where(misaligned[..., np.newaxis], xs[0], merged)
         chunk = np.where(all_zero_conf, 0.0, chunk)
 
