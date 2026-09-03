@@ -122,6 +122,24 @@ class Model8100V2(Gl128Common):
     me_long_exposure_ceiling_by_dpi: Mapping[int, int] = field(default_factory=dict)
     me_long_exposure_ceiling_default: int = 42000
 
+    #: Use row-banded pass alignment (pyopticfilm.pass_align.
+    #: align_pass_to_reference_banded) and the N-bracket merge's luma-only
+    #: misalignment gate for the 2-bracket ME path too, not just
+    #: n_brackets > 2. V2-only: independently measured near-pure Y-axis
+    #: drift that grows along a tall pass (see jboneng/pyopticfilm#33) and
+    #: real-hardware ghosting on flat/neutral content this addresses are
+    #: both V2-specific so far; SE keeps the original byte-identical path.
+    me_use_banded_alignment: bool = True
+
+    def me_n_bracket_long_exposure_ceiling(self, resolution: int) -> int:
+        """Pin N-bracket (``n_brackets > 2``) longs at 42000 for every DPI.
+
+        The only top exposure validated on real V2 hardware for N-bracket ME.
+        Two-bracket scans still use :meth:`me_long_exposure_ceiling` /
+        ``clamp_me_long_for_dpi`` (85000 at non-7200).
+        """
+        return 42_000
+
     def shading_strip_clocks(self, resolution: int, *, dvdset: bool) -> tuple[int, int, int]:
         """Return ``(dummy, clk_a, clk_b)`` for a shading strip.
 
