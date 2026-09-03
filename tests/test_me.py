@@ -335,14 +335,16 @@ def test_align_pass_subpixel_shift_when_opencv_available():
     assert abs(dy - (-2.0)) < 0.6
 
 
-def test_align_pass_tall_crop_accepts_large_dy_within_height_guard():
+def test_align_pass_tall_crop_accepts_large_dy():
     """A tall/narrow crop window (e.g. a multi-frame strip scan) can have a
     real, correctable dy that is small relative to frame height but large
-    relative to frame width — the guard must judge each axis against its
-    own dimension, not reject a real height-scale shift using a
-    width-derived threshold (regression for the 1096x6700 ghosting seen on
-    real 8100 V2 hardware, where a real dy=-195.81 was ~9x a width-only
-    guard but only ~3% of the frame's height)."""
+    relative to frame width — regression for the 1096x6700 ghosting seen on
+    real 8100 V2 hardware, where a real dy=-195.81 was rejected by an
+    axis-blind, magnitude-based guard. The current guard is response-based
+    (see test_align_pass_accepts_large_real_hardware_drift below for why
+    magnitude alone — even judged per-axis — still wasn't enough), so this
+    also stands as a same-shape check on a narrow/tall aspect ratio
+    specifically."""
     try:
         import cv2  # noqa: F401
     except ImportError:
@@ -350,15 +352,75 @@ def test_align_pass_tall_crop_accepts_large_dy_within_height_guard():
     from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift
 
     rng = np.random.default_rng(2)
-    # Narrow, tall crop window, same aspect ratio ballpark as the repro
-    # (1096x6700). Height-derived guard = max(16, 0.02*1340) = 26.8;
-    # width-derived guard (the pre-fix behavior) = max(16, 0.02*220) = 16.
     base = rng.integers(1000, 20000, (1340, 220, 3), dtype=np.uint16)
-    # dy=20 clears the height guard (26.8) but would be rejected by a
-    # width-only guard (16) — the bug this test guards against.
     shifted, _ = align_pass_to_reference(base, base, shift=(0.0, 20.0))
     _dx, dy = estimate_pass_shift(base, shifted)
     assert abs(dy - 20.0) < 1.0, f"real height-scale dy was rejected: got dy={dy}"
+
+
+def test_align_pass_accepts_large_real_hardware_drift():
+    """Regression for the second round of ghosting: a completely ordinary
+    1712x1201 full-frame 1200dpi scan (not a tall crop) on real 8100 V2
+    hardware measured a real ~30px drift that a magnitude-based guard
+    rejected even after the per-axis fix above (guard_y = max(16,
+    0.02*1201) = 24.02, still below the real ~30px shift). #33's own
+    benchmark independently measured real drift up to ~42px on this
+    hardware, so any magnitude-based cutoff scaled off frame dimensions
+    fights real behavior. The guard is now response-based (trusts the
+    phase-correlation peak's own sharpness, not the shift's size) —
+    verify a large, but well-correlated, shift on an ordinary-aspect frame
+    is no longer rejected."""
+    try:
+        import cv2  # noqa: F401
+    except ImportError:
+        return
+    from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift
+
+    rng = np.random.default_rng(6)
+    base = rng.integers(1000, 20000, (1201, 1712, 3), dtype=np.uint16)
+    shifted, _ = align_pass_to_reference(base, base, shift=(-0.09, -29.98))
+    dx, dy = estimate_pass_shift(base, shifted)
+    # Sign follows this module's existing convention (see other tests in
+    # this file) — what matters here is that the real ~30px magnitude
+    # survives instead of being rejected down to (0, 0).
+    assert abs(dx) < 1.0
+    assert abs(abs(dy) - 29.98) < 1.0, f"real large drift was rejected: got dy={dy}"
+
+
+def test_align_pass_rejects_bogus_lock_on_uncorrelated_content():
+    """The response-based guard must reject an untrustworthy peak — the
+    exact failure mode a magnitude-only guard can't catch at all (a bogus
+    shift can be any size, including one that looks plausible) and the
+    reason jboneng/pyopticfilm#14 saw an occasional bogus lock on
+    low-texture content. Two fully independent noise frames have nothing
+    real to correlate on; phase correlation still reports *some* shift
+    (there's always a max in the cross-power spectrum), but with a weak,
+    unreliable response — verified directly below — that must be rejected
+    regardless of how large or small the reported shift happens to be."""
+    try:
+        import cv2  # noqa: F401
+    except ImportError:
+        return
+    from pyopticfilm.pass_align import (
+        _ALIGN_MIN_RESPONSE,
+        _luminance_plane,
+        _phase_correlate_shift,
+        estimate_pass_shift,
+    )
+
+    rng = np.random.default_rng(9)
+    ref = rng.integers(0, 65535, (256, 256, 3), dtype=np.uint32).astype(np.uint16)
+    mov = rng.integers(0, 65535, (256, 256, 3), dtype=np.uint32).astype(np.uint16)
+
+    _dx, _dy, resp = _phase_correlate_shift(
+        _luminance_plane(ref), _luminance_plane(mov), scale=1.0
+    )
+    assert resp < _ALIGN_MIN_RESPONSE, f"test setup didn't reproduce a weak peak: resp={resp}"
+
+    dx, dy = estimate_pass_shift(ref, mov)
+    assert dx == 0.0 and dy == 0.0, (
+        f"uncorrelated content's bogus lock should be rejected, got ({dx}, {dy})"
+    )
 
 
 # --- N-bracket merge (merge_n_exposures) ----------------------------------
