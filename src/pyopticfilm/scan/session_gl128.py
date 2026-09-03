@@ -390,7 +390,12 @@ class Gl128ScanSession(ScanSession):
         n_brackets: int = 2,
     ):
         from pyopticfilm.image import ScanImage
-        from pyopticfilm.pass_align import align_pass_to_reference, estimate_pass_shift, warn_if_align_unavailable
+        from pyopticfilm.pass_align import (
+            align_pass_to_reference,
+            align_pass_to_reference_banded,
+            estimate_pass_shift,
+            warn_if_align_unavailable,
+        )
         from pyopticfilm.scan.exposure_merge import merge_exposures_result, merge_n_exposures
         from pyopticfilm.scan.geometry import compute_geometry
         from pyopticfilm.scan.me_debug import BracketDebug, MeScanDebug
@@ -717,10 +722,19 @@ class Gl128ScanSession(ScanSession):
 
         align_shift_long: tuple[float, float] | None = None
         align_shift_ir: tuple[float, float] | None = None
+        # Model-gated: see Model8100V2.me_use_banded_alignment. Routes the
+        # 2-bracket path through the same row-banded alignment + luma-only
+        # misalignment gate already used for n_brackets > 2, instead of
+        # merge_exposures_result's whole-frame shift + AND-gated fallback.
+        # SE keeps the original byte-identical path (flag defaults False).
+        use_banded_me = n_brackets == 2 and bool(model.me_use_banded_alignment)
 
         if n_brackets == 2 and align_passes and rgb_long is not None:
             warn_if_align_unavailable("ME long")
-            align_shift_long = estimate_pass_shift(rgb_short, rgb_long)
+            if use_banded_me:
+                rgb_long, align_shift_long = align_pass_to_reference_banded(rgb_short, rgb_long)
+            else:
+                align_shift_long = estimate_pass_shift(rgb_short, rgb_long)
             logger.info(
                 "ME long pass shift (dx, dy)=(%.3f, %.3f)",
                 align_shift_long[0],
@@ -750,16 +764,24 @@ class Gl128ScanSession(ScanSession):
         me_beta = float(model.me_noise_beta)
 
         if multi_exposure and n_brackets == 2 and rgb_long is not None:
-            shift = align_shift_long if align_passes else (0.0, 0.0)
-            merged = merge_exposures_result(
-                rgb_short,
-                rgb_long,
-                exposure_short=exp_short,
-                exposure_long=exp_long,
-                align_shift=shift,
-                alpha=me_alpha,
-                beta=me_beta,
-            )
+            if use_banded_me:
+                # rgb_long is already banded-aligned above (or untouched if
+                # align_passes was False, matching the non-banded path's own
+                # "no alignment requested" semantics).
+                merged = merge_n_exposures(
+                    [rgb_short, rgb_long], [exp_short, exp_long], alpha=me_alpha, beta=me_beta
+                )
+            else:
+                shift = align_shift_long if align_passes else (0.0, 0.0)
+                merged = merge_exposures_result(
+                    rgb_short,
+                    rgb_long,
+                    exposure_short=exp_short,
+                    exposure_long=exp_long,
+                    align_shift=shift,
+                    alpha=me_alpha,
+                    beta=me_beta,
+                )
             primary = merged.rgb
             fusion_stats = merged.fusion_stats
             self.last_me_debug = MeScanDebug(
@@ -778,18 +800,23 @@ class Gl128ScanSession(ScanSession):
                 ],
             )
         elif multi_exposure and n_brackets > 2 and bracket_planes:
-            # Align every non-short bracket to rgb_short individually (same
-            # function used for the single long bracket above, looped), then
+            # Align every non-short bracket to rgb_short individually, then
             # fuse with the N-way IVW generalization — see exposure_merge.py::
             # merge_n_exposures, which also carries the residual-disagreement
             # gate and misalignment fallback from the 2-way merge.
+            #
+            # Uses the row-banded estimator (not the single whole-frame
+            # align_pass_to_reference used by the 2-bracket path above) —
+            # these are typically the tallest passes (crop/strip windows),
+            # where drift can vary along the pass rather than being one
+            # constant offset; see align_pass_to_reference_banded.
             frames = [rgb_short]
             exposures = [exp_short]
             bracket_debugs = [BracketDebug(rgb=rgb_short, exposure=exp_short, align_shift=None)]
             for e, rgb in bracket_planes:
                 if align_passes:
                     warn_if_align_unavailable("ME bracket")
-                    warped, shift = align_pass_to_reference(rgb_short, rgb)
+                    warped, shift = align_pass_to_reference_banded(rgb_short, rgb)
                 else:
                     warped, shift = rgb, None
                 frames.append(warped)

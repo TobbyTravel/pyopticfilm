@@ -86,5 +86,10 @@ class Model8200iSE(Gl128Common):
     #: ``"adaptive"`` regardless of this field.
     me_default_exposure_mode: str = "adaptive"
 
+    #: Row-banded alignment / luma-only misalignment gate for the 2-bracket
+    #: ME path — see Model8100V2 for why. Not validated on SE hardware;
+    #: keep the original byte-identical 2-bracket path here.
+    me_use_banded_alignment: bool = False
+
 
 MODEL_8200I_SE = Model8200iSE()

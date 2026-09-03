@@ -262,6 +262,7 @@ GL128_DIVERGENT_FIELDS: frozenset[str] = frozenset(
         "ladder_feed2_steps",
         "use_slow_final_positioning_feed",
         "me_default_exposure_mode",
+        "me_use_banded_alignment",
     }
 )
 

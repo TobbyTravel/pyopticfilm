@@ -8,6 +8,8 @@ clamp; an explicitly supplied value is written to ``REG_EXPOSURE`` verbatim.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
@@ -402,6 +404,45 @@ def test_n_brackets_default_matches_two_bracket_debug():
     assert len(debug.brackets) == 2
     assert debug.brackets[0].exposure == debug.exposure_short
     assert debug.brackets[-1].exposure == debug.exposure_long
+
+
+def test_two_bracket_v2_routes_through_banded_luma_only_merge():
+    """Model8100V2.me_use_banded_alignment routes n_brackets==2 through
+    merge_n_exposures (banded alignment + luma-only misalignment gate),
+    not merge_exposures_result's whole-frame-shift + AND-gated path."""
+    from pyopticfilm.scan import exposure_merge
+
+    session, _usb = _mock_gl128_session_armed_for(MODEL_8100_V2)
+    with (
+        patch.object(
+            exposure_merge, "merge_n_exposures", wraps=exposure_merge.merge_n_exposures
+        ) as spy_n,
+        patch.object(
+            exposure_merge, "merge_exposures_result", wraps=exposure_merge.merge_exposures_result
+        ) as spy_pairwise,
+    ):
+        session.run(resolution=1800, area=_TINY, apply_calib=False, multi_exposure=True)
+    assert spy_n.call_count == 1
+    assert spy_pairwise.call_count == 0
+
+
+def test_two_bracket_se_keeps_original_pairwise_merge():
+    """SE (me_use_banded_alignment=False) is unaffected — still routes
+    n_brackets==2 through merge_exposures_result, byte-identical."""
+    from pyopticfilm.scan import exposure_merge
+
+    session, _usb = _mock_gl128_session_armed()  # defaults to MODEL_8200I_SE
+    with (
+        patch.object(
+            exposure_merge, "merge_n_exposures", wraps=exposure_merge.merge_n_exposures
+        ) as spy_n,
+        patch.object(
+            exposure_merge, "merge_exposures_result", wraps=exposure_merge.merge_exposures_result
+        ) as spy_pairwise,
+    ):
+        session.run(resolution=1800, area=_TINY, apply_calib=False, multi_exposure=True)
+    assert spy_pairwise.call_count == 1
+    assert spy_n.call_count == 0
 
 
 def test_n_brackets_five_captures_five_ascending_exposures():

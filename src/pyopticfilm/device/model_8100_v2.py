@@ -112,6 +112,15 @@ class Model8100V2(Gl128Common):
     #: defaults to ``"adaptive"``.
     me_default_exposure_mode: str = "fixed"
 
+    #: Use row-banded pass alignment (pyopticfilm.pass_align.
+    #: align_pass_to_reference_banded) and the N-bracket merge's luma-only
+    #: misalignment gate for the 2-bracket ME path too, not just
+    #: n_brackets > 2. V2-only: independently measured near-pure Y-axis
+    #: drift that grows along a tall pass (see jboneng/pyopticfilm#33) and
+    #: real-hardware ghosting on flat/neutral content this addresses are
+    #: both V2-specific so far; SE keeps the original byte-identical path.
+    me_use_banded_alignment: bool = True
+
     def me_n_bracket_long_exposure_ceiling(self, resolution: int) -> int:
         """Pin N-bracket (``n_brackets > 2``) longs at 42000 for every DPI.
 
