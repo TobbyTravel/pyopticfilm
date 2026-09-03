@@ -264,6 +264,7 @@ GL128_DIVERGENT_FIELDS: frozenset[str] = frozenset(
         "me_default_exposure_mode",
         "me_long_exposure_ceiling_by_dpi",
         "me_long_exposure_ceiling_default",
+        "me_use_banded_alignment",
     }
 )
 

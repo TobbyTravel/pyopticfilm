@@ -133,6 +133,10 @@ class Gl128Model(FilmModel, Protocol):
     me_target_dense_dn: float
     me_dense_percentile: float
     me_black_level: float
+    me_noise_alpha: float
+    me_noise_beta: float
+    me_default_exposure_mode: str
+    me_use_banded_alignment: bool
     feed_steps_per_inch: int
     feed_to_reference_steps: int
     feed_to_scan_steps: int
