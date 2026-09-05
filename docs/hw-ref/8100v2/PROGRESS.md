@@ -2995,3 +2995,39 @@ feed, the AFE-hang-fix retry loop, slow probe reads, and the specific
 correlation (watching the Forensic tab's live per-event timestamps while
 listening) or an actual USB capture (`usbmon` kernel-module issue on the
 Linux rig, still unresolved) remain the next genuinely untried steps.
+
+**Addendum, same day: visually confirmed the second feed is load-bearing
+for image correctness, not just noise — and the August "zeroed feed"
+test zeroed the wrong attribute.** The August 2026-08-30 entry's
+`feed_to_scan_steps=0` test zeroes a field that, per `gl128_common.py`'s
+`feed_to_scan_steps_for_area()`, is **only consulted when
+`geometry.area is None`** — the real full-frame session path (via
+`image_feed2_steps()` in `session_gl128.py`) always supplies a concrete
+`area` tuple, so that field was never actually read at runtime; the
+August test's "T67 still occurred with zero motor movement" conclusion
+may itself need revisiting; the effective full-frame second-feed
+distance instead comes from the *shared* `Gl128Common.feed_to_scan_top_steps
+= 13128` field, which `Model8100V2` never overrides.
+
+Re-tested today with the correct field
+(`dataclasses.replace(model, feed_to_scan_top_steps=0)`, real hardware,
+600dpi single-pass, one fresh `Scanner.open()` session per trial,
+16-bit TIFF saved for visual inspection):
+
+| | baseline (13128) | `feed_to_scan_top_steps=0` |
+|---|---|---|
+| Image shape | 600×856×3 | **1147×856×3** |
+| Visual result | correctly framed | **large solid-black band (~45% of height) prepended before the real photo** |
+| Total `scan()` elapsed | 20.34s | 21.56s (not faster) |
+| `probe_read` (0x21) count | ~350+ | **7** (polling loop genuinely eliminated) |
+
+So the motor-noise-causing poll loop *does* disappear when this feed is
+zeroed, confirming it as a real, physical contributor to the audible
+sound — but the scan is then wrong (wrong start line, taller image with
+a black gate/leader band) and takes the same total time regardless (the
+saved feed-wait time is spent transferring the extra, unwanted image
+rows instead). **Conclusion: this positioning move is necessary and
+should not be removed or shortened by distance — only its speed (the
+slow ramp) is a legitimate target if a quieter/faster experience is
+wanted, and that trades directly against the motor-overspeed safety
+margin the slow ramp exists for.**
