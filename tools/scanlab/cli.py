@@ -6,11 +6,18 @@ optionally an AI bug report file. Meant to be invoked directly by an
 automation harness, a CI job, or a future Claude session via the Bash
 tool — no human clicking required.
 
-Reuses exactly the same primitives the GUI's ScanWorker uses
+Reuses exactly the same primitives the GUI's ScanWorker and run-browser use
 (open_lab_scanner/lab_scan_kwargs from backend.py, ForensicRun from
 forensic_session.py, decode_transaction from usb/decode.py,
-detect_anomalies, build_ai_report) - this is a second, independent
-*driver* of that shared pipeline, not a reimplementation of it.
+detect_anomalies, build_ai_report, first_divergence) - this is a second,
+independent *driver* of that shared pipeline, not a reimplementation of it.
+
+``compare`` is the headless equivalent of the run-browser's "Set as
+baseline" + "Compare" + "Export AI bug report..." sequence: two runs
+recorded under the same RUNS_ROOT (including from two different
+checkouts/branches sharing a runs directory, e.g. via a directory
+junction, to compare a PR's behavior against main) can be diffed without
+opening the GUI at all.
 
 Usage:
     python -m tools.scanlab.cli scan --model "OpticFilm 8100 (V2)" --mock \
@@ -20,6 +27,9 @@ Usage:
         --kind scan --dpi 1800 --ai-report
 
     python -m tools.scanlab.cli list-models
+    python -m tools.scanlab.cli list-runs
+    python -m tools.scanlab.cli compare --baseline main-run/2026-... \
+        --run pr-run/2026-... --out compare.md
 """
 
 from __future__ import annotations
@@ -43,8 +53,9 @@ from tools.scanlab.backend import (
     with_mock_mode,
 )
 from tools.scanlab.forensic_anomaly import detect_anomalies
+from tools.scanlab.forensic_diff import first_divergence, format_divergence
 from tools.scanlab.forensic_report_export import build_ai_report
-from tools.scanlab.forensic_session import ForensicRun, ForensicRunResult
+from tools.scanlab.forensic_session import RUNS_ROOT, ForensicRun, ForensicRunResult, get_baseline
 
 
 def cmd_list_models(_args: argparse.Namespace) -> int:
@@ -60,6 +71,34 @@ def _find_target(model_name: str, mock: bool):
         available = [t.model.model for t in targets]
         raise SystemExit(f"Unknown model {model_name!r}. Available: {available}")
     return with_mock_mode(target, mock)
+
+
+def _resolve_run_dir(raw: str) -> Path:
+    """Accept either an absolute/relative run directory, or the
+    ``<name>/<run_id>`` shorthand printed by ``list-runs`` and ``scan``
+    (resolved against ``RUNS_ROOT``, same convention the GUI's run browser
+    uses)."""
+    candidate = Path(raw)
+    if candidate.exists():
+        return candidate
+    shorthand = RUNS_ROOT / raw
+    if shorthand.exists():
+        return shorthand
+    raise SystemExit(f"Run directory not found: {raw!r} (checked {candidate} and {shorthand})")
+
+
+def cmd_list_runs(_args: argparse.Namespace) -> int:
+    baseline = get_baseline()
+    runs = [
+        {
+            "run": f"{run_dir.parent.name}/{run_dir.name}",
+            "path": str(run_dir),
+            "is_baseline": run_dir == baseline,
+        }
+        for run_dir in sorted(RUNS_ROOT.glob("*/*")) if run_dir.is_dir()
+    ]
+    print(json.dumps(runs, indent=2))
+    return 0
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
@@ -152,6 +191,57 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0 if outcome == "success" else 1
 
 
+def cmd_compare(args: argparse.Namespace) -> int:
+    """Headless equivalent of the Forensic tab's run-browser "Set as
+    baseline" + "Compare" + "Export AI bug report..." sequence — same
+    underlying functions (first_divergence, build_ai_report), no Qt.
+
+    Runs are addressed by ``<name>/<run_id>`` (as printed by ``scan`` and
+    ``list-runs``) or a full path — both resolved relative to RUNS_ROOT so
+    two checkouts sharing one runs directory (e.g. via a directory
+    junction) can compare each other's recordings without either knowing
+    the other's filesystem layout.
+    """
+    run_dir = _resolve_run_dir(args.run) if args.run is not None else None
+    if run_dir is None:
+        runs = sorted(RUNS_ROOT.glob("*/*"))
+        if not runs:
+            raise SystemExit("No recorded runs found and --run was not given.")
+        run_dir = runs[-1]
+
+    if args.baseline is not None:
+        baseline_dir = _resolve_run_dir(args.baseline)
+    else:
+        baseline_dir = get_baseline()
+        if baseline_dir is None:
+            raise SystemExit("No --baseline given and no baseline is set (see the GUI's 'Set as baseline').")
+
+    divergence = first_divergence(baseline_dir, run_dir)
+
+    report = build_ai_report(run_dir, baseline_dir=baseline_dir)
+    out_path = Path(args.out) if args.out else run_dir / "ai_report.md"
+    out_path.write_text(report, encoding="utf-8")
+
+    result = {
+        "baseline_dir": str(baseline_dir),
+        "run_dir": str(run_dir),
+        "divergence": {
+            "index": divergence.index,
+            "kind": divergence.kind,
+            "note": divergence.note,
+            "baseline_len": divergence.a_len,
+            "run_len": divergence.b_len,
+        },
+        "diverges": divergence.index is not None,
+        "report_path": str(out_path),
+    }
+    print(json.dumps(result, indent=2))
+    if args.text:
+        print()
+        print(format_divergence(divergence, label_a="baseline", label_b="run"))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -173,6 +263,22 @@ def main(argv: list[str]) -> int:
     p_scan.add_argument("--ai-report", action="store_true", help="also write ai_report.md into the run directory")
     p_scan.add_argument("--traceback", action="store_true", help="include a Python traceback in notes on failure")
     p_scan.set_defaults(func=cmd_scan)
+
+    sub.add_parser("list-runs", help="list recorded runs (RUNS_ROOT) as JSON").set_defaults(func=cmd_list_runs)
+
+    p_compare = sub.add_parser(
+        "compare",
+        help="diff two recorded runs headlessly (run-browser Compare, no Qt)",
+    )
+    p_compare.add_argument(
+        "--run", default=None, help="run to compare, '<name>/<run_id>' or a path; default: most recent run"
+    )
+    p_compare.add_argument(
+        "--baseline", default=None, help="baseline run, '<name>/<run_id>' or a path; default: the GUI-set baseline"
+    )
+    p_compare.add_argument("--out", default=None, help="report path; default: <run_dir>/ai_report.md")
+    p_compare.add_argument("--text", action="store_true", help="also print the human-readable divergence text")
+    p_compare.set_defaults(func=cmd_compare)
 
     args = parser.parse_args(argv[1:])
     return args.func(args)
