@@ -119,8 +119,17 @@ def _build_feed_timing_milestones(
     for it, and how long the motor was actually enabled (0x101 MOTORENB)
     for that feed - the same span the motor_enabled_prolonged anomaly
     rule watches, here attributed to a specific feed instead of flagged
-    as an anomaly in isolation."""
-    milestones: list[dict[str, Any]] = []
+    as an anomaly in isolation.
+
+    A single physical feed's 24-bit FEEDL is written one byte at a time,
+    so ``_hex24`` sees several distinct intermediate values (e.g. 13057
+    then 13128) for what is really one feed - all reconstructing to the
+    same motor-enabled window. Keyed by that window (``start_idx, end_idx``)
+    and overwritten as later, more-complete byte writes are seen, so only
+    the final value survives instead of emitting one overlapping
+    duplicate span per intermediate write.
+    """
+    milestones: dict[tuple[int, int], dict[str, Any]] = {}
     last_feedl: int | None = None
 
     for idx, ev in enumerate(decoded_events):
@@ -187,25 +196,23 @@ def _build_feed_timing_milestones(
             duration_s = t0_end - t0_start
             rel_s = (t0_start - t_first) if t_first is not None else None
             table_label = table or "unknown (no raw payload)"
-            milestones.append(
-                {
-                    "index": idx,
-                    "t0": t0_start,
-                    "rel_s": rel_s,
-                    "kind": "feed_timing",
-                    "label": f"Positioning feed FEEDL={feedl}: {table_label} table, {duration_s:.2f}s",
-                    "confidence": "STRONG" if table else "LIKELY",
-                    "evidence": {
-                        "feedl": feedl,
-                        "slope_table": table,
-                        "start_rel_s": rel_s,
-                        "end_rel_s": (t0_end - t_first) if t_first is not None else None,
-                        "duration_s": round(duration_s, 3),
-                    },
-                }
-            )
+            milestones[(start_idx, end_idx)] = {
+                "index": idx,
+                "t0": t0_start,
+                "rel_s": rel_s,
+                "kind": "feed_timing",
+                "label": f"Positioning feed FEEDL={feedl}: {table_label} table, {duration_s:.2f}s",
+                "confidence": "STRONG" if table else "LIKELY",
+                "evidence": {
+                    "feedl": feedl,
+                    "slope_table": table,
+                    "start_rel_s": rel_s,
+                    "end_rel_s": (t0_end - t_first) if t_first is not None else None,
+                    "duration_s": round(duration_s, 3),
+                },
+            }
 
-    return milestones
+    return sorted(milestones.values(), key=lambda m: m["index"])
 
 
 def _classify_preamble(w_index: str, bulk_size: int) -> tuple[str, str]:
@@ -437,3 +444,84 @@ def format_milestones(
                 f"| {marker['label']} | {format_timecode(marker['rel_s'])} | {dur_s} | {details_s} |"
             )
     return "\n".join(lines)
+
+
+def derive_states(decoded_events: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Motor/lamp on-off transitions for the timeline's state lanes - same
+    bits as the feed-timing/lamp milestones above (0x101 MOTORENB, 0x03
+    LAMPPWR), exposed as a plain per-name transition list instead of a
+    milestone entry."""
+    t_first = next((e.get("raw_t0") for e in decoded_events if e.get("raw_t0") is not None), None)
+    motor: list[dict[str, Any]] = []
+    lamp: list[dict[str, Any]] = []
+    last_motor: bool | None = None
+    last_lamp_on: bool | None = None
+
+    for ev in decoded_events:
+        t0 = ev.get("raw_t0")
+        if t0 is None or t_first is None:
+            continue
+        rel_s = t0 - t_first
+        if ev.get("kind") == "reg_read" and ev.get("fields", {}).get("addr") == "0x101":
+            val = _motor_enabled(ev.get("fields", {}).get("value"))
+            if val is not None and val != last_motor:
+                last_motor = val
+                motor.append({"rel_s": rel_s, "value": val})
+        elif ev.get("kind") == "reg_write":
+            for pair in ev.get("fields", {}).get("pairs", []):
+                if pair["addr"] == REG_LAMP:
+                    lamp_on = bool(pair["value"] & LAMPPWR)
+                    if lamp_on != last_lamp_on:
+                        last_lamp_on = lamp_on
+                        lamp.append({"rel_s": rel_s, "value": lamp_on})
+
+    return {"Motor": motor, "Lamp": lamp}
+
+
+def collect_known_values(milestones: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Distinct known register/table values seen this run, each with its
+    first-seen timecode - the "don't make me scrub the timeline to find
+    this" summary. One row per distinct label within a kind (a value that
+    changes mid-run, e.g. two different feeds' slope tables, gets one row
+    each)."""
+    kinds = {"feed_timing", "lperiod", "exposure", "pixel_clock"}
+    seen: set[tuple[str, str]] = set()
+    out: list[dict[str, Any]] = []
+    for m in milestones:
+        if m["kind"] not in kinds:
+            continue
+        key = (m["kind"], m["label"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"kind": m["kind"], "label": m["label"], "rel_s": m.get("rel_s")})
+    return out
+
+
+def collect_unknown_registers(decoded_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Distinct register addresses touched this run that
+    ``explain_register()`` has nothing to say about - an honest "we don't
+    know" list (matching that function's own convention) instead of
+    silently dropping unexplained traffic. One row per distinct address,
+    first-seen value and timecode."""
+    t_first = next((e.get("raw_t0") for e in decoded_events if e.get("raw_t0") is not None), None)
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for ev in decoded_events:
+        t0 = ev.get("raw_t0")
+        rel_s = (t0 - t_first) if (t0 is not None and t_first is not None) else None
+        kind = ev.get("kind")
+        fields = ev.get("fields", {})
+        pairs = []
+        if kind == "reg_write":
+            pairs = [(p["addr"], p["value"]) for p in fields.get("pairs", [])]
+        elif kind == "reg_read" and fields.get("addr"):
+            pairs = [(fields["addr"], fields.get("value"))]
+        for addr, value in pairs:
+            if addr in seen:
+                continue
+            if explain_register(addr, value) is not None:
+                continue
+            seen.add(addr)
+            out.append({"addr": addr, "value": value, "rel_s": rel_s})
+    return out
