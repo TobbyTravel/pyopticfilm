@@ -1,0 +1,414 @@
+[
+  {
+    "file": 1,
+    "readme_label": "power on/off, the reference driver open",
+    "size_bytes": 159068,
+    "duration_s": 30.075781106948853,
+    "control_out": 156,
+    "control_in": 1986,
+    "bulk_in": 0,
+    "interrupt": 253,
+    "reg_writes": 447,
+    "reg_reads": 888,
+    "status_polls": 12,
+    "preamble_count": 6,
+    "preamble_windex_hist": {
+      "0x1": 6
+    },
+    "largest_preamble_windex": "0x1",
+    "largest_preamble_size": 34,
+    "largest_preamble_index": 667,
+    "dpiset_register": null,
+    "resolved_dpi": null,
+    "bulk_in_top_sizes": []
+  },
+  {
+    "file": 2,
+    "readme_label": "power on/off, no software (enumeration-only baseline)",
+    "size_bytes": 1380,
+    "duration_s": 6.370491027832031,
+    "control_out": 5,
+    "control_in": 10,
+    "bulk_in": 0,
+    "interrupt": 0,
+    "reg_writes": 0,
+    "reg_reads": 0,
+    "status_polls": 0,
+    "preamble_count": 0,
+    "preamble_windex_hist": {},
+    "largest_preamble_windex": null,
+    "largest_preamble_size": null,
+    "largest_preamble_index": null,
+    "dpiset_register": null,
+    "resolved_dpi": null,
+    "bulk_in_top_sizes": []
+  },
+  {
+    "file": 3,
+    "readme_label": "7200dpi, 3 passes, exposure unlocked",
+    "size_bytes": 1771088884,
+    "duration_s": 420.1285300254822,
+    "control_out": 1914,
+    "control_in": 9512,
+    "bulk_in": 53765,
+    "interrupt": 764,
+    "reg_writes": 2848,
+    "reg_reads": 3694,
+    "status_polls": 1155,
+    "preamble_count": 100,
+    "preamble_windex_hist": {
+      "0x1": 68,
+      "0x0": 28,
+      "0x8": 4
+    },
+    "largest_preamble_windex": "0x8",
+    "largest_preamble_size": 451194624,
+    "largest_preamble_index": 3879,
+    "dpiset_register": 1200,
+    "resolved_dpi": 7200,
+    "bulk_in_top_sizes": [
+      [
+        512,
+        24907
+      ],
+      [
+        60416,
+        14325
+      ],
+      [
+        61952,
+        7513
+      ],
+      [
+        59904,
+        6996
+      ],
+      [
+        3072,
+        16
+      ]
+    ]
+  },
+  {
+    "file": 4,
+    "readme_label": "7200dpi, single pass, exposure locked RGB 1.0",
+    "size_bytes": 434023292,
+    "duration_s": 97.67694282531738,
+    "control_out": 480,
+    "control_in": 2390,
+    "bulk_in": 14165,
+    "interrupt": 126,
+    "reg_writes": 712,
+    "reg_reads": 928,
+    "status_polls": 288,
+    "preamble_count": 25,
+    "preamble_windex_hist": {
+      "0x1": 17,
+      "0x0": 7,
+      "0x8": 1
+    },
+    "largest_preamble_windex": "0x8",
+    "largest_preamble_size": 416239356,
+    "largest_preamble_index": 3932,
+    "dpiset_register": 1200,
+    "resolved_dpi": 7200,
+    "bulk_in_top_sizes": [
+      [
+        512,
+        7051
+      ],
+      [
+        60416,
+        4775
+      ],
+      [
+        59904,
+        2332
+      ],
+      [
+        3072,
+        4
+      ],
+      [
+        61952,
+        1
+      ]
+    ]
+  },
+  {
+    "file": 6,
+    "readme_label": "1200dpi (label), single pass",
+    "size_bytes": 14808776,
+    "duration_s": 19.721762895584106,
+    "control_out": 480,
+    "control_in": 2346,
+    "bulk_in": 2759,
+    "interrupt": 74,
+    "reg_writes": 712,
+    "reg_reads": 906,
+    "status_polls": 268,
+    "preamble_count": 25,
+    "preamble_windex_hist": {
+      "0x1": 17,
+      "0x0": 7,
+      "0x8": 1
+    },
+    "largest_preamble_windex": "0x8",
+    "largest_preamble_size": 11566176,
+    "largest_preamble_index": 3869,
+    "dpiset_register": 200,
+    "resolved_dpi": 1200,
+    "bulk_in_top_sizes": [
+      [
+        512,
+        1354
+      ],
+      [
+        9728,
+        1136
+      ],
+      [
+        9216,
+        262
+      ],
+      [
+        3072,
+        4
+      ],
+      [
+        61952,
+        1
+      ]
+    ]
+  },
+  {
+    "file": 7,
+    "readme_label": "600dpi (label), single pass",
+    "size_bytes": 4686492,
+    "duration_s": 15.438680171966553,
+    "control_out": 480,
+    "control_in": 2314,
+    "bulk_in": 1650,
+    "interrupt": 63,
+    "reg_writes": 712,
+    "reg_reads": 890,
+    "status_polls": 261,
+    "preamble_count": 25,
+    "preamble_windex_hist": {
+      "0x1": 17,
+      "0x0": 7,
+      "0x8": 1
+    },
+    "largest_preamble_windex": "0x8",
+    "largest_preamble_size": 2896608,
+    "largest_preamble_index": 3845,
+    "dpiset_register": 100,
+    "resolved_dpi": null,
+    "bulk_in_top_sizes": [
+      [
+        512,
+        815
+      ],
+      [
+        4608,
+        750
+      ],
+      [
+        4096,
+        78
+      ],
+      [
+        3072,
+        4
+      ],
+      [
+        61952,
+        1
+      ]
+    ]
+  },
+  {
+    "file": 8,
+    "readme_label": "1800dpi (label), single pass",
+    "size_bytes": 30730732,
+    "duration_s": 32.213460206985474,
+    "control_out": 480,
+    "control_in": 2388,
+    "bulk_in": 3914,
+    "interrupt": 174,
+    "reg_writes": 712,
+    "reg_reads": 927,
+    "status_polls": 288,
+    "preamble_count": 25,
+    "preamble_windex_hist": {
+      "0x1": 17,
+      "0x0": 7,
+      "0x8": 1
+    },
+    "largest_preamble_windex": "0x8",
+    "largest_preamble_size": 26023896,
+    "largest_preamble_index": 3938,
+    "dpiset_register": 300,
+    "resolved_dpi": 1800,
+    "bulk_in_top_sizes": [
+      [
+        512,
+        1938
+      ],
+      [
+        14848,
+        1353
+      ],
+      [
+        14336,
+        616
+      ],
+      [
+        3072,
+        4
+      ],
+      [
+        61952,
+        1
+      ]
+    ]
+  },
+  {
+    "file": 9,
+    "readme_label": "2400dpi (label), single pass, max sensor, no crop",
+    "size_bytes": 55542232,
+    "duration_s": 36.12132787704468,
+    "control_out": 480,
+    "control_in": 2354,
+    "bulk_in": 5222,
+    "interrupt": 176,
+    "reg_writes": 712,
+    "reg_reads": 910,
+    "status_polls": 281,
+    "preamble_count": 25,
+    "preamble_windex_hist": {
+      "0x1": 17,
+      "0x0": 7,
+      "0x8": 1
+    },
+    "largest_preamble_windex": "0x8",
+    "largest_preamble_size": 49276656,
+    "largest_preamble_index": 3878,
+    "dpiset_register": 400,
+    "resolved_dpi": 2400,
+    "bulk_in_top_sizes": [
+      [
+        512,
+        2566
+      ],
+      [
+        19968,
+        1987
+      ],
+      [
+        20480,
+        662
+      ],
+      [
+        3072,
+        4
+      ],
+      [
+        61952,
+        1
+      ]
+    ]
+  },
+  {
+    "file": 10,
+    "readme_label": "3600dpi (label), single pass, max sensor, no crop",
+    "size_bytes": 120091500,
+    "duration_s": 43.322969913482666,
+    "control_out": 480,
+    "control_in": 2386,
+    "bulk_in": 7636,
+    "interrupt": 165,
+    "reg_writes": 712,
+    "reg_reads": 926,
+    "status_polls": 289,
+    "preamble_count": 25,
+    "preamble_windex_hist": {
+      "0x1": 17,
+      "0x0": 7,
+      "0x8": 1
+    },
+    "largest_preamble_windex": "0x8",
+    "largest_preamble_size": 110857032,
+    "largest_preamble_index": 3911,
+    "dpiset_register": 600,
+    "resolved_dpi": 3600,
+    "bulk_in_top_sizes": [
+      [
+        512,
+        3784
+      ],
+      [
+        30208,
+        2523
+      ],
+      [
+        30720,
+        1322
+      ],
+      [
+        3072,
+        4
+      ],
+      [
+        61952,
+        1
+      ]
+    ]
+  },
+  {
+    "file": 11,
+    "readme_label": "3600dpi (label, self-inconsistent), single pass, max sensor \u2014 user confirmed actual 7200dpi",
+    "size_bytes": 461715768,
+    "duration_s": 95.98278999328613,
+    "control_out": 480,
+    "control_in": 2370,
+    "bulk_in": 14648,
+    "interrupt": 68,
+    "reg_writes": 712,
+    "reg_reads": 918,
+    "status_polls": 277,
+    "preamble_count": 25,
+    "preamble_windex_hist": {
+      "0x1": 17,
+      "0x0": 7,
+      "0x8": 1
+    },
+    "largest_preamble_windex": "0x8",
+    "largest_preamble_size": 443613456,
+    "largest_preamble_index": 3889,
+    "dpiset_register": 1200,
+    "resolved_dpi": 7200,
+    "bulk_in_top_sizes": [
+      [
+        512,
+        7204
+      ],
+      [
+        61440,
+        5113
+      ],
+      [
+        60928,
+        2324
+      ],
+      [
+        3072,
+        4
+      ],
+      [
+        61952,
+        1
+      ]
+    ]
+  }
+]
