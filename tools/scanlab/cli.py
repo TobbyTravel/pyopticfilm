@@ -1,0 +1,182 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Headless, scriptable Scan Lab — the AI-friendly / remote-controllable
+entry point requested alongside the GUI: run a real (or mock) Prescan/Scan
+without touching Qt at all, get a single JSON result on stdout, and
+optionally an AI bug report file. Meant to be invoked directly by an
+automation harness, a CI job, or a future Claude session via the Bash
+tool — no human clicking required.
+
+Reuses exactly the same primitives the GUI's ScanWorker uses
+(open_lab_scanner/lab_scan_kwargs from backend.py, ForensicRun from
+forensic_session.py, decode_transaction from usb/decode.py,
+detect_anomalies, build_ai_report) - this is a second, independent
+*driver* of that shared pipeline, not a reimplementation of it.
+
+Usage:
+    python -m tools.scanlab.cli scan --model "OpticFilm 8100 (V2)" --mock \
+        --kind prescan --dpi 1200 --name ci-smoke
+
+    python -m tools.scanlab.cli scan --model "OpticFilm 8100 (V2)" --real \
+        --kind scan --dpi 1800 --ai-report
+
+    python -m tools.scanlab.cli list-models
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import traceback
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
+
+from pyopticfilm.usb.decode import decode_transaction
+from tools.scanlab.backend import (
+    lab_scan_kwargs,
+    list_lab_targets,
+    open_lab_scanner,
+    prescan_resolution,
+    with_mock_mode,
+)
+from tools.scanlab.forensic_anomaly import detect_anomalies
+from tools.scanlab.forensic_report_export import build_ai_report
+from tools.scanlab.forensic_session import ForensicRun, ForensicRunResult
+
+
+def cmd_list_models(_args: argparse.Namespace) -> int:
+    targets = list_lab_targets()
+    print(json.dumps([{"model": t.model.model, "label": t.label, "connected": t.device_id is not None} for t in targets], indent=2))
+    return 0
+
+
+def _find_target(model_name: str, mock: bool):
+    targets = list_lab_targets()
+    target = next((t for t in targets if t.model.model == model_name), None)
+    if target is None:
+        available = [t.model.model for t in targets]
+        raise SystemExit(f"Unknown model {model_name!r}. Available: {available}")
+    return with_mock_mode(target, mock)
+
+
+def cmd_scan(args: argparse.Namespace) -> int:
+    target = _find_target(args.model, mock=not args.real)
+
+    run = ForensicRun(
+        name=args.name,
+        device_info={"model": target.model.model, "mock": target.mock},
+    )
+    events_buffer: list[dict] = []
+
+    def sink(txn) -> None:
+        decoded = decode_transaction(txn)
+        decoded_json = decoded.to_json() if decoded is not None else None
+        run.record(txn.to_json(), decoded_json)
+        if decoded_json is not None:
+            events_buffer.append(decoded_json)
+
+    outcome, notes, image_info = "error", "", None
+    try:
+        scanner, _rec = open_lab_scanner(target, on_usb=sink)
+    except Exception as exc:  # noqa: BLE001
+        out_dir = run.finish(ForensicRunResult(outcome="error", notes=f"failed to open device: {exc}"))
+        print(json.dumps({"outcome": "error", "notes": str(exc), "run_dir": str(out_dir)}, indent=2))
+        return 1
+
+    try:
+        dpi = args.dpi or prescan_resolution(target.model)
+        kw = lab_scan_kwargs(target.model, dpi=dpi, kind=args.kind, crop_norm=None)
+        run.mark_phase(f"CLI: {args.kind} started", {"dpi": dpi, "mock": target.mock, "model": target.model.model})
+        image = scanner.scan(
+            mode="color",
+            apply_calib=args.apply_calib,
+            gl128_prime=args.gl128_prime,
+            **kw,
+        )
+        image_info = {"shape": list(image.rgb.shape), "dpi": image.dpi}
+        run.mark_phase(f"CLI: {args.kind} received", image_info)
+        outcome = "success"
+    except Exception as exc:  # noqa: BLE001
+        notes = f"{type(exc).__name__}: {exc}"
+        if args.traceback:
+            notes += "\n" + traceback.format_exc()
+    finally:
+        try:
+            scanner.close()
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+    out_dir = run.finish(ForensicRunResult(outcome=outcome, notes=notes, extra=image_info))
+
+    try:
+        anomalies = detect_anomalies(events_buffer)
+    except Exception as exc:  # noqa: BLE001
+        anomalies = []
+        notes += f" (anomaly detection failed: {exc})"
+
+    severity_counts: dict[str, int] = {}
+    for a in anomalies:
+        severity_counts[a.severity] = severity_counts.get(a.severity, 0) + 1
+
+    result = {
+        "outcome": outcome,
+        "notes": notes,
+        "run_dir": str(out_dir),
+        "image": image_info,
+        "n_events": len(events_buffer),
+        "n_anomalies": len(anomalies),
+        "anomaly_severity_counts": severity_counts,
+        # Compact by design - an AI consuming this should read run_dir's
+        # anomalies.json / ai_report.md for full detail, not parse a huge
+        # inline array here. Only non-"info" anomalies are worth surfacing
+        # immediately; "info" (e.g. routine unsafe-address writes during a
+        # normal scan) would otherwise dominate and bury anything unusual.
+        "notable_anomalies": [a.to_json() for a in anomalies if a.severity != "info"][:20],
+    }
+    (out_dir / "anomalies.json").write_text(json.dumps([a.to_json() for a in anomalies], indent=2))
+    result["anomalies_file"] = str(out_dir / "anomalies.json")
+
+    if args.ai_report:
+        try:
+            report = build_ai_report(out_dir)
+            report_path = out_dir / "ai_report.md"
+            report_path.write_text(report, encoding="utf-8")
+            result["ai_report_path"] = str(report_path)
+        except Exception as exc:  # noqa: BLE001
+            result["ai_report_error"] = str(exc)
+
+    print(json.dumps(result, indent=2))
+    return 0 if outcome == "success" else 1
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("list-models", help="list known/connected models as JSON").set_defaults(func=cmd_list_models)
+
+    p_scan = sub.add_parser("scan", help="run one Prescan/Scan headlessly, print a JSON result")
+    p_scan.add_argument("--model", required=True, help="exact model name, see list-models")
+    mock_group = p_scan.add_mutually_exclusive_group()
+    mock_group.add_argument("--mock", action="store_true", default=True, help="MockScannerTransport (default, safe)")
+    mock_group.add_argument("--real", action="store_true", help="real connected hardware - requires explicit intent")
+    p_scan.add_argument("--kind", choices=["prescan", "scan"], default="prescan")
+    p_scan.add_argument("--dpi", type=int, default=None, help="default: model's prescan resolution")
+    p_scan.add_argument("--name", default="cli-session")
+    p_scan.add_argument("--apply-calib", action="store_true", default=True)
+    p_scan.add_argument("--no-apply-calib", dest="apply_calib", action="store_false")
+    p_scan.add_argument("--gl128-prime", action="store_true", default=True)
+    p_scan.add_argument("--no-gl128-prime", dest="gl128_prime", action="store_false")
+    p_scan.add_argument("--ai-report", action="store_true", help="also write ai_report.md into the run directory")
+    p_scan.add_argument("--traceback", action="store_true", help="include a Python traceback in notes on failure")
+    p_scan.set_defaults(func=cmd_scan)
+
+    args = parser.parse_args(argv[1:])
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
