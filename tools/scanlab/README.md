@@ -204,6 +204,32 @@ prime was requested, then **Scanning…** — or **Priming skipped (debug)…**
 when the model default skips priming or **Disable priming pass (debug)** is
 checked.
 
+### Forensic
+
+A separate module set (`tools/scanlab/forensic_*.py`) providing a guided
+evidence-recording workflow, live anomaly detection, a graphical USB
+timeline with an Event Inspector, and a register/status **Reference** page
+— all built on top of `tools/register_reference.py`'s confidence-tagged
+register catalog (CONFIRMED/INHERITED/SUSPECTED/UNKNOWN, cited, one entry
+per model or shared across the GL128 family). Sub-pages:
+
+- **Live timeline** — plain-text scrolling log of every decoded USB event.
+- **Timeline** — a graphical, colour-lane timeline (per event kind) with
+  click-to-inspect; the Event Inspector shows raw bytes, decoded fields,
+  and the matching register's catalog meaning together.
+- **Reference** — every known status bit and register, filterable, rows
+  coloured by confidence; a register flagged with a hardware-safety note
+  (e.g. the FEEDL positioning-feed slope tables, or the 8100 V2 feed-probe
+  at wIndex 0x21) shows a bold ⚠ marker with the safety note as its
+  tooltip. **Jump to timeline for selected register** switches to the
+  Timeline tab and reports how many events in the currently loaded run
+  reference that register.
+- **Run browser** — saved run list, baseline/compare, milestones and
+  anomalies for a selected run, and Wireshark/USBPcap import.
+
+Regenerate the standalone markdown catalog (`docs/register-reference.md`)
+with `python -m tools.register_reference` after editing the catalog.
+
 ## Geometry notes
 
 ### GL128 (8200i SE and 8100 V2)
@@ -265,7 +291,20 @@ tools/scanlab/
   preview.py    # numpy downsample / auto-level (no Qt)
   worker.py     # QThread scan worker + USB log dividers
   widgets.py    # crop view + RGB/gray preview
+  forensic_tab.py            # Forensic tab: Monitor/Session/Register lab + Live timeline/Timeline/Reference/Run browser
+  forensic_reference.py      # adapter over tools/register_reference.py for the Reference tab and inline hints
+  forensic_timeline_view.py  # graphical, colour-lane USB timeline widget
+  forensic_event_inspector.py  # per-event raw+decoded+register-meaning view
+  forensic_milestones.py     # buffer-preamble/FEEDL/lamp milestone classifier
+  forensic_anomaly.py        # stale-state/long-gap/unsafe-write anomaly rules
+  forensic_session.py        # per-run evidence recording (usb_raw/decoded_events/phase_markers jsonl)
+  forensic_diff.py           # first-divergence diff between two runs
+  forensic_pcap_import.py    # import a Wireshark/USBPcap capture as a run
+  forensic_report_export.py  # AI-bug-report export
+  cli.py        # headless Prescan/Scan CLI
   README.md     # this guide
+
+tools/register_reference.py  # canonical register/bit catalog (both scanners); see docs/register-reference.md
 ```
 
 Scans never run on the GUI thread; USB I/O goes through `ScanWorker` on a

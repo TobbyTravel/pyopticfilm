@@ -51,6 +51,7 @@ from tools.scanlab.capture_pcap import (
     model_for_capture_decode,
     motor_register_diff,
 )
+from tools.scanlab.forensic_tab import ForensicTabPage
 from tools.scanlab.widgets import ImageTabPage
 from tools.scanlab.worker import ScanRequest, ScanWorker
 
@@ -75,6 +76,10 @@ class ScanLabWindow(QMainWindow):
         self._worker = ScanWorker()
         self._worker.moveToThread(self._thread)
         self._thread.start()
+        # Must run after moveToThread()+start() - see ScanWorker.__init__'s
+        # note on why connecting these earlier silently breaks queued
+        # dispatch even with an explicit connection type.
+        self._worker.connect_request_signals()
 
         root = QWidget(self)
         self.setCentralWidget(root)
@@ -273,6 +278,8 @@ class ScanLabWindow(QMainWindow):
         tabs.addTab(self.ir_view, "IR")
         tabs.addTab(self.capture_diff, "Capture")
         tabs.addTab(log_page, "USB log")
+        self.forensic_tab = ForensicTabPage()
+        tabs.addTab(self.forensic_tab, "Forensic")
         self.tabs = tabs
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -299,6 +306,29 @@ class ScanLabWindow(QMainWindow):
         self._worker.failed.connect(self._on_failed)
         self._worker.busy_changed.connect(self._on_busy)
         self._worker.calib_cleared.connect(self._on_calib_cleared)
+
+        self._worker.forensic_line.connect(self.forensic_tab.append_timeline_line)
+        self._worker.forensic_status_ready.connect(self.forensic_tab.set_status)
+        self._worker.forensic_register_result.connect(self.forensic_tab.set_register_result)
+        self._worker.forensic_run_saved.connect(self.forensic_tab.on_recording_saved)
+        self._worker.forensic_error.connect(self.forensic_tab.show_error)
+        self._worker.forensic_anomaly.connect(self.forensic_tab.on_anomaly)
+        self._worker.forensic_run_started.connect(self.forensic_tab.on_run_started)
+        self._worker.forensic_connected.connect(self.forensic_tab.set_connected)
+        self._worker.forensic_timeline_event.connect(self.forensic_tab.on_timeline_event)
+        self._worker.forensic_timeline_marker.connect(self.forensic_tab.on_timeline_marker)
+        self.forensic_tab.connect_clicked.connect(self._on_forensic_connect)
+        self.forensic_tab.disconnect_clicked.connect(self._on_forensic_disconnect)
+        self.forensic_tab.poll_toggled.connect(self._worker.request_forensic_poll.emit)
+        self.forensic_tab.register_read_requested.connect(
+            self._worker.request_forensic_register_read.emit
+        )
+        self.forensic_tab.register_write_requested.connect(
+            self._worker.request_forensic_register_write.emit
+        )
+        self.forensic_tab.recording_toggled.connect(
+            self._worker.request_forensic_recording.emit
+        )
 
         self.scan_view.load_clicked.connect(lambda: self._load_me_plane("short"))
         self.me_long_view.load_clicked.connect(lambda: self._load_me_plane("long"))
@@ -869,6 +899,16 @@ class ScanLabWindow(QMainWindow):
         self._clear_usb_log()
         self._clear_scan_tabs()
         self.statusBar().showMessage("Prescanning…")
+        self.forensic_tab.start_or_restart_auto_record()
+        self._worker.request_forensic_mark_phase.emit(
+            "BUTTON: Prescan clicked",
+            {
+                "model": target.model.model,
+                "mock": target.mock,
+                "apply_calib": self.apply_calib.isChecked(),
+                "gl128_prime": not self.disable_gl128_prime.isChecked(),
+            },
+        )
         self._worker.request_prescan.emit(
             target,
             self.apply_calib.isChecked(),
@@ -919,6 +959,21 @@ class ScanLabWindow(QMainWindow):
             self._pending_crop_meta = lab_crop_scan_meta(
                 target.model, dpi=dpi, crop_norm=crop
             )
+        self.forensic_tab.start_or_restart_auto_record()
+        self._worker.request_forensic_mark_phase.emit(
+            "BUTTON: Scan clicked",
+            {
+                "model": target.model.model,
+                "mock": target.mock,
+                "dpi": dpi,
+                "crop": list(crop) if crop is not None else None,
+                "ir_pass": self.ir_pass.isChecked(),
+                "me_pass": self.me_pass.isChecked(),
+                "apply_calib": self.apply_calib.isChecked(),
+                "gl128_prime": not self.disable_gl128_prime.isChecked(),
+                "override_hw_gate": self.override_hw_gate.isChecked(),
+            },
+        )
         scan_kw = lab_scan_kwargs(target.model, dpi=dpi, kind="scan", crop_norm=crop)
         self._worker.request_scan.emit(
             ScanRequest(
@@ -990,6 +1045,10 @@ class ScanLabWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Prescan {image.rgb.shape[1]}×{image.rgb.shape[0]} @ {image.dpi} dpi — drag a crop"
         )
+        self._worker.request_forensic_mark_phase.emit(
+            "Prescan received",
+            {"shape": list(image.rgb.shape), "dpi": image.dpi},
+        )
 
     def _on_me_debug_ready(self, debug) -> None:
         self._me_debug = debug
@@ -1010,6 +1069,10 @@ class ScanLabWindow(QMainWindow):
 
     def _on_scan_ready(self, image: ScanImage) -> None:
         self._last_scan = image
+        self._worker.request_forensic_mark_phase.emit(
+            "Scan received",
+            {"shape": list(image.rgb.shape), "dpi": image.dpi, "has_ir": image.ir is not None},
+        )
         self._loaded_me_short = None
         self._loaded_me_long = None
         debug = self._me_debug
@@ -1101,6 +1164,26 @@ class ScanLabWindow(QMainWindow):
         if message != "Scan cancelled":
             QMessageBox.warning(self, "Scan lab", message)
 
+    def _on_forensic_connect(self) -> None:
+        target = self._resolved_target()
+        if target is None:
+            return
+        # Do NOT mark "Connected" here - request_forensic_connect.emit() is
+        # fire-and-forget; ensure_open() runs on the worker thread and can
+        # take a while (or fail outright). Show "Connecting..." immediately
+        # for feedback, but only forensic_connected(True) (emitted by the
+        # worker after ensure_open() actually succeeds) flips the badge to
+        # Connected - otherwise a slow or failed connect would leave the
+        # badge falsely claiming success the whole time.
+        self.forensic_tab.set_connecting()
+        self._worker.request_forensic_connect.emit(target)
+
+    def _on_forensic_disconnect(self) -> None:
+        self._worker.request_forensic_disconnect.emit()
+        # set_connected(False) arrives via forensic_connected once
+        # close_scanner() actually runs on the worker thread - not called
+        # directly here, for the same reason as _on_forensic_connect.
+
     def _on_busy(self, busy: bool) -> None:
         self.btn_prescan.setEnabled(not busy)
         self.btn_scan.setEnabled(not busy)
@@ -1130,6 +1213,8 @@ class ScanLabWindow(QMainWindow):
         self.slow_image_slope.setEnabled(not busy)
         self.disable_gl128_prime.setEnabled(not busy)
         self.btn_open_capture.setEnabled(not busy)
+        self.forensic_tab.set_busy(busy)
+        self.forensic_tab.setEnabled(not busy)
 
 
 def run() -> int:
