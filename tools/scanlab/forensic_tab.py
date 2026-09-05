@@ -844,9 +844,29 @@ class ForensicTabPage(QWidget):
 
         # Also drive the graphical Timeline tab + Event Inspector for this
         # run - post-hoc, whole-run render (as opposed to the live append_*
-        # path used while a Session is still active).
+        # path used while a Session is still active). Feed-timing milestones
+        # become duration brackets; register-value milestones become plain
+        # markers alongside the host-side phase markers.
+        feed_spans = [
+            {
+                "start_rel_s": m["evidence"].get("start_rel_s"),
+                "end_rel_s": m["evidence"].get("end_rel_s"),
+                "label": m["label"],
+            }
+            for m in milestones
+            if m["kind"] == "feed_timing"
+            and m["evidence"].get("start_rel_s") is not None
+            and m["evidence"].get("end_rel_s") is not None
+        ]
+        register_markers = [
+            {"rel_s": m["rel_s"], "label": m["label"]}
+            for m in milestones
+            if m["kind"] in ("lperiod", "exposure", "pixel_clock") and m.get("rel_s") is not None
+        ]
         self._inspector_run_dir = run_dir
-        self.timeline_graph.set_data(decoded_events, phase_markers, anomalies)
+        self.timeline_graph.set_data(
+            decoded_events, (phase_markers or []) + register_markers, anomalies, feed_spans
+        )
 
     @staticmethod
     def _read_decoded_events(run_dir: Path) -> list[dict]:

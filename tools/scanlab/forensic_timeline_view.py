@@ -49,6 +49,8 @@ SEVERITY_COLORS = {"info": QColor("#888888"), "warning": QColor("#c07a20"), "cri
 _LANE_H = 22
 _TOP_MARGIN = 50  # room for rotated marker labels
 _AXIS_H = 24
+_SPAN_H = 16  # feed-timing / other duration brackets, between axis and lanes
+_SPAN_COLOR = QColor("#1f7a4d")
 
 
 def lane_for_kind(kind: str) -> str:
@@ -98,11 +100,12 @@ class TimelineGraphView(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setMinimumHeight(_TOP_MARGIN + _AXIS_H + _LANE_H * len(LANES) + 10)
+        self.setMinimumHeight(_TOP_MARGIN + _AXIS_H + _SPAN_H + _LANE_H * len(LANES) + 10)
         self.setMouseTracking(True)
         self._points: dict[str, list[tuple[float, int]]] = {lane: [] for lane in LANES}
         self._markers: list[tuple[float, str]] = []  # (rel_s, label)
         self._anomalies: list[tuple[float, str, int]] = []  # (rel_s, severity, index)
+        self._spans: list[tuple[float, float, str]] = []  # (start_s, end_s, label)
         self._t_data_min: float | None = None
         self._t_data_max: float | None = None
         self._t_view_min = 0.0
@@ -117,6 +120,7 @@ class TimelineGraphView(QWidget):
         self._points = {lane: [] for lane in LANES}
         self._markers = []
         self._anomalies = []
+        self._spans = []
         self._t_data_min = None
         self._t_data_max = None
         self._t_view_min = 0.0
@@ -129,6 +133,7 @@ class TimelineGraphView(QWidget):
         decoded_events: list[dict],
         phase_markers: list[dict] | None = None,
         anomalies: list | None = None,
+        spans: list[dict] | None = None,
     ) -> None:
         """Post-hoc: render a whole saved run at once. ``decoded_events``
         entries carry ``raw_t0`` (absolute perf_counter, from usb/decode.py)
@@ -151,6 +156,9 @@ class TimelineGraphView(QWidget):
             index = getattr(a, "index", None) if not isinstance(a, dict) else a.get("index")
             if rel_s is not None and index is not None:
                 self.append_anomaly(rel_s, severity or "info", index)
+        for s in spans or []:
+            if s.get("start_rel_s") is not None and s.get("end_rel_s") is not None:
+                self.append_span(s["start_rel_s"], s["end_rel_s"], s.get("label", ""))
         self._auto_follow = False
         self._fit_all()
 
@@ -170,6 +178,12 @@ class TimelineGraphView(QWidget):
     def append_anomaly(self, rel_s: float, severity: str, index: int) -> None:
         self._anomalies.append((rel_s, severity, index))
         self._extend_range(rel_s)
+        self.update()
+
+    def append_span(self, start_s: float, end_s: float, label: str) -> None:
+        self._spans.append((start_s, end_s, label))
+        self._extend_range(start_s)
+        self._extend_range(end_s)
         self.update()
 
     def _extend_range(self, t: float) -> None:
@@ -246,8 +260,27 @@ class TimelineGraphView(QWidget):
             painter.drawLine(QPointF(x, _TOP_MARGIN + _AXIS_H - 4), QPointF(x, _TOP_MARGIN + _AXIS_H))
             painter.drawText(QPointF(x + 2, _TOP_MARGIN + _AXIS_H - 6), format_timecode(t))
 
+        # spans: duration brackets (e.g. feed-timing) between the axis and lanes
+        span_y0 = _TOP_MARGIN + _AXIS_H
+        span_mid = span_y0 + _SPAN_H / 2
+        painter.setFont(QFont("", 7))
+        for start_s, end_s, label in self._spans:
+            if end_s < self._t_view_min or start_s > self._t_view_max:
+                continue
+            x1 = self._x_for_t(max(start_s, self._t_view_min), width)
+            x2 = self._x_for_t(min(end_s, self._t_view_max), width)
+            pen = QPen(_SPAN_COLOR)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(x1, span_mid), QPointF(x2, span_mid))
+            painter.drawLine(QPointF(x1, span_y0 + 2), QPointF(x1, span_y0 + _SPAN_H - 2))
+            painter.drawLine(QPointF(x2, span_y0 + 2), QPointF(x2, span_y0 + _SPAN_H - 2))
+            if label:
+                painter.setPen(_SPAN_COLOR)
+                painter.drawText(QPointF(x1 + 3, span_y0 + _SPAN_H - 4), label[:60])
+
         # lanes
-        lane_y0 = _TOP_MARGIN + _AXIS_H
+        lane_y0 = _TOP_MARGIN + _AXIS_H + _SPAN_H
         for li, lane in enumerate(LANES):
             y = lane_y0 + li * _LANE_H
             painter.setPen(QColor("#eeeeee"))
