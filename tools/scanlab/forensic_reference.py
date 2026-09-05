@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pyopticfilm.asic.status import ScannerStatus
-from tools.register_reference import AsicFamily, _addr_matches, entries_for
+from tools.register_reference import AsicFamily, _addr_matches, entries_for, parse_addr
 
 
 @dataclass(frozen=True)
@@ -113,9 +113,8 @@ def explain_register(addr: str, value: int | None = None) -> str | None:
     """Looks up a known register/address (range) match.
     Returns None if nothing is known about this address (an honest "we
     don't know" rather than guessing)."""
-    try:
-        target = int(addr, 16) if isinstance(addr, str) else int(addr)
-    except (TypeError, ValueError):
+    target = parse_addr(addr)
+    if target is None:
         return None
     for ref in KNOWN_REGISTERS:
         if _addr_matches(ref.addr, target):

@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from tools.register_reference import parse_addr
 from tools.scanlab.forensic_anomaly import detect_anomalies, format_anomalies
 from tools.scanlab.forensic_diff import first_divergence, format_divergence
 from tools.scanlab.forensic_event_inspector import format_event, load_decoded_events, load_event
@@ -430,9 +431,8 @@ class ForensicTabPage(QWidget):
             addr = fields.get("addr") or fields.get("w_index")
             if addr is None:
                 continue
-            try:
-                target = int(addr, 16) if isinstance(addr, str) else int(addr)
-            except (TypeError, ValueError):
+            target = parse_addr(addr)
+            if target is None:
                 continue
             if _addr_matches(addr_spec, target):
                 count += 1

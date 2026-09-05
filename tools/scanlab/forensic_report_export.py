@@ -104,10 +104,7 @@ def build_ai_report(run_dir: Path, *, baseline_dir: Path | None = None) -> str:
         divergence = first_divergence(baseline_dir, run_dir)
         lines += [
             "",
-            (
-                f"## Diff against baseline (`{baseline_dir.parent.parent.name}/"
-                f"{baseline_dir.parent.name}/{baseline_dir.name}`)"
-            ),
+            f"## Diff against baseline (`{baseline_dir.parent.name}/{baseline_dir.name}`)",
             format_divergence(divergence, label_a="baseline", label_b="this run"),
         ]
 

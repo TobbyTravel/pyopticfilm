@@ -71,6 +71,8 @@ class DecodedEvent:
                 out["raw_t0"] = self.raw.t0
             if self.raw.t1 is not None:
                 out["raw_t1"] = self.raw.t1
+            if self.raw.error is not None:
+                out["error"] = self.raw.error
             for corr_field in (
                 "investigation_id",
                 "experiment_id",

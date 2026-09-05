@@ -162,6 +162,18 @@ class BehavioralNote:
     safety_note: str | None = None
 
 
+def parse_addr(addr: object) -> int | None:
+    """A decoded event's ``addr``/``w_index`` field, normalized to ``int``.
+    Returns ``None`` for anything unparseable (an honest "not an address")
+    instead of raising - the single source for a hex-string-or-int
+    normalization previously duplicated in forensic_tab.py,
+    forensic_anomaly.py, and forensic_reference.py."""
+    try:
+        return int(addr, 16) if isinstance(addr, str) else int(addr)
+    except (TypeError, ValueError):
+        return None
+
+
 def _addr_matches(spec: str, target: int) -> bool:
     """``spec`` is one of ``"0x03"``, ``"0x3D-0x3F"`` (range), or
     ``"0x51/0x5D/0x5E"`` (discrete addresses) — matches ``target`` against

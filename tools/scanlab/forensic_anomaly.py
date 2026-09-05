@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pyopticfilm.asic.registers import Gl128Registers
+from tools.register_reference import parse_addr
 from tools.scanlab.forensic_timecode import format_timecode
 
 Severity = Literal["info", "warning", "critical"]
@@ -236,9 +237,8 @@ def detect_anomalies(
         if ev.get("kind") != "reg_write":
             continue
         for pair in ev.get("fields", {}).get("pairs", []):
-            try:
-                addr = int(pair["addr"], 16) if isinstance(pair["addr"], str) else int(pair["addr"])
-            except (TypeError, ValueError):
+            addr = parse_addr(pair["addr"])
+            if addr is None:
                 continue
             if addr in UNSAFE_ADDRESSES:
                 anomalies.append(

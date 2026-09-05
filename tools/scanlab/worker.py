@@ -128,13 +128,16 @@ class ScanWorker(QObject):
         self._is_busy = False
         self._forensic_run: ForensicRun | None = None
         self._poll_timer: QTimer | None = None
+        #: (enabled, interval_ms) last requested via the Live poll checkbox -
+        #: distinct from the timer's current running state, so a scan's
+        #: temporary pause can resume with the same settings afterward.
+        self._forensic_poll_wanted: tuple[bool, int] = (False, 0)
         # Rolling buffer for the LIVE anomaly detector: bounded so a long
         # high-DPI scan can't grow this without limit - the FULL run is
         # always re-analyzed from disk in the Run browser regardless, this
         # is only for near-real-time feedback.
         self._forensic_live_events: list[dict] = []
         self._forensic_reported_anomaly_keys: set[tuple] = set()
-        self._forensic_anomaly_count = 0
         # Anchor for the Live timeline's timecode prefix - reset on connect
         # and on every new session start, so timecodes read "time since this
         # connection/session began" rather than an arbitrary process-wide
@@ -145,23 +148,25 @@ class ScanWorker(QObject):
         # for an active ForensicRun, so the live graphical timeline's marks
         # carry the same index the Event Inspector can look up later.
         self._forensic_live_index = 0
-        # Deliberately NOT connected here. Connecting signal-to-slot on a
-        # QObject inside its own __init__ - i.e. before the caller's
-        # moveToThread() runs - locks in same-thread (effectively direct)
-        # delivery even with an explicit `type=Qt.ConnectionType.
-        # QueuedConnection`: verified empirically with an isolated PyQt6
-        # repro (connect-before-moveToThread ignored the explicit type and
-        # ran the slot on the emitting thread; the identical connect() call
-        # made *after* moveToThread correctly dispatched onto the worker's
-        # own thread). This is the opposite of what an earlier version of
-        # this comment assumed - "explicit QueuedConnection fixes this
-        # regardless of when connect() happens" does not hold here. See
-        # connect_request_signals(), which the caller must run after
-        # moveToThread()+start() for real queued dispatch, and without
-        # which every request_*/run_prescan/run_scan slot would silently
-        # execute on the GUI thread - defeating "never run USB I/O on the
-        # GUI thread" (this was confirmed still happening: a mock Prescan's
-        # click handler blocked the whole window for its full duration).
+        # Deliberately NOT connected here. Per Qt's documented semantics, an
+        # explicit `type=Qt.ConnectionType.QueuedConnection` should dispatch
+        # to the receiver's thread at emit time regardless of when connect()
+        # was called - but empirically, in this PyQt6 setup, connecting a
+        # QObject's own signal to its own slot inside __init__ (i.e. before
+        # the caller's moveToThread() runs) still delivered the slot call on
+        # the emitting thread instead: verified with an isolated repro
+        # (connect-before-moveToThread silently ignored the explicit type;
+        # the identical connect() call made *after* moveToThread correctly
+        # dispatched onto the worker's own thread). The exact root cause
+        # inside PyQt6 wasn't tracked down further - this is a documented
+        # empirical workaround, not a claim about how Qt is supposed to
+        # behave in general. See connect_request_signals(), which the
+        # caller must run after moveToThread()+start() for real queued
+        # dispatch, and without which every request_*/run_prescan/run_scan
+        # slot would silently execute on the GUI thread - defeating "never
+        # run USB I/O on the GUI thread" (confirmed still happening before
+        # this fix: a mock Prescan's click handler blocked the whole window
+        # for its full duration).
 
     def connect_request_signals(self) -> None:
         """Wire every request_* signal to its slot with an explicit
@@ -227,7 +232,6 @@ class ScanWorker(QObject):
             if key in self._forensic_reported_anomaly_keys:
                 continue
             self._forensic_reported_anomaly_keys.add(key)
-            self._forensic_anomaly_count += 1
             self.forensic_anomaly.emit(anomaly.to_json())
 
     def _progress(self, value: float) -> None:
@@ -373,7 +377,7 @@ class ScanWorker(QObject):
     ) -> None:
         self.busy_changed.emit(True)
         self._is_busy = True
-        self._forensic_set_poll(False, 0)  # never interleave poll reads with a real scan
+        self._forensic_apply_poll(False, 0)  # never interleave poll reads with a real scan
         self._cancel.clear()
         self.progress.emit(0.0)
         try:
@@ -431,6 +435,10 @@ class ScanWorker(QObject):
             self._is_busy = False
             self.busy_changed.emit(False)
             self.progress.emit(0.0)
+            # Resume Live poll at whatever the user last asked for, if
+            # anything - the scan-start pause above must not silently
+            # leave polling off once the scan is done.
+            self._forensic_apply_poll(*self._forensic_poll_wanted)
 
     # --- Forensic tab slots --------------------------------------------------
 
@@ -503,6 +511,15 @@ class ScanWorker(QObject):
         )
 
     def _forensic_set_poll(self, enabled: bool, interval_ms: int) -> None:
+        """User-requested poll state, from the Forensic tab's Live poll
+        checkbox (or a disconnect/poll-failure deciding to turn it off).
+        Remembered separately from the timer's current running state so a
+        scan's temporary pause (_forensic_apply_poll, which does not touch
+        this) can resume with the same settings afterward."""
+        self._forensic_poll_wanted = (enabled, interval_ms)
+        self._forensic_apply_poll(enabled, interval_ms)
+
+    def _forensic_apply_poll(self, enabled: bool, interval_ms: int) -> None:
         if self._poll_timer is None:
             self._poll_timer = QTimer(self)
             self._poll_timer.timeout.connect(self._forensic_poll_tick)
@@ -591,7 +608,6 @@ class ScanWorker(QObject):
             self._forensic_live_index = 0
             self._forensic_live_events = []
             self._forensic_reported_anomaly_keys = set()
-            self._forensic_anomaly_count = 0
             self._forensic_live_t0 = time.perf_counter()
         else:
             run = self._forensic_run
