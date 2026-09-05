@@ -1,0 +1,51 @@
+{
+  "path": "C:\\dev\\morecapture\\4.pcapng",
+  "size_bytes": 434023292,
+  "first_ts": 1788020196.439527,
+  "last_ts": 1788020294.1164699,
+  "duration_s": 97.67694282531738,
+  "transfer_counts": {
+    "control_in": 2390,
+    "control_out": 480,
+    "interrupt": 126,
+    "bulk_in": 14165
+  },
+  "register_write_events": 712,
+  "register_read_events": 928,
+  "status_poll_count": 288,
+  "probe_read_events": 265,
+  "buffer_preamble_count": 25,
+  "bulk_in_total_bytes": 431867448,
+  "bulk_out_total_bytes": 0,
+  "bulk_in_size_histogram_top10": [
+    [
+      512,
+      7051
+    ],
+    [
+      60416,
+      4775
+    ],
+    [
+      59904,
+      2332
+    ],
+    [
+      3072,
+      4
+    ],
+    [
+      61952,
+      1
+    ],
+    [
+      316,
+      1
+    ],
+    [
+      252,
+      1
+    ]
+  ],
+  "bulk_out_size_histogram_top10": []
+}

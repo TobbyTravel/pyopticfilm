@@ -1,0 +1,233 @@
+[
+  {
+    "index": 7,
+    "ts": 1788019506.825024,
+    "rel_s": 0.0,
+    "kind": "lamp",
+    "label": "0x03=0x20 (LAMPPWR=off)",
+    "bulk_size": null,
+    "snapshot": null
+  },
+  {
+    "index": 49,
+    "ts": 1788019506.842479,
+    "rel_s": 0.017455101013183594,
+    "kind": "lamp",
+    "label": "0x03=0x10 (LAMPPWR=on)",
+    "bulk_size": null,
+    "snapshot": null
+  },
+  {
+    "index": 53,
+    "ts": 1788019506.843962,
+    "rel_s": 0.018938064575195312,
+    "kind": "lamp",
+    "label": "0x03=0x0 (LAMPPWR=off)",
+    "bulk_size": null,
+    "snapshot": null
+  },
+  {
+    "index": 667,
+    "ts": 1788019507.039589,
+    "rel_s": 0.21456503868103027,
+    "kind": "preamble",
+    "label": "AHB upload",
+    "bulk_size": 34,
+    "snapshot": {
+      "lincnt": 0,
+      "lperiod": null,
+      "dpiset": 4800,
+      "feedl": 1,
+      "exposure": 11000,
+      "strpixel": 280,
+      "endpixel": 0,
+      "scan": false,
+      "shdarea": true,
+      "dvdset": true,
+      "mtrpwr": true,
+      "agohome": true,
+      "fastfed": true,
+      "lamppwr": false,
+      "xpasel": false
+    }
+  },
+  {
+    "index": 675,
+    "ts": 1788019507.041564,
+    "rel_s": 0.21654009819030762,
+    "kind": "preamble",
+    "label": "AHB upload",
+    "bulk_size": 34,
+    "snapshot": {
+      "lincnt": 0,
+      "lperiod": null,
+      "dpiset": 4800,
+      "feedl": 1,
+      "exposure": 11000,
+      "strpixel": 280,
+      "endpixel": 0,
+      "scan": false,
+      "shdarea": true,
+      "dvdset": true,
+      "mtrpwr": true,
+      "agohome": true,
+      "fastfed": true,
+      "lamppwr": false,
+      "xpasel": false
+    }
+  },
+  {
+    "index": 871,
+    "ts": 1788019523.465091,
+    "rel_s": 16.640067100524902,
+    "kind": "lamp",
+    "label": "0x03=0x20 (LAMPPWR=off)",
+    "bulk_size": null,
+    "snapshot": null
+  },
+  {
+    "index": 913,
+    "ts": 1788019523.481833,
+    "rel_s": 16.656809091567993,
+    "kind": "lamp",
+    "label": "0x03=0x10 (LAMPPWR=on)",
+    "bulk_size": null,
+    "snapshot": null
+  },
+  {
+    "index": 917,
+    "ts": 1788019523.483341,
+    "rel_s": 16.65831708908081,
+    "kind": "lamp",
+    "label": "0x03=0x0 (LAMPPWR=off)",
+    "bulk_size": null,
+    "snapshot": null
+  },
+  {
+    "index": 1531,
+    "ts": 1788019523.678725,
+    "rel_s": 16.85370111465454,
+    "kind": "preamble",
+    "label": "AHB upload",
+    "bulk_size": 34,
+    "snapshot": {
+      "lincnt": 0,
+      "lperiod": null,
+      "dpiset": 4800,
+      "feedl": 1,
+      "exposure": 11000,
+      "strpixel": 280,
+      "endpixel": 0,
+      "scan": false,
+      "shdarea": true,
+      "dvdset": true,
+      "mtrpwr": true,
+      "agohome": true,
+      "fastfed": true,
+      "lamppwr": false,
+      "xpasel": false
+    }
+  },
+  {
+    "index": 1539,
+    "ts": 1788019523.680701,
+    "rel_s": 16.855677127838135,
+    "kind": "preamble",
+    "label": "AHB upload",
+    "bulk_size": 34,
+    "snapshot": {
+      "lincnt": 0,
+      "lperiod": null,
+      "dpiset": 4800,
+      "feedl": 1,
+      "exposure": 11000,
+      "strpixel": 280,
+      "endpixel": 0,
+      "scan": false,
+      "shdarea": true,
+      "dvdset": true,
+      "mtrpwr": true,
+      "agohome": true,
+      "fastfed": true,
+      "lamppwr": false,
+      "xpasel": false
+    }
+  },
+  {
+    "index": 1647,
+    "ts": 1788019531.33358,
+    "rel_s": 24.508556127548218,
+    "kind": "lamp",
+    "label": "0x03=0x20 (LAMPPWR=off)",
+    "bulk_size": null,
+    "snapshot": null
+  },
+  {
+    "index": 1689,
+    "ts": 1788019531.350368,
+    "rel_s": 24.525344133377075,
+    "kind": "lamp",
+    "label": "0x03=0x10 (LAMPPWR=on)",
+    "bulk_size": null,
+    "snapshot": null
+  },
+  {
+    "index": 1693,
+    "ts": 1788019531.351872,
+    "rel_s": 24.526848077774048,
+    "kind": "lamp",
+    "label": "0x03=0x0 (LAMPPWR=off)",
+    "bulk_size": null,
+    "snapshot": null
+  },
+  {
+    "index": 2307,
+    "ts": 1788019531.546682,
+    "rel_s": 24.7216579914093,
+    "kind": "preamble",
+    "label": "AHB upload",
+    "bulk_size": 34,
+    "snapshot": {
+      "lincnt": 0,
+      "lperiod": null,
+      "dpiset": 4800,
+      "feedl": 1,
+      "exposure": 11000,
+      "strpixel": 280,
+      "endpixel": 0,
+      "scan": false,
+      "shdarea": true,
+      "dvdset": true,
+      "mtrpwr": true,
+      "agohome": true,
+      "fastfed": true,
+      "lamppwr": false,
+      "xpasel": false
+    }
+  },
+  {
+    "index": 2315,
+    "ts": 1788019531.548745,
+    "rel_s": 24.723721027374268,
+    "kind": "preamble",
+    "label": "AHB upload",
+    "bulk_size": 34,
+    "snapshot": {
+      "lincnt": 0,
+      "lperiod": null,
+      "dpiset": 4800,
+      "feedl": 1,
+      "exposure": 11000,
+      "strpixel": 280,
+      "endpixel": 0,
+      "scan": false,
+      "shdarea": true,
+      "dvdset": true,
+      "mtrpwr": true,
+      "agohome": true,
+      "fastfed": true,
+      "lamppwr": false,
+      "xpasel": false
+    }
+  }
+]
