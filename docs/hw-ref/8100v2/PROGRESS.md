@@ -3115,3 +3115,47 @@ trial per DPI, not multiple back-to-back at any single DPI beyond the two
 unchanged) — today's fast-fast runs were all via the runtime monkeypatch,
 nothing committed. Decision on whether/how to pursue a production change
 deliberately deferred pending more data.
+
+## 2026-09-05 (cont'd) — Fast-fast produces corrupted images in further testing; reverted, not pursuing
+
+**Negative result, reported by the user from further hands-on testing**
+(the fast-fast monkeypatch had been wired into a real downstream
+application, NegPy, via a `_v2_fast_final_feed` context-manager patch in
+`negpy/infrastructure/scanners/plustek_backend.py`, scoped to the 8100 V2
+by model name — reverted as of this entry, see below): additional
+fast-fast scans through that path **produced a corrupted image — a
+single-color noise pattern** — while the sound stayed good. No mechanical
+fault (no grinding/thunk), but a real data-integrity failure: something
+in calibration or another startup-dependent step is sensitive to the
+faster second-feed timing in a way none of today's earlier 6 clean trials
+happened to trigger.
+
+**No forensic run or saved image evidence exists for the corrupted
+trial(s)** — this was observed by the user directly during their own
+testing, not captured through the `ForensicRun`/`tools.scanlab.cli`
+pipeline used for every other trial today. That's a real gap: we don't
+have the decoded-event trace, DPI, or exact repro steps for the failure,
+only the symptom report. Worth capturing properly (forensic-logged) if
+this is revisited.
+
+**Action taken:** reverted the NegPy patch entirely (`git checkout --`
+on `plustek_backend.py` — the file is back to unmodified, shipped
+behavior, `SLOPE_TABLE_SLOW` used unconditionally for the V2's second
+feed, no monkeypatch). No pyopticfilm file was ever edited — every
+fast-fast trial all day used a process-local runtime monkeypatch of
+`pyopticfilm.asic.gl128.SLOPE_TABLE_SLOW`, so no repo state needed
+reverting there.
+
+**Revised conclusion, superseding the "6 clean trials, promising" framing
+above:** fast-fast is **not safe** to pursue further without a lot more
+investigation — it can silently corrupt image data even when it sounds
+and completes normally, which is a worse failure mode than the
+originally-documented mechanical fault (that one was at least audible and
+obvious; this one produces a bad file with no obvious warning during the
+scan). `model_8100_v2.py`'s `use_slow_final_positioning_feed=True`
+remains the right shipped default. Not pursuing a production change.
+Any future revisit of this should start by reproducing the corruption
+under Forensic-tab recording so there's an actual event trace to diagnose
+against, rather than repeating today's approach of trusting "no exception
++ correct dimensions" as sufficient evidence of a good scan — it clearly
+isn't.
