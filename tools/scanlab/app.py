@@ -76,6 +76,10 @@ class ScanLabWindow(QMainWindow):
         self._worker = ScanWorker()
         self._worker.moveToThread(self._thread)
         self._thread.start()
+        # Must run after moveToThread()+start() - see ScanWorker.__init__'s
+        # note on why connecting these earlier silently breaks queued
+        # dispatch even with an explicit connection type.
+        self._worker.connect_request_signals()
 
         root = QWidget(self)
         self.setCentralWidget(root)

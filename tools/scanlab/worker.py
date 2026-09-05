@@ -145,15 +145,29 @@ class ScanWorker(QObject):
         # for an active ForensicRun, so the live graphical timeline's marks
         # carry the same index the Event Inspector can look up later.
         self._forensic_live_index = 0
-        # Explicit QueuedConnection, not the Qt::AutoConnection default:
-        # connecting here in __init__ happens BEFORE app.py's
-        # moveToThread(self._thread) call runs, and AutoConnection's actual
-        # type (Direct vs Queued) is decided at connect() time based on
-        # thread affinity at that moment, not dynamically at each emit() -
-        # so without this, every emit() ran its slot synchronously on the
-        # emitting (GUI) thread, defeating "never run USB I/O on the GUI
-        # thread" (confirmed empirically: a mock Prescan's click handler
-        # took 9.4s to return, blocking the whole window).
+        # Deliberately NOT connected here. Connecting signal-to-slot on a
+        # QObject inside its own __init__ - i.e. before the caller's
+        # moveToThread() runs - locks in same-thread (effectively direct)
+        # delivery even with an explicit `type=Qt.ConnectionType.
+        # QueuedConnection`: verified empirically with an isolated PyQt6
+        # repro (connect-before-moveToThread ignored the explicit type and
+        # ran the slot on the emitting thread; the identical connect() call
+        # made *after* moveToThread correctly dispatched onto the worker's
+        # own thread). This is the opposite of what an earlier version of
+        # this comment assumed - "explicit QueuedConnection fixes this
+        # regardless of when connect() happens" does not hold here. See
+        # connect_request_signals(), which the caller must run after
+        # moveToThread()+start() for real queued dispatch, and without
+        # which every request_*/run_prescan/run_scan slot would silently
+        # execute on the GUI thread - defeating "never run USB I/O on the
+        # GUI thread" (this was confirmed still happening: a mock Prescan's
+        # click handler blocked the whole window for its full duration).
+
+    def connect_request_signals(self) -> None:
+        """Wire every request_* signal to its slot with an explicit
+        QueuedConnection. Call this AFTER moveToThread()+start() - see the
+        note in __init__ for why connecting earlier silently breaks queued
+        dispatch even with an explicit connection type."""
         self.request_prescan.connect(self.run_prescan, type=Qt.ConnectionType.QueuedConnection)
         self.request_scan.connect(self.run_scan, type=Qt.ConnectionType.QueuedConnection)
         self.request_forensic_connect.connect(self._forensic_connect, type=Qt.ConnectionType.QueuedConnection)
