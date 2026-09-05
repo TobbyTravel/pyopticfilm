@@ -3031,3 +3031,87 @@ should not be removed or shortened by distance — only its speed (the
 slow ramp) is a legitimate target if a quieter/faster experience is
 wanted, and that trades directly against the motor-overspeed safety
 margin the slow ramp exists for.**
+
+## 2026-09-05 (cont'd) — Second-feed ramp-speed A/B/C test, in person, on the exact fault-history configuration
+
+**Same session as above, continued at user's direction** to actually test
+the ramp-speed tradeoff just concluded above, with the user physically
+present at the hardware (hand on the power switch) for every trial.
+Technique throughout: monkeypatch the module-level `SLOPE_TABLE_SLOW`
+name in `pyopticfilm.asic.gl128` (process-local only, reverts on exit, no
+file edits) so `_upload_fast_slopes(use_slow=True)` uploads a different
+table for the second feed than production ships.
+
+**A (baseline, unmodified) vs. B (custom, 17.5% blend toward FAST at
+every one of the 256 per-step entries) — 600dpi single-pass:**
+
+| | A | B |
+|---|---|---|
+| Second-feed duration | 6.94s | 5.95s |
+| Total scan time | 20.55s | 19.54s |
+| `probe_read` count | 120 | 104 |
+| Outcome | success | success, correct image |
+
+B is a genuinely new table (never vendor-captured, never run on this
+hardware before this trial) but still ~4.3x slower than
+`SLOPE_TABLE_FAST`'s own steady-state (895 vs. 208 ticks/step) — a
+conservative first step. Clean on one trial; user confirmed both sounded
+fine in person.
+
+**C: full `SLOPE_TABLE_FAST` for the second feed — the *exact*
+configuration `6198d4b` documented as having caused the original
+"high-pitched sound followed by a thunk" mechanical fault.** Explicitly
+flagged this to the user before running (fast-fast has never been seen in
+*any* real vendor capture on either GL128 model — V2's own captures show
+fast-then-slow, the SE's show slow-then-fast, 39/39 pairs — so this is a
+deliberate departure from all known vendor behavior, not a simplification
+toward it). User accepted the risk and ran it anyway, in person:
+
+- 600dpi single-pass: second-feed 1.54s (vs. 6.94s baseline), total scan
+  15.16s (vs. 20.55s), correct 600×856×3 image, no exceptions.
+- 1200dpi multi-exposure fixed mode, full frame: 90.15s total, correct
+  1201×1712×3 image, 2971 events, 102 anomalies (2 warning/4 critical —
+  same categories as every other trial today, nothing new), no
+  exceptions.
+- User confirmed both sounded fine in person, no grinding/clunk/stall.
+
+**Follow-up validation campaign, ascending DPI order, stop-on-exception,
+user present with hand on power switch throughout** — one trial each at
+1200/1800/3600/7200dpi, single-pass, full frame, full fast-fast:
+
+| DPI | Outcome | Image shape | Elapsed | Anomalies (warn/crit/info) |
+|---|---|---|---|---|
+| 1200 | success | 1201×1712×3 | 24.09s | 1/2/39 |
+| 1800 | success | 1801×2568×3 | 33.28s | 1/2/39 |
+| 3600 | success | 3603×5136×3 | 71.59s | 2/2/162 |
+| 7200 | success | 7206×10272×3 | 130.83s | 2/2/166 |
+
+All four succeeded, no exceptions, correct framing confirmed visually at
+every DPI (7200dpi checked closely — sharp, correctly positioned, no
+artifacts). Combined with the two trials above: **6 total clean fast-fast
+trials today, spanning 600/1200/1800/3600/7200dpi** (5 distinct DPIs, one
+DPI — 600 — covered twice, once single-pass and once via the earlier
+600dpi trial before this campaign).
+
+**Compared explicitly against `6198d4b`'s own validation bar** ("6+
+consecutive full scans at 1200/1800/3600/7200dpi, following repeated
+faults before it under the same test conditions"): today's campaign
+**matches the DPI coverage exactly** but has **fewer total repeats** (6
+today, spread across DPIs and scan modes, vs. 6+ *consecutive at the
+fault-reproducing configuration* in the original). Today's runs also
+differ from the original validation in kind: they're testing whether
+fast-fast (the pre-fix, fault-documented state) is *safe*, whereas the
+original 6-trial bar was validating that *slow-final* eliminates a fault
+that had already reproduced multiple times under fast-fast. Today never
+reproduced that fault, on this unit, today — that is real, positive
+information, but it is not the same evidentiary shape as the original
+validation, and a single day's clean streak on one unit is not the same
+claim as "this is now safe to ship as the default for every 8100 V2."
+
+**Not done:** repeated trials at the *same* DPI (today's campaign was one
+trial per DPI, not multiple back-to-back at any single DPI beyond the two
+600dpi/1200dpi trials earlier); any change to shipped code
+(`model_8100_v2.py`'s `use_slow_final_positioning_feed` remains `True`,
+unchanged) — today's fast-fast runs were all via the runtime monkeypatch,
+nothing committed. Decision on whether/how to pursue a production change
+deliberately deferred pending more data.
