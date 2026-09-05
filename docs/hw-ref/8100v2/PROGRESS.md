@@ -2920,3 +2920,78 @@ attempted. Color-balance shift (#50) — needs a second frame to confirm
 it's systematic rather than scene-specific, and an 8200i SE test to see
 if it's V2-only. Neither T67, the "zoomed in" framing regression, the
 image-corruption bug, nor issue #33's jitter were touched this session.
+
+## 2026-09-05 — New Forensic-tab CLI tooling built (upstream PR #54); T67 revisited with it; "first-scan-only" theory tested and disproved
+
+**Context**: separate session comparing `jboneng/pyopticfilm` PR #52
+(N-bracket ME) against `main` for single-pass regressions, using the
+Forensic tab (`tools/scanlab/forensic_*.py`, upstream PR #54,
+`feat/register-reference-catalog`). Along the way, added a headless
+`compare` (+ `list-runs`) subcommand to `tools/scanlab/cli.py` — wraps
+`first_divergence`/`build_ai_report` with no Qt, so two recorded runs
+(even from different checkouts sharing a `tools/scanlab/runs` directory
+junction) can be diffed from the command line. Pushed to PR #54.
+
+**Bug found in that new CLI, not in the engine**: `cli.py`'s `scan`
+subcommand hardcoded `--gl128-prime` to `default=True` and always
+forwarded an explicit bool to `Scanner.scan()`, bypassing
+`Model8100V2.default_gl128_prime=False` entirely — every CLI-driven
+recording was forcing the discarded priming pass back on, unlike
+`examples/scan.py` and the GUI (both correctly leave it `None` → model
+default). Fixed to a tri-state default (`None`) matching `Scanner.scan()`'s
+own convention and the GUI's `_gl128_prime_arg()`. Pushed to PR #54.
+Confirms priming itself needs no further action here — it's already
+correctly off for V2 in every real code path; the bug was confined to
+this one new debug tool.
+
+**Register-`0x21` divergence (main vs. PR #52), investigated and
+attributed to jitter, not PR #52**: the new `compare` subcommand's first
+real use, on a plain single-pass 600dpi scan, found a first-divergence at
+event 62 (register `0x21`, value 0 vs 4). Code check: `asic/gl128.py`'s
+feed-probe poll loop is byte-identical between `main` and PR #52; the
+divergence sits entirely inside the (accidentally forced-on, per the CLI
+bug above) discarded priming pass. 15 pairwise comparisons — 3 same-branch
+`main` runs, 3 same-branch PR #52 runs, all 9 cross-branch pairs — showed
+divergences scattered across several registers/indices (`0x37`, `0x101`)
+on *both* same-branch and cross-branch pairs alike, at no better rate for
+cross-branch than same-branch. Concluded: real-hardware run-to-run jitter
+inside the discarded priming pass, not a PR #52 effect. (Tangential to T67
+below, but same discarded-pass mechanism as the priming investigation
+higher up this log.)
+
+**T67 revisited with the new tooling — "first-scan-of-session" theory
+tested and disproved.** Issue #33's own reference-driver capture analysis
+(`drafts/issue-33-comment.md`) noted the vendor driver targets a
+different, smaller second-feed distance (13128 steps, "top of TA window")
+only on the *first* acquisition of a session, switching to ~13486 for
+every later one — raising the question of whether pyopticfilm's own
+~6.9-9.3s second-feed duration (this session's own earlier finding, see
+above) might likewise only be slow on the first `scan()` call after
+`Scanner.open()`.
+
+Tested directly: two `scanner.scan()` calls in one `Scanner.open()`
+session (no reopen between them), each independently Forensic-recorded,
+with the CLI's `gl128_prime` bug already fixed so priming stayed
+correctly off for both. **Result: theory disproved.** Both calls targeted
+the identical 13128-step distance (pyopticfilm never switches targets
+between calls, unlike the reference driver) — first call: 6.94s, second
+call: 9.17s (*longer*, not shorter). Duration remains within the same
+0.3-9.2s variable range already documented above, uncorrelated with
+call-order.
+
+Also confirmed (re-reading `model_8100_v2.py`'s own docstring, not new
+evidence) that this 13128-step feed is **not removable** — it's the
+capture-confirmed move to the top-of-TA-window scan start position
+(`04_color_7200.pcapng` frame 2999); skipping it would misposition every
+scan, not just save time. What's variable is purely how long that
+already-necessary move takes under the slow ramp
+(`use_slow_final_positioning_feed=True`, the motor-overspeed safety fix —
+not to be reverted to test this).
+
+**Not done:** T67's actual root cause remains open — "first-scan-only"
+is now a fourth ruled-out mechanism (alongside priming, the zeroed second
+feed, the AFE-hang-fix retry loop, slow probe reads, and the specific
+6-second silent-gap pattern from 2026-08-30). Real-time human/log
+correlation (watching the Forensic tab's live per-event timestamps while
+listening) or an actual USB capture (`usbmon` kernel-module issue on the
+Linux rig, still unresolved) remain the next genuinely untried steps.
