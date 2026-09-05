@@ -258,8 +258,19 @@ def main(argv: list[str]) -> int:
     p_scan.add_argument("--name", default="cli-session")
     p_scan.add_argument("--apply-calib", action="store_true", default=True)
     p_scan.add_argument("--no-apply-calib", dest="apply_calib", action="store_false")
-    p_scan.add_argument("--gl128-prime", action="store_true", default=True)
-    p_scan.add_argument("--no-gl128-prime", dest="gl128_prime", action="store_false")
+    p_scan.add_argument(
+        "--gl128-prime",
+        dest="gl128_prime",
+        action="store_true",
+        default=None,
+        help="force the discarded priming pass on (default: model default, e.g. off on the 8100 V2)",
+    )
+    p_scan.add_argument(
+        "--no-gl128-prime",
+        dest="gl128_prime",
+        action="store_false",
+        help="force priming off (default: model default)",
+    )
     p_scan.add_argument("--ai-report", action="store_true", help="also write ai_report.md into the run directory")
     p_scan.add_argument("--traceback", action="store_true", help="include a Python traceback in notes on failure")
     p_scan.set_defaults(func=cmd_scan)
