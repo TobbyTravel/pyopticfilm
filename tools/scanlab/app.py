@@ -349,7 +349,6 @@ class ScanLabWindow(QMainWindow):
         self._refresh_banner()
         if was_connected:
             self._on_forensic_connect()
-        self._sync_manual_exposure_enabled()
         self._update_me_tabs_visible()
         self._refresh_banner()
         self.prescan_view.clear_crop()
