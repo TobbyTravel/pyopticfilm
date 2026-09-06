@@ -36,20 +36,23 @@ was re-derived from scratch here rather than trusted from an old comment).
   loses IVW weight on that channel specifically, which is a color shift, not
   a brightness one — exactly #50's mechanism. Nothing new to add beyond
   confirming the existing hypothesis is code-accurate.
-- **New, concrete hypothesis for jboneng's PR #52 hardware reports**: every
-  non-short N-bracket pass gets `long_pass=True` unconditionally
+- **Hypothesis for jboneng's PR #52 hardware reports — confirmed as fact,
+  not just a code-reading, by the Phase 3 recordings**: every non-short
+  N-bracket pass gets `long_pass=True` unconditionally
   (`session_gl128.py:699`), which drives the *same* short/long pixel-clock
   switch (`gl128_common.py:521`, `pixel_clock_for_image`) regardless of how
   close that bracket's actual exposure is to the short baseline. That binary
   switch has only ever been observed at its two vendor-confirmed endpoints
-  (14000→short-clock, 42000→long-clock, both models, Phase 1). Every
-  intermediate `n_brackets>2` schedule value (`session_gl128.py:684-688`,
-  geometric spacing between short and long) is extrapolation on a switch
-  that's untested anywhere in between. This is a plausible mechanism for
-  "the first bracket pass drives the motor too fast to achieve that low
-  exposure" (an intermediate bracket much closer to 14000 than 42000 still
-  gets the slower "long" clock config) — plausible, not confirmed; only a
-  real-hardware trial (Phase 3) can settle it.
+  (14000→short-clock, 42000→long-clock, both models, Phase 1). The real V2
+  recordings (`p3-1800-n3`, `p3-7200-n3`) show the middle `n_brackets=3`
+  bracket (`EXPOSURE=24249`, closer to 14000 than 42000) gets
+  `0xA5/0xAB=(1,1)` — the full "long" clock — immediately, at both DPIs
+  (`decoded_events.jsonl` idx 4102-4103 at 1800dpi, idx 45416-45417 at
+  7200dpi). **This pairing is real and does happen**, and it is a
+  combination no vendor capture has ever produced. On the 8100 V2, at
+  n_brackets=3, 1800/900/7200dpi, it did not cause a fault (see Phase 3) —
+  so it remains a plausible mechanism for jboneng's SE reports specifically,
+  not a confirmed one; V2 not reproducing it doesn't rule it out on the SE.
 - **Dead code removed**: `Model8100V2.me_n_bracket_long_exposure_ceiling()`
   was never called anywhere and was a no-op even if it were (V2's ordinary
   `me_long_exposure_ceiling_default` is already 42000 flat) — its docstring
@@ -64,36 +67,63 @@ was re-derived from scratch here rather than trusted from an old comment).
   worth confirming with whoever characterized #50 that these aren't the same
   underlying issue described two ways.
 
-## Phase 3 — real V2 hardware trial: not started, needs the user
+## Phase 3 — real V2 hardware trial: done, no fault reproduced
 
-Nothing in Phase 1/2 substitutes for this. Only the 8100 V2 side can be
-tested here; the original PR #52 reports were on the 8200i SE, so a fix (or
-a "V2 doesn't reproduce this" finding) doesn't close the SE side of the
-report without jboneng's own follow-up.
+Run 2026-09-06 on the user's real 8100 V2, via `tools/scanlab/cli.py scan
+--real` (new `--multi-exposure`/`--n-brackets`/`--me-exposure-mode`/
+`--save-tiff-dir` flags added for this), each recorded with the Forensic
+tab's `ForensicRun` and visually reviewed as a 16-bit TIFF. Ordered
+safest-to-riskiest, user present throughout, watching/listening:
 
-Suggested matrix, recorded with Scan Lab's Forensic tab (built in PR #54) so
-the actual register sequence is captured for comparison against the Phase 1
-baselines:
+| Run | Config | Outcome | Y align shift (long bracket) | Notes |
+|---|---|---|---|---|
+| `p3-00-sanity-prescan(-v2)` | 1200dpi prescan, no ME | success | n/a | Baseline sanity — clean image |
+| `p3-1800-n2-baseline` | 1800dpi, `n_brackets=2` | success | -44.1px | Known-good path, clean image |
+| `p3-1800-n3` | 1800dpi, `n_brackets=3` | success | -45.2px | Middle bracket (24249) gets long pixel-clock — see Phase 2 update. Clean image |
+| `p3-900-n3` | 900dpi, `n_brackets=3` | success | -2.0px | Mirrors the SE "unhealthy motor sound" report. No fault, no unusual sound |
+| `p3-7200-n3` | 7200dpi, `n_brackets=3` | success | -170.9px | Mirrors the SE ASIC-error report (comm lost, yellow LED). No fault, no comm loss, no unusual sound. Longest run (~5.5 min motor-enabled on the final bracket) |
 
-1. **7200ppi, `n_brackets=3`, fixed mode** — mirrors the SE ASIC-error report
-   (communication lost, yellow power LED, before the last colour pass).
-2. **1800ppi and 900ppi, `n_brackets>2`** (e.g. `n_brackets=3` and `5`) —
-   mirrors the SE "unhealthy motor sound on the first bracket" report.
-3. **`n_brackets=2` at the same DPIs** as a known-good baseline (the
-   "existing, already-validated" path) for A/B comparison against 1-2.
-4. Optional but useful: one setting run through both NegPy and Scan Lab, to
-   check TobbyTravel's earlier observation that Scan Lab showed more errors
-   than NegPy for the same feature — if real, that points at a Scan-Lab-side
-   calling difference rather than the ME code itself.
+**Neither of jboneng's two 8200i SE hardware faults reproduces on the 8100
+V2** at the equivalent settings. All five runs completed successfully;
+merged output visually clean at every DPI (no ghosting, no visible
+color-balance shift, no banding); Y-axis alignment shift scales with DPI/pass
+length as expected from the known #33 jitter mechanism and was fully
+corrected by the existing banded-alignment path in every case.
 
-For each run, check the Forensic-tab-recorded `REG_EXPOSURE`/pixel-clock/
-slope-table sequence against: (a) the Phase 1 vendor baselines, (b) whether
-the flagged intermediate-bracket pixel-clock hypothesis above actually shows
-up as a problem in practice.
+**What this does and doesn't close out**:
+- Confirms the N-bracket ME code path is safe to use on the 8100 V2 at
+  3 brackets across the DPI range, including the exact configs that faulted
+  the SE.
+- Does **not** close the SE side of PR #52 — those faults were never claimed
+  to be V2 issues, and a V2 non-reproduction doesn't tell us why the SE
+  faulted. That needs jboneng's own follow-up on his hardware.
+- The pixel-clock hypothesis (Phase 2) is now confirmed as real, observed
+  behavior, but not confirmed as *harmful* — it didn't fault V2. Worth
+  flagging to jboneng as a specific thing to check if he re-tests: whether
+  the SE fault correlates with which bracket (does it happen on the first
+  non-short bracket specifically, where the exposure is *most* mismatched
+  from both the short baseline and the long-clock's usual 42000 pairing?).
+- Not tested here: `n_brackets` above 3, `me_exposure_mode="adaptive"` on
+  V2's N-bracket path (V2 defaults to `"fixed"`), and the NegPy-vs-Scan-Lab
+  comparison TobbyTravel's earlier PR #52 comment raised. None were needed
+  to answer the two specific fault reports, but remain open if useful later.
 
-## Phase 4 — fixes / PR: pending Phase 3
+Full JSON results, anomaly reports, and raw Forensic recordings are under
+`tools/scanlab/runs/p3-*/` (git-ignored, local-only — not part of this repo's
+history, same as every other Scan Lab run).
 
-No further code change is planned until Phase 3 produces evidence either
-way. If the pixel-clock hypothesis is confirmed, the fix and its model-lock
-oracle update will cite the specific Forensic-tab recording, the same way
-the slope-table fix (issue #56 / PR #58) cited specific capture frames.
+## Phase 4 — fixes / PR
+
+No code fix is needed as a result of Phase 3 — nothing failed on the
+hardware that could be fixed. Next steps are process, not code:
+
+- Rebase this work's home branch onto current `upstream/main` (it and PR
+  #52's own `feat/n-brackets-on-main` both drifted 6 commits behind after
+  PR #54 — see the branch-hygiene note in the PR body once opened).
+- Post these Phase 1-3 findings to PR #52 / issue #50 so jboneng has the
+  V2-side non-reproduction on record, and the concrete pixel-clock detail
+  to check for if/when he re-tests the SE.
+- The `tools/scanlab/cli.py` ME automation (`--multi-exposure`,
+  `--n-brackets`, `--me-exposure-mode`, `--save-tiff-dir`) is a
+  reusable-going-forward addition, independent of whatever PR #52 itself
+  decides — worth keeping regardless of that PR's outcome.
