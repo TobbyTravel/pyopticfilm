@@ -10,10 +10,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Cross-model GL128 safeguards**: required-field `Gl128Model` contract, sibling-diff catalog (`GL128_DIVERGENT_FIELDS`), and 8100 V2 model-lock oracles so a fix for one hardware-tested GL128 model cannot silently retarget the other. Contributor policy is in `CONTRIBUTING.md`.
 - **GL128 setup goldens**: Mock-USB register programs for 8200i SE and 8100 V2 at 1200 / 1800 / 7200 dpi (`tests/traces/python/8200i_se/`, `tests/traces/python/8100_v2/`). Regenerate with `python tools/dump_gl128_setup_trace.py`.
+- **Scan Lab Forensic tab**: guided evidence recording, live anomaly detection, USB timeline (Event Inspector, motor/lamp state lanes, duration brackets), Known/Unknown values panel, and a Reference page backed by a confidence-tagged register/bit catalog (`tools/register_reference.py`) for GL128 SE/V2 and GL845. Timeline milestones cover slope-table identity (FAST/SLOW/CUSTOM), feed timing, and LPERIOD/EXPOSURE/pixel-clock.
+- **Scan Lab headless compare**: `list-runs` and `compare` on `python -m tools.scanlab.cli` wrap the same baseline-diff / AI bug-report path as the GUI Run browser (no Qt).
 
 ### Changed
 
 - **8100 V2 model class** no longer subclasses the 8200i SE dataclass. Shared identical GL128 tables and helpers live in `device/gl128_common.py`; capture-proven divergences are declared on each leaf. Scan behaviour is unchanged.
+- **Register reference catalog**: V2 `REG_LPERIOD` at 7200 dpi and `REG_DEPTH_A`/`REG_DEPTH_B` image/shading pairs confirmed against a fresh 8100 V2 capture set; documents the V2 cancel/park recipe matching SE session 08.
+
+### Fixed
+
+- **Scan Lab CLI priming**: headless `scan` no longer forces `--gl128-prime` on by default; omit both flags to use the model default (V2 off), or pass `--gl128-prime` / `--no-gl128-prime` explicitly.
+- **Scan Lab worker threading**: connect `request_*` signals after `moveToThread` so queued slots (prescan, scan, Forensic poll) run on the worker thread.
+
+### Contributors
+
+- [@TobbyTravel](https://github.com/TobbyTravel) for the Scan Lab Forensic tab and register reference catalog, Forensic timing milestones/timeline UX, headless `compare`, CLI priming default fix, worker threading fix, and fresh 8100 V2 capture-backed register-reference confirmations.
 
 ## [1.3.3] - 2026-08-30
 
