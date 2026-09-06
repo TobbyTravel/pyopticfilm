@@ -68,6 +68,32 @@ def test_divergent_fields_match_capture_catalog():
         20232: 3700,
     }
     assert dict(MODEL_8100_V2.max_image_lincnt_by_feed2) == {13128: 29012}
+    assert dict(MODEL_8200I_SE.ladder_lincnt_by_dpi) == {
+        150: 2292,
+        300: 2292,
+        600: 2292,
+        720: 2748,
+        900: 3436,
+        1200: 4580,
+        1440: 5496,
+        1800: 6868,
+        2400: 9156,
+        3600: 13732,
+        7200: 27476,
+    }
+    assert dict(MODEL_8100_V2.ladder_lincnt_by_dpi) == {
+        150: 2420,
+        300: 2420,
+        600: 2420,
+        720: 2904,
+        900: 3628,
+        1200: 4836,
+        1440: 5804,
+        1800: 7252,
+        2400: 9668,
+        3600: 14500,
+        7200: 29012,
+    }
 
 
 def test_every_public_field_is_catalogued():
