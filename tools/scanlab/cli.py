@@ -47,6 +47,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
+from pyopticfilm.image import save_rgb16_tiff
 from pyopticfilm.usb.decode import decode_transaction
 from tools.scanlab.backend import (
     lab_scan_kwargs,
@@ -155,18 +156,26 @@ def cmd_scan(args: argparse.Namespace) -> int:
             **me_kw,
         )
         image_info = {"shape": list(image.rgb.shape), "dpi": image.dpi}
-        if me_kw:
-            me_debug = scanner.last_me_debug
-            if me_debug is not None:
-                image_info["me_debug"] = {
-                    "exposure_short": me_debug.exposure_short,
-                    "exposure_long": me_debug.exposure_long,
-                    "align_shift_long": me_debug.align_shift_long,
-                    "brackets": [
-                        {"exposure": b.exposure, "align_shift": b.align_shift}
-                        for b in (me_debug.brackets or [])
-                    ],
-                }
+        me_debug = scanner.last_me_debug if me_kw else None
+        if me_debug is not None:
+            image_info["me_debug"] = {
+                "exposure_short": me_debug.exposure_short,
+                "exposure_long": me_debug.exposure_long,
+                "align_shift_long": me_debug.align_shift_long,
+                "brackets": [
+                    {"exposure": b.exposure, "align_shift": b.align_shift}
+                    for b in (me_debug.brackets or [])
+                ],
+            }
+        if args.save_tiff_dir:
+            tiff_dir = Path(args.save_tiff_dir)
+            tiff_dir.mkdir(parents=True, exist_ok=True)
+            saved = [str(image.save_tiff(tiff_dir / f"{args.name}_merged.tif"))]
+            if me_debug is not None and me_debug.brackets:
+                for i, b in enumerate(me_debug.brackets):
+                    path = tiff_dir / f"{args.name}_bracket{i}_exp{b.exposure}.tif"
+                    saved.append(str(save_rgb16_tiff(b.rgb, path, dpi=dpi)))
+            image_info["saved_tiffs"] = saved
         run.mark_phase(f"CLI: {args.kind} received", image_info)
         outcome = "success"
     except Exception as exc:  # noqa: BLE001
@@ -320,6 +329,12 @@ def main(argv: list[str]) -> int:
         dest="gl128_prime",
         action="store_false",
         help="force priming off (default: model default)",
+    )
+    p_scan.add_argument(
+        "--save-tiff-dir",
+        default=None,
+        help="directory to save 16-bit TIFFs for human review: the merged "
+        "deliverable, plus every ME bracket plane if --multi-exposure was used",
     )
     p_scan.add_argument("--ai-report", action="store_true", help="also write ai_report.md into the run directory")
     p_scan.add_argument("--traceback", action="store_true", help="include a Python traceback in notes on failure")
