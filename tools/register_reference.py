@@ -592,9 +592,60 @@ REGISTERS: tuple[RegisterEntry, ...] = (
         name="REG_EXPOSURE",
         asic=AsicFamily.GL128,
         scope=(SCOPE_ALL_GL128,),
-        meaning="24-bit BE base exposure. Baseline 14000 confirmed in every image pass checked, including a capture where a differing exposure was expected — the underlying question (whether pyopticfilm's non-14000 exposures are also faithful) remains untested since a needed reference capture is missing.",
+        meaning=(
+            "24-bit BE base exposure. Baseline 14000 confirmed in every image "
+            "pass checked. The multi-exposure (ME) reference captures answer "
+            "the previously-open question about non-14000 exposures: on both "
+            "models, at every DPI captured (1200/7200 on the 8100 V2, 1800 on "
+            "the 8200i SE), SilverFast's ME is a flat, non-adaptive 2-bracket "
+            "scheme — EXPOSURE=14000 (short) then EXPOSURE=42000 (long), an "
+            "exact 3:1 ratio, never varying by DPI or model. A transient "
+            "EXPOSURE=11000 write appears once at the start of each bracket's "
+            "dark-shading cycle before settling to that bracket's real value "
+            "(interestingly, bracket 2's own dark-shading phase settles at "
+            "the baseline 14000 first, then switches to 42000 for white-"
+            "shading/image — not investigated further). "
+            "pyopticfilm's own n_brackets>2 and adaptive per-frame exposure "
+            "selection (jboneng/pyopticfilm#52, #50) have no vendor-driver "
+            "precedent at all on either model — they are pyopticfilm "
+            "inventions layered on top of this fixed 2-bracket scheme, not "
+            "reverse-engineered vendor behavior."
+        ),
         confidence=Confidence.CONFIRMED,
-        citations=_c("registers.py Gl128Registers", "Independent capture analysis, register-program-by-dpi extraction (7/7 files)"),
+        citations=_c(
+            "registers.py Gl128Registers",
+            "Independent capture analysis, register-program-by-dpi extraction (7/7 files)",
+            "8100 V2: TobbyTravel/pyopticfilm_captures 07_multi_exposure.pcapng "
+            "(docs/hw-ref/8100v2/2026-09-recapture/claims-reconciliation.md)",
+            "8200i SE: jboneng/pyopticfilm_captures 8200i-se/14_multi_exposure_scans/"
+            "1800ppi_Scan_No_IR_ME.pcapng (docs/hw-ref/8200i-se/2026-09-multi-exposure/findings.md)",
+        ),
+    ),
+    RegisterEntry(
+        addr="0xA5/0xAB",
+        name="Pixel clock A/B (short vs. long ME exposure)",
+        asic=AsicFamily.GL128,
+        scope=(SCOPE_ALL_GL128,),
+        meaning=(
+            "Per-pass pixel clock, read-modify-write alongside the shading "
+            "dummy (see shading_strip_clocks). Independently re-derived (not "
+            "just inherited from an old comment) from the 8200i SE's "
+            "1800ppi_Scan_No_IR_ME.pcapng: the short (EXPOSURE=14000) bracket "
+            "settles both registers at 2 (matching PIXEL_CLOCK_BY_DPI[1800]); "
+            "the long (EXPOSURE=42000) bracket settles both at 1 (matching "
+            "PIXEL_CLOCK_LONG_BY_DPI[1800]). pyopticfilm's own "
+            "_pass_long_exposure flag drives this same binary switch "
+            "(gl128_common.py pixel_clock_for_image) for every ME pass, "
+            "including every intermediate n_brackets>2 exposure — a "
+            "value this binary split has never been observed at, since the "
+            "vendor driver never generates more than these two exposures."
+        ),
+        confidence=Confidence.CONFIRMED,
+        citations=_c(
+            "gl128_common.py PIXEL_CLOCK_BY_DPI / PIXEL_CLOCK_LONG_BY_DPI",
+            "8200i SE: jboneng/pyopticfilm_captures 8200i-se/14_multi_exposure_scans/"
+            "1800ppi_Scan_No_IR_ME.pcapng (docs/hw-ref/8200i-se/2026-09-multi-exposure/findings.md)",
+        ),
     ),
     RegisterEntry(
         addr="0x82-0x84",
@@ -672,6 +723,48 @@ REGISTERS: tuple[RegisterEntry, ...] = (
 #: field, or a USB protocol-level constant, none of which is itself a
 #: device register address.
 BEHAVIORAL_NOTES: tuple[BehavioralNote, ...] = (
+    BehavioralNote(
+        topic="N-bracket ME (n_brackets>2) and adaptive exposure have no vendor precedent",
+        asic=AsicFamily.GL128,
+        scope=(SCOPE_ALL_GL128,),
+        meaning=(
+            "Every ME capture on both models (8100 V2 07_multi_exposure; "
+            "8200i SE 14_multi_exposure_scans) shows SilverFast doing exactly "
+            "2 brackets, a fixed EXPOSURE=14000/42000 (3:1), never adapting "
+            "to scene content or varying by DPI. pyopticfilm's n_brackets=2..9 "
+            "geometric-schedule brackets and its 'adaptive' per-frame "
+            "exposure selection (jboneng/pyopticfilm#52) are therefore "
+            "pyopticfilm inventions layered on the vendor's fixed 2-bracket "
+            "scheme, not reverse-engineered driver behavior — treat any "
+            "n_brackets>2 or adaptive-mode claim as unvalidated-by-capture "
+            "in principle, even where a specific value (e.g. the V2 42000 "
+            "ceiling) happens to coincide with a vendor-confirmed number. "
+            "In particular, every intermediate n_brackets>2 exposure gets the "
+            "same binary short/long pixel-clock treatment "
+            "(see the 0xA5/0xAB entry) that has only ever been observed at "
+            "its two vendor-confirmed endpoints (14000, 42000) — untested at "
+            "any value between them."
+        ),
+        confidence=Confidence.CONFIRMED,
+        citations=_c(
+            "8100 V2: docs/hw-ref/8100v2/2026-09-recapture/claims-reconciliation.md (session 07)",
+            "8200i SE: docs/hw-ref/8200i-se/2026-09-multi-exposure/findings.md (session 14)",
+            "jboneng/pyopticfilm#52 (N-bracket ME, draft; real-hardware ASIC "
+            "error at 7200ppi/3-bracket and unhealthy motor sound at low ppi, "
+            "reported on the 8200i SE)",
+            "jboneng/pyopticfilm#50 (8100 V2 N-bracket color-balance shift near the exposure ceiling)",
+        ),
+        safety_note=(
+            "jboneng reported a real ASIC error (communication lost, yellow "
+            "power LED) at 7200ppi with 3 brackets, and unhealthy motor sound "
+            "at low ppi (900/1800) on the first non-short bracket, both on "
+            "the 8200i SE (PR #52). Not yet confirmed or ruled out on the "
+            "8100 V2. Treat n_brackets>2 as needing a real-hardware trial "
+            "with Forensic-tab recording before trusting it broadly, the "
+            "same caution as any other capture-unconfirmed motor/exposure "
+            "behavior in this catalog."
+        ),
+    ),
     BehavioralNote(
         topic="home()/park() standalone motion",
         asic=AsicFamily.GL128,
