@@ -8,6 +8,40 @@ import numpy as np
 from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.pass_align import align_pass_to_reference
 from pyopticfilm.scan.exposure_merge import merge_exposures, merge_exposures_result
+from pyopticfilm.scan.session_gl128 import me_early_pass_span, me_pass_progress
+
+
+def test_me_early_pass_span_weights_by_exposure_not_pass_count():
+    """The short pass is ~1/4 of a default 3x-ratio ME scan's real duration, not 1/2."""
+    span = me_early_pass_span(n_early=1, exp_short=14000, exp_long=42000, multi_exposure=True)
+    assert span == 0.25
+
+
+def test_me_early_pass_span_non_me_falls_back_to_pass_count():
+    span = me_early_pass_span(n_early=2, exp_short=14000, exp_long=0, multi_exposure=False)
+    assert span == 1.0
+
+
+def test_me_pass_progress_never_regresses_across_long_pass_boundary():
+    """A wider adaptive exposure than the a-priori estimate must not walk progress backward."""
+    span = me_early_pass_span(n_early=1, exp_short=14000, exp_long=42000, multi_exposure=True)
+    seen = [
+        me_pass_progress(0, 0.5, n_early=1, early_span=span, multi_exposure=True),
+        me_pass_progress(0, 1.0, n_early=1, early_span=span, multi_exposure=True),
+        # The long pass proceeds independently of how much larger the real
+        # exposure (say 85000, not the 42000 default) turned out to be.
+        me_pass_progress(1, 0.0, n_early=1, early_span=span, multi_exposure=True),
+        me_pass_progress(1, 0.5, n_early=1, early_span=span, multi_exposure=True),
+        me_pass_progress(1, 1.0, n_early=1, early_span=span, multi_exposure=True),
+    ]
+    assert seen == sorted(seen)
+    assert seen[-1] == 1.0
+
+
+def test_me_pass_progress_matches_even_split_when_not_multi_exposure():
+    span = me_early_pass_span(n_early=2, exp_short=14000, exp_long=0, multi_exposure=False)
+    assert me_pass_progress(0, 0.5, n_early=2, early_span=span, multi_exposure=False) == 0.25
+    assert me_pass_progress(1, 0.5, n_early=2, early_span=span, multi_exposure=False) == 0.75
 
 
 def test_model_me_exposure_constants():

@@ -70,6 +70,43 @@ def clamp_me_long_for_dpi(resolution: int, exp_long: int) -> int:
     return min(max(value, _ME_LONG_MIN), _ME_LONG_MAX)
 
 
+def me_early_pass_span(*, n_early: int, exp_short: int, exp_long: int, multi_exposure: bool) -> float:
+    """Fraction of a multi-pass scan's progress bar spent on the early (short/IR) passes.
+
+    REG_LPERIOD is fixed by dpi alone; REG_EXPOSURE is set per pass, so the ME
+    long pass needs several line periods per output line and reads out
+    proportionally slower than the short/IR passes. Splitting the bar evenly
+    by pass count made it crawl through the long pass, so early passes are
+    weighted by exposure instead — using ``exp_long`` as the only estimate
+    available before the adaptive pass selects the real one.
+    """
+    if not multi_exposure:
+        return 1.0
+    early_weight = n_early * exp_short
+    return early_weight / (early_weight + exp_long)
+
+
+def me_pass_progress(
+    idx: int,
+    p: float,
+    *,
+    n_early: int,
+    early_span: float,
+    multi_exposure: bool,
+) -> float:
+    """Overall multi-pass fraction for pass ``idx`` at within-pass fraction ``p``.
+
+    The long pass (``idx == n_early``, only when ``multi_exposure``) claims
+    whatever bar space ``early_span`` left, proportionally to its own byte
+    progress — so an adaptive exposure wider than the estimate ``early_span``
+    was sized from can only slow the pass down, never walk progress backward.
+    """
+    if multi_exposure and idx == n_early:
+        return min(1.0, early_span + (1.0 - early_span) * p)
+    step = early_span / n_early
+    return min(1.0, idx * step + step * p)
+
+
 try:
     from pyopticfilm.asic.gl128 import MOTOR_GATED_HINT as _MOTOR_GATED_HINT
 except ImportError:  # pragma: no cover
@@ -397,6 +434,9 @@ class Gl128ScanSession(ScanSession):
         if infrared:
             early.append(("ir", "infrared", exp_short, False, False, short_manual))
         n_pass = len(early) + (1 if multi_exposure else 0)
+        early_span = me_early_pass_span(
+            n_early=len(early), exp_short=exp_short, exp_long=exp_long, multi_exposure=multi_exposure
+        )
 
         logger.info(
             "GL128 multi-pass %ddpi passes=%d me=%s ir=%s me_exposure_mode=%s",
@@ -429,7 +469,11 @@ class Gl128ScanSession(ScanSession):
 
             def _prog(p: float, _i: int = idx) -> None:
                 if progress is not None:
-                    progress(min(1.0, (_i + p) / n_pass))
+                    progress(
+                        me_pass_progress(
+                            _i, p, n_early=len(early), early_span=early_span, multi_exposure=multi_exposure
+                        )
+                    )
 
             calib = None
             if apply_calib and self.calibrator is not None:
