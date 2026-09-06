@@ -14,7 +14,6 @@ def test_v2_identity_and_scan_flags():
     assert MODEL_8100_V2.scan_ready is True
     assert MODEL_8100_V2.supports_infrared is False
     assert MODEL_8100_V2.mirror_x is True
-    assert MODEL_8100_V2.default_gl128_prime is False
     assert MODEL_8100_V2.strpixel_native_units is True
     assert MODEL_8100_V2.optical_end_inactive_native == 96
     assert MODEL_8100_V2.feed_to_scan_steps == 13128

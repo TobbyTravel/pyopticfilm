@@ -237,49 +237,6 @@ def test_me_long_default_none_uses_fixed_selection():
     assert debug.exposure_long == 42000
 
 
-# --- Scanner.scan() wiring: prime pass must not inherit overrides ---------
-
-
-def test_scanner_scan_threads_manual_exposure_to_session_not_prime(monkeypatch):
-    import pyopticfilm.scan.session as session_module
-
-    scanner = Scanner.open_fake(MODEL_8200I_SE)
-    sentinel = object()
-    runs: list[dict[str, object]] = []
-
-    class FakeSession:
-        last_me_debug = None
-
-        def run(self, **kwargs):
-            runs.append(kwargs)
-            return sentinel
-
-    monkeypatch.setattr(session_module, "create_session", lambda *args: FakeSession())
-    monkeypatch.delenv("POF_GL128_PRIME", raising=False)
-    try:
-        result = scanner.scan(
-            resolution=150,
-            area=_TINY,
-            apply_calib=False,
-            single_pass_exposure=12345,
-            me_short_exposure=6789,
-            me_long_exposure=99999,
-            gl128_prime=True,
-        )
-    finally:
-        scanner.close()
-
-    assert result is sentinel
-    assert len(runs) == 2
-    prime_kwargs, scan_kwargs = runs
-    assert "single_pass_exposure" not in prime_kwargs
-    assert "me_short_exposure" not in prime_kwargs
-    assert "me_long_exposure" not in prime_kwargs
-    assert scan_kwargs["single_pass_exposure"] == 12345
-    assert scan_kwargs["me_short_exposure"] == 6789
-    assert scan_kwargs["me_long_exposure"] == 99999
-
-
 def test_scanner_scan_rejects_invalid_manual_exposure_before_opening_asic():
     scanner = Scanner.open_fake(MODEL_8200I_SE)
     try:

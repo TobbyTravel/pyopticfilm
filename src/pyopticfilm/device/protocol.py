@@ -116,7 +116,6 @@ class Gl128Model(FilmModel, Protocol):
     strpixel_native_units: bool
     optical_end_inactive_native: int
     min_asic_dpi: int
-    default_gl128_prime: bool
     lincnt_includes_line_shift: bool
     image_lincnt_per_line: int
     y_oversampled: bool

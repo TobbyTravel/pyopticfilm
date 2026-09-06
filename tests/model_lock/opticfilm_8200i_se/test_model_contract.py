@@ -14,7 +14,6 @@ def test_se_identity_and_scan_flags():
     assert MODEL_8200I_SE.scan_ready is True
     assert MODEL_8200I_SE.supports_infrared is True
     assert MODEL_8200I_SE.mirror_x is True
-    assert MODEL_8200I_SE.default_gl128_prime is False
     assert MODEL_8200I_SE.strpixel_native_units is True
     assert MODEL_8200I_SE.optical_end_inactive_native == 96
 

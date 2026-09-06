@@ -23,8 +23,8 @@ correct for one model is not automatically correct for the other.
   numbers for one hardware-validated model. Do not parametrize them across
   models, copy them into `tests/` with weaker asserts, or edit them to green
   another model's change. See [tests/model_lock/README.md](tests/model_lock/README.md).
-- **Invariants** (even USB widths, IR refused when unsupported, priming
-  default) may be parametrized over every GL128 model in ordinary tests.
+- **Invariants** (even USB widths, IR refused when unsupported) may be
+  parametrized over every GL128 model in ordinary tests.
 
 Run lock tests with `uv run pytest -m model_lock`.
 

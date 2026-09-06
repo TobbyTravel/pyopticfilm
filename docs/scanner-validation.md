@@ -55,51 +55,6 @@ Helpers:
 | `tools/sane_debug_to_trace.py` | Convert a SANE debug log to JSON |
 | `tools/scanlab/` | PyQt6 bring-up GUI (mock or real scan-ready hardware); [user guide](../tools/scanlab/README.md) |
 
-## GL128 first-pass positioning
-
-The OpticFilm 8100 (V2) and 8200i SE use a GL128 feed sequence whose first
-image pass after opening the scanner can land at a different vertical position
-from later passes. This is a physical positioning issue, not image alignment:
-repeated 1200 dpi full-frame scans showed a roughly 46-pixel first-to-second
-pass displacement, while later passes stayed within approximately 2 pixels.
-
-The public `Scanner.scan()` path can perform one discarded, single-pass
-colour scan the first time a GL128 scanner is used (`gl128_prime=True`).
-That pass completes the normal image-session shutdown, including the
-capture-proven `AGOHOME` return to home. The requested scan then runs after
-this priming cycle. Priming is tracked per `Scanner` instance and is not
-repeated for later scans from that instance. Both hardware-tested GL128
-models default `gl128_prime` to off (`Model.default_gl128_prime=False`).
-
-The priming pass deliberately disables caller progress/cancel callbacks and
-multi-exposure/infrared modes. It also forces `geometry=None`,
-`apply_calib=False`, and `mode="color"` so a host that passes bring-up
-`geometry` (e.g. Scan Lab) or Apply calib cannot stretch the discarded pass
-into a full request-PPI shading+scan cycle. It does not need to match the
-requested scan: the `AGOHOME` park at the end of any completed image pass
-establishes the same repeatable home regardless of PPI or area. Measured on
-the OpticFilm 8100 V2, one discarded 600 dpi pass over a small top crop
-(about 5 s, constant) makes the first retained scan land within ~1 px of the
-steady-state position, versus ~30 px with no prime, whereas a full-frame
-prime costs about 24 s at 1200 dpi and scales with the requested PPI (~71 s
-at 3600, ~150 s at 7200). The default prime is therefore the small 600 dpi
-crop; `POF_GL128_PRIME` can override it (`full` for the legacy full pass at
-the requested PPI, or `<dpi>:x0,y0,x1,y1` for a custom pass).
-
-Hosts can observe priming via the optional `on_status` callback on
-`Scanner.scan` (`"priming"` then `"scanning"`). Progress remains a 0–1 float
-for bulk image read only; cancel stays disabled during the discarded pass.
-
-If priming fails, the requested scan is not started and the scanner remains
-unprimed for a later retry.
-
-The discarded pass adds a fixed, small constant to the first scan of a GL128
-session. A standalone reverse-home operation is not capture-proven on this
-hardware; the image-pass `AGOHOME` park is. Note that aborting an image pass
-early (start-then-cancel) is not a substitute: the `AGOHOME` park has been
-observed to time out in that case, stranding the carriage mid-window with no
-capture-proven recovery short of a power cycle.
-
 ## GL128 multi-exposure long exposure limits
 
 On OpticFilm 8200i SE and 8100 (V2), the ME colour-long `REG_EXPOSURE` is

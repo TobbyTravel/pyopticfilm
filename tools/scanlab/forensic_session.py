@@ -118,7 +118,7 @@ class ForensicRun:
         """Record a host-side "what pyopticfilm believes is happening right
         now" boundary (Layer 3, per the Scan Lab spec's layer separation) -
         e.g. from ScanWorker's existing _usb_divider() calls (PRESCAN/SCAN/
-        PRIMING/...), or a GUI button press with its full settings snapshot
+        IR/...), or a GUI button press with its full settings snapshot
         (label starting "BUTTON: ..."). PROVEN, not a guess: this is the
         software's own record of what it just started doing or what the
         user clicked, not an inference from USB traffic.
