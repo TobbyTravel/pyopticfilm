@@ -91,7 +91,6 @@ scan-ready GL128 **8100 (V2)** (`07b3:1824`).
 | **USB planar RGB** | Off = chunky `RGBRGB…` (default). On = planar planes — try this if Prescan is rainbow-striped. |
 | **Adaptive quiet drain** | On (default). Rate-limits host bulk reads to the ASIC `LPERIOD` line rate (including 7200 dpi, ~3.55 ms/line) so motor creep stays continuous. Uncheck for fastest drain (louder). |
 | **Slow image slope** | Off (default). On: shading/slow motor ramp on the image pass (feeds stay fast). |
-| **Disable priming pass (debug)** | GL128 only. Off (default): use the model's priming default (off for 8200i SE and 8100 V2). On: skip the discarded first-scan AGOHOME-park pass on both Prescan and Scan. |
 | **Refresh devices** | Re-enumerate USB and rebuild the device list. |
 | **PPI** | Resolutions from the selected model’s `resolutions_dpi` (Scan only; Prescan uses a fixed low dpi). |
 | **IR pass** | After colour Scan, run a second infrared pass (disabled if the model has no IR). |
@@ -126,8 +125,7 @@ an out-of-range value is rejected with a clear error rather than clamped.
 
 These overrides exist for hardware/debugging experiments — an excessive value
 can produce severe overexposure/clipping, and the software intentionally does
-not prevent that. They apply only to the retained Scan pass, never to the
-discarded GL128 priming pass.
+not prevent that.
 
 ## Tabs
 
@@ -194,15 +192,12 @@ Live truncated log of every control and bulk transfer through the recording
 USB wrapper. **Open capture…** also fills this tab from the pcap (identical
 line format; repeated bulk-IN lengths are collapsed as ``×N``).
 
-- Dividers mark `PRIMING` (or `PRIMING SKIPPED (debug)` when priming is skipped), `PRESCAN`, `SCAN`, `IR`, and `CAPTURE` sections.
+- Dividers mark `PRESCAN`, `SCAN`, `IR`, and `CAPTURE` sections.
 - **Jump** buttons scroll to those dividers when present.
 - **Clear USB log** empties the buffer (Prescan also clears the log).
 
-Progress for the active pass is shown in the status bar. On the first scan
-after open (GL128), the status bar shows **Priming scanner…** if an explicit
-prime was requested, then **Scanning…** — or **Priming skipped (debug)…**
-when the model default skips priming or **Disable priming pass (debug)** is
-checked.
+Progress for the active pass is shown in the status bar, which shows
+**Scanning…** while a pass is in progress.
 
 ### Forensic
 

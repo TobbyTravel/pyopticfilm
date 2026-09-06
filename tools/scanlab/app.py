@@ -137,16 +137,6 @@ class ScanLabWindow(QMainWindow):
         )
         form.addWidget(self.slow_image_slope)
 
-        self.disable_gl128_prime = QCheckBox("Disable priming pass (debug)")
-        self.disable_gl128_prime.setChecked(False)
-        self.disable_gl128_prime.setToolTip(
-            "GL128 only. Off (default): use the model's priming default "
-            "(currently off for 8200i SE and 8100 V2). On: skip the discarded "
-            "first-scan AGOHOME-park pass — for debugging/testing only. "
-            "Explicit priming is still available via Scanner.scan(gl128_prime=True)."
-        )
-        form.addWidget(self.disable_gl128_prime)
-
         refresh = QPushButton("Refresh devices")
         refresh.clicked.connect(self.reload_devices)
         form.addWidget(refresh)
@@ -882,12 +872,6 @@ class ScanLabWindow(QMainWindow):
             slow_image_slope=self.slow_image_slope.isChecked(),
         )
 
-    def _gl128_prime_arg(self) -> bool | None:
-        """False when the debug box is on; otherwise leave the model default."""
-        if self.disable_gl128_prime.isChecked():
-            return False
-        return None
-
     def _clear_scan_tabs(self) -> None:
         """Drop prior prescan/scan results so a new Prescan starts a fresh session."""
         self._last_scan = None
@@ -923,13 +907,11 @@ class ScanLabWindow(QMainWindow):
                 "model": target.model.model,
                 "mock": target.mock,
                 "apply_calib": self.apply_calib.isChecked(),
-                "gl128_prime": not self.disable_gl128_prime.isChecked(),
             },
         )
         self._worker.request_prescan.emit(
             target,
             self.apply_calib.isChecked(),
-            self._gl128_prime_arg(),
         )
 
     def _on_scan(self) -> None:
@@ -987,7 +969,6 @@ class ScanLabWindow(QMainWindow):
                 "ir_pass": self.ir_pass.isChecked(),
                 "me_pass": self.me_pass.isChecked(),
                 "apply_calib": self.apply_calib.isChecked(),
-                "gl128_prime": not self.disable_gl128_prime.isChecked(),
                 "override_hw_gate": self.override_hw_gate.isChecked(),
             },
         )
@@ -1003,7 +984,6 @@ class ScanLabWindow(QMainWindow):
                 single_pass_exposure=single_pass_exposure,
                 me_short_exposure=me_short_exposure,
                 me_long_exposure=me_long_exposure,
-                gl128_prime=self._gl128_prime_arg(),
                 crop_norm=crop,
                 scan_kw=scan_kw,
             )
@@ -1013,11 +993,7 @@ class ScanLabWindow(QMainWindow):
         self.progress.setValue(int(max(0.0, min(1.0, value)) * 1000))
 
     def _on_scan_status(self, status: str) -> None:
-        if status == "priming":
-            self.statusBar().showMessage("Priming scanner…")
-        elif status == "prime_skipped":
-            self.statusBar().showMessage("Priming skipped (debug)…")
-        elif status == "scanning":
+        if status == "scanning":
             self.statusBar().showMessage("Scanning…")
 
     def _append_usb(self, line: str) -> None:
@@ -1228,7 +1204,6 @@ class ScanLabWindow(QMainWindow):
         self.usb_planar.setEnabled(not busy)
         self.quiet_usb_pace.setEnabled(not busy)
         self.slow_image_slope.setEnabled(not busy)
-        self.disable_gl128_prime.setEnabled(not busy)
         self.btn_open_capture.setEnabled(not busy)
         self.forensic_tab.set_busy(busy)
         self.forensic_tab.setEnabled(not busy)

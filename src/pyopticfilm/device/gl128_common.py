@@ -284,7 +284,6 @@ GL128_SHARED_FIELDS: frozenset[str] = frozenset(
         "strpixel_native_units",
         "optical_end_inactive_native",
         "min_asic_dpi",
-        "default_gl128_prime",
         "x_size_mm",
         "y_size_mm",
         "x_offset_ta_mm",
@@ -375,7 +374,6 @@ class Gl128Common:
     strpixel_native_units: bool = True
     optical_end_inactive_native: int = 96
     min_asic_dpi: int = MIN_ASIC_DPI
-    default_gl128_prime: bool = False
 
     x_size_mm: float = 36.0
     y_size_mm: float = 44.0
