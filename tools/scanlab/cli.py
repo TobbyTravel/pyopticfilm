@@ -26,6 +26,9 @@ Usage:
     python -m tools.scanlab.cli scan --model "OpticFilm 8100 (V2)" --real \
         --kind scan --dpi 1800 --ai-report
 
+    python -m tools.scanlab.cli scan --model "OpticFilm 8100 (V2)" --real \
+        --kind scan --dpi 7200 --multi-exposure --n-brackets 3 --ai-report
+
     python -m tools.scanlab.cli list-models
     python -m tools.scanlab.cli list-runs
     python -m tools.scanlab.cli compare --baseline main-run/2026-... \
@@ -102,6 +105,11 @@ def cmd_list_runs(_args: argparse.Namespace) -> int:
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
+    if args.multi_exposure and args.kind != "scan":
+        raise SystemExit("--multi-exposure requires --kind scan (prescan is always single-pass)")
+    if not (2 <= args.n_brackets <= 9):
+        raise SystemExit(f"--n-brackets must be between 2 and 9, got {args.n_brackets!r}")
+
     target = _find_target(args.model, mock=not args.real)
 
     run = ForensicRun(
@@ -128,14 +136,37 @@ def cmd_scan(args: argparse.Namespace) -> int:
     try:
         dpi = args.dpi or prescan_resolution(target.model)
         kw = lab_scan_kwargs(target.model, dpi=dpi, kind=args.kind, crop_norm=None)
-        run.mark_phase(f"CLI: {args.kind} started", {"dpi": dpi, "mock": target.mock, "model": target.model.model})
+        me_kw: dict = {}
+        if args.kind == "scan" and args.multi_exposure:
+            me_kw = {
+                "multi_exposure": True,
+                "n_brackets": args.n_brackets,
+                "me_exposure_mode": args.me_exposure_mode,
+            }
+        run.mark_phase(
+            f"CLI: {args.kind} started",
+            {"dpi": dpi, "mock": target.mock, "model": target.model.model, **me_kw},
+        )
         image = scanner.scan(
             mode="color",
             apply_calib=args.apply_calib,
             gl128_prime=args.gl128_prime,
             **kw,
+            **me_kw,
         )
         image_info = {"shape": list(image.rgb.shape), "dpi": image.dpi}
+        if me_kw:
+            me_debug = scanner.last_me_debug
+            if me_debug is not None:
+                image_info["me_debug"] = {
+                    "exposure_short": me_debug.exposure_short,
+                    "exposure_long": me_debug.exposure_long,
+                    "align_shift_long": me_debug.align_shift_long,
+                    "brackets": [
+                        {"exposure": b.exposure, "align_shift": b.align_shift}
+                        for b in (me_debug.brackets or [])
+                    ],
+                }
         run.mark_phase(f"CLI: {args.kind} received", image_info)
         outcome = "success"
     except Exception as exc:  # noqa: BLE001
@@ -255,6 +286,25 @@ def main(argv: list[str]) -> int:
     mock_group.add_argument("--real", action="store_true", help="real connected hardware - requires explicit intent")
     p_scan.add_argument("--kind", choices=["prescan", "scan"], default="prescan")
     p_scan.add_argument("--dpi", type=int, default=None, help="default: model's prescan resolution")
+    p_scan.add_argument(
+        "--multi-exposure",
+        action="store_true",
+        help="GL128 only, requires --kind scan: run ME (short + n-brackets long passes)",
+    )
+    p_scan.add_argument(
+        "--n-brackets",
+        type=int,
+        default=2,
+        help="ME bracket count 2-9 (only meaningful with --multi-exposure); 2 is the "
+        "existing, byte-identical 2-bracket path, >2 is the N-bracket path",
+    )
+    p_scan.add_argument(
+        "--me-exposure-mode",
+        choices=["adaptive", "fixed"],
+        default=None,
+        help="override the model's me_default_exposure_mode for this scan (only "
+        "meaningful with --multi-exposure); default: let the model decide",
+    )
     p_scan.add_argument("--name", default="cli-session")
     p_scan.add_argument("--apply-calib", action="store_true", default=True)
     p_scan.add_argument("--no-apply-calib", dest="apply_calib", action="store_false")
