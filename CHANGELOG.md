@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **GL128 setup goldens**: Mock-USB register programs for 8200i SE and 8100 V2 at 1200 / 1800 / 7200 dpi (`tests/traces/python/8200i_se/`, `tests/traces/python/8100_v2/`). Regenerate with `python tools/dump_gl128_setup_trace.py`.
 - **Scan Lab Forensic tab**: guided evidence recording, live anomaly detection, USB timeline (Event Inspector, motor/lamp state lanes, duration brackets), Known/Unknown values panel, and a Reference page backed by a confidence-tagged register/bit catalog (`tools/register_reference.py`) for GL128 SE/V2 and GL845. Timeline milestones cover slope-table identity (FAST/SLOW/CUSTOM), feed timing, and LPERIOD/EXPOSURE/pixel-clock.
 - **Scan Lab headless compare**: `list-runs` and `compare` on `python -m tools.scanlab.cli` wrap the same baseline-diff / AI bug-report path as the GUI Run browser (no Qt).
+- **GL128 three-model comparison**: capture-backed tables of registers, timings, FEEDL, and geometry for 8100 V2, 8200i SE, and 135i (`docs/gl128-model-comparison.md`), with a same/different/unknown verdict per row.
 
 ### Changed
 
