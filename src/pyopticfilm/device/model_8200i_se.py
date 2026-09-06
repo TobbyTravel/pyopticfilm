@@ -43,7 +43,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from pyopticfilm.device.gl128_common import LPERIOD_BY_DPI, Gl128Common
+from pyopticfilm.device.gl128_common import LADDER_LINCNT_BY_DPI, LPERIOD_BY_DPI, Gl128Common
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,14 @@ class Model8200iSE(Gl128Common):
 
     #: Session 13 PPI-ladder second feed (crop origin; PPI-independent).
     ladder_feed2_steps: int = 13560
+
+    #: Session 13 PPI-ladder image LINCNT per SilverFast PPI, at this model's
+    #: own ``ladder_feed2_steps`` (13560). V2's ladder crop starts 432 steps
+    #: earlier (feed2=13128), so it needs a taller crop and its own table —
+    #: see :data:`~pyopticfilm.device.model_8100_v2._LADDER_LINCNT_BY_DPI_V2`.
+    ladder_lincnt_by_dpi: Mapping[int, int] = field(
+        default_factory=lambda: dict(LADDER_LINCNT_BY_DPI)
+    )
 
 
 MODEL_8200I_SE = Model8200iSE()

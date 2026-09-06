@@ -260,6 +260,7 @@ GL128_DIVERGENT_FIELDS: frozenset[str] = frozenset(
         "lperiod_by_dpi",
         "max_image_lincnt_by_feed2",
         "ladder_feed2_steps",
+        "ladder_lincnt_by_dpi",
     }
 )
 
@@ -330,7 +331,6 @@ GL128_SHARED_FIELDS: frozenset[str] = frozenset(
         "feed_to_scan_bottom_steps",
         "max_feed_steps",
         "scan_window_end_steps",
-        "ladder_lincnt_by_dpi",
         "motor_profile",
         "init_regs",
         "sensor_custom_regs",
@@ -440,9 +440,6 @@ class Gl128Common:
     feed_to_scan_bottom_steps: int = 20232
     max_feed_steps: int = 28292
     scan_window_end_steps: int = 27636
-    ladder_lincnt_by_dpi: Mapping[int, int] = field(
-        default_factory=lambda: dict(LADDER_LINCNT_BY_DPI)
-    )
     motor_profile: MotorProfile = DEFAULT_GL845_MOTOR
     init_regs: Mapping[int, int] = field(default_factory=lambda: dict(INIT_REGS))
     sensor_custom_regs: Mapping[int, int] = field(default_factory=lambda: dict(SCAN_REGS))
@@ -461,6 +458,7 @@ class Gl128Common:
         lperiod_by_dpi: Mapping[int, int]
         max_image_lincnt_by_feed2: Mapping[int, int]
         ladder_feed2_steps: int
+        ladder_lincnt_by_dpi: Mapping[int, int]
 
     @property
     def max_area_mm(self) -> tuple[float, float]:

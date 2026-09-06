@@ -50,7 +50,19 @@ all derived from USB captures of the V2 Windows driver (capture session Aug
     feed2 = 13 128 (top of TA window) for all scan types, matching
     ``feed_to_scan_steps``.
     *Capture evidence*: ``04_color_7200.pcapng`` frame 2999, same as
-    ``feed_to_scan_steps``.
+    ``feed_to_scan_steps``. Confirmed directly (not just extrapolated) by the
+    ``06_ppi_ladder.pcapng`` reference capture in ``pyopticfilm_captures``,
+    which reproduces feed2 = 13 128 at every rung of the DPI ladder.
+
+**ladder_lincnt_by_dpi**
+    V2's ladder crop starts 432 steps earlier than the SE's (13 128 vs
+    13 560), so it needs a taller image LINCNT at every PPI to cover the same
+    physical window. ``06_ppi_ladder.pcapng`` gives a directly measured image
+    LINCNT for each rung (150/300/600 dpi all floor to the same ASIC
+    programming and share one value); the 7200 dpi entry is carried over from
+    ``04_color_7200.pcapng`` (matches ``max_image_lincnt_by_feed2``). Every
+    entry is the SE's session-13 value plus ``128 * asic_dpi / 600`` — the
+    proportional cost of the 432-step-longer crop.
 
 Unlike the 8200i SE, the 8100 V2 has no infrared channel or iSRD support.
 Multi-exposure colour scanning remains supported.
@@ -61,7 +73,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from pyopticfilm.device.gl128_common import LPERIOD_BY_DPI, Gl128Common
+from pyopticfilm.device.gl128_common import LADDER_LINCNT_BY_DPI, LPERIOD_BY_DPI, Gl128Common
 
 # V2 7200 dpi LPERIOD observed in all three scan phases (dark/white shading and
 # image pass): 16 035.  All other DPI entries are carried over from the shared
@@ -71,12 +83,32 @@ _LPERIOD_BY_DPI_V2: dict[int, int] = {
     7200: 16035,
 }
 
+# V2's ladder crop (feed2=13128) starts 432 steps earlier than the SE's
+# (feed2=13560), so it needs a taller image LINCNT at every PPI: the SE's
+# session-13 value plus 128 * asic_dpi / 600. 150/300/600 dpi all floor to the
+# same 600 dpi ASIC programming and share one measured value.
+# Source: 06_ppi_ladder.pcapng (150-3600 dpi) + 04_color_7200.pcapng (7200 dpi).
+_LADDER_LINCNT_BY_DPI_V2: dict[int, int] = {
+    150: 2420,
+    300: 2420,
+    600: 2420,
+    720: 2904,
+    900: 3628,
+    1200: 4836,
+    1440: 5804,
+    1800: 7252,
+    2400: 9668,
+    3600: 14500,
+    7200: 29012,
+}
+assert set(_LADDER_LINCNT_BY_DPI_V2) == set(LADDER_LINCNT_BY_DPI)
+
 
 @dataclass(frozen=True)
 class Model8100V2(Gl128Common):
     """OpticFilm 8100 V2 — GL128 sibling of the 8200i SE without IR.
 
-    See module docstring for the five capture-derived overrides.
+    See module docstring for the six capture-derived overrides.
     """
 
     name: str = "plustek-opticfilm-8100-v2"
@@ -100,6 +132,12 @@ class Model8100V2(Gl128Common):
 
     # V2 uses feed2=13128 for all scan types (top of TA window), not SE's 13560.
     ladder_feed2_steps: int = 13128
+
+    # V2 ladder crop needs a taller LINCNT than the SE's at every PPI (see
+    # module docstring). Source: 06_ppi_ladder.pcapng + 04_color_7200.pcapng.
+    ladder_lincnt_by_dpi: Mapping[int, int] = field(
+        default_factory=lambda: dict(_LADDER_LINCNT_BY_DPI_V2)
+    )
 
     def shading_strip_clocks(self, resolution: int, *, dvdset: bool) -> tuple[int, int, int]:
         """Return ``(dummy, clk_a, clk_b)`` for a shading strip.

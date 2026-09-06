@@ -100,7 +100,7 @@ def preview_safe_scan_area(
 
 
 def ladder_scan_area(model: Any, dpi: int) -> tuple[Area, dict[str, Any]]:
-    """Session-13 PPI-ladder crop (feed2=13560, capture LINCNT for ``dpi``)."""
+    """Session-13 PPI-ladder crop (model's own ``ladder_feed2_steps`` / capture LINCNT for ``dpi``)."""
     feed2 = int(getattr(model, "ladder_feed2_steps", 13560))
     lincnt_fn = getattr(model, "ladder_lincnt_for", None)
     if callable(lincnt_fn):
