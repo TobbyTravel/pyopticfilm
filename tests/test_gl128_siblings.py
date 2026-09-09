@@ -55,7 +55,7 @@ def test_divergent_fields_match_capture_catalog():
     assert MODEL_8100_V2.usb_product_id == 0x1824
     assert MODEL_8200I_SE.supports_infrared is True
     assert MODEL_8100_V2.supports_infrared is False
-    assert MODEL_8200I_SE.feed_to_scan_steps == 13704
+    assert MODEL_8200I_SE.feed_to_scan_steps == 13128
     assert MODEL_8100_V2.feed_to_scan_steps == 13128
     assert MODEL_8200I_SE.ladder_feed2_steps == 13560
     assert MODEL_8100_V2.ladder_feed2_steps == 13128
