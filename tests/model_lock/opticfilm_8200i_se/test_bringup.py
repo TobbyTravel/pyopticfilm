@@ -31,13 +31,13 @@ def test_bringup_preview_safe_passes_motor_gate_at_1200():
     assert geometry.lincnt_register <= max_lc
 
 
-def test_default_full_frame_without_bringup_trips_gate_at_1200():
-    """Regression: area=None + feed2=13704 cannot fit full TA height."""
+def test_default_full_frame_without_bringup_fits_gate_at_1200():
+    """Regression for #67: area=None + feed2=13128 (true TA window top) fits."""
     geometry = compute_geometry(1200, model=MODEL_8200I_SE, area=None)
     feed2 = MODEL_8200I_SE.feed_to_scan_steps_for_area(None)
-    assert feed2 == 13704
+    assert feed2 == 13128
     max_lc = MODEL_8200I_SE.max_lincnt_for(feed2, 1200)
-    assert geometry.lincnt_register > max_lc
+    assert geometry.lincnt_register <= max_lc
 
 
 def test_full_window_1800_stays_2592_even():

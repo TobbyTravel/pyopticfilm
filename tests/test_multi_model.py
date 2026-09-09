@@ -151,9 +151,9 @@ def test_8100_v2_capture_derived_constants():
     from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
     from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 
-    # feed_to_scan_steps differs from SE default (13704)
+    # feed_to_scan_steps matches SE (both use the TA window top, see #67)
     assert MODEL_8100_V2.feed_to_scan_steps == 13128
-    assert MODEL_8200I_SE.feed_to_scan_steps == 13704
+    assert MODEL_8200I_SE.feed_to_scan_steps == 13128
 
     # lperiod at 7200 dpi differs from SE (15963)
     assert MODEL_8100_V2.lperiod_by_dpi[7200] == 16035

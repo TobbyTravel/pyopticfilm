@@ -55,8 +55,12 @@ class Model8200iSE(Gl128Common):
     usb_product_id: int = 0x1825
     supports_infrared: bool = True
 
-    #: Default full-frame colour (sessions 04–06). V2 uses 13128 (TA window top).
-    feed_to_scan_steps: int = 13704
+    #: Default full-frame colour. Sessions 03/08/09a measured the true scan-window
+    #: top at 13128 (matches feed_to_scan_top_steps and the V2's value for this
+    #: purpose); 13704 from session 04 is only "full-ish" (see
+    #: captures/8200i-se/09_y_crop_pair/NOTES.md) and overruns the window at high
+    #: DPI (see #67).
+    feed_to_scan_steps: int = 13128
 
     #: SilverFast 9 PPI ladder (session 13). V2 overrides 7200 dpi only.
     lperiod_by_dpi: Mapping[int, int] = field(
