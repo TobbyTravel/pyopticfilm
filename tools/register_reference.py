@@ -959,6 +959,17 @@ def entries_for(
     return result
 
 
+def _cell(text: str) -> str:
+    """Sanitize a value for use inside a single markdown table row.
+
+    GFM table rows must be one physical line each; any field containing
+    literal newlines (e.g. a multi-paragraph ``meaning``) would otherwise
+    split the row and corrupt the table. Blank lines become a visible
+    paragraph break, other newlines a soft line break.
+    """
+    return text.replace("|", "\\|").replace("\n\n", "<br><br>").replace("\n", "<br>")
+
+
 def render_markdown() -> str:
     """Render the full catalog as markdown, grouped by ASIC family then
     register address. Pure function of the module-level data — call this
@@ -987,17 +998,17 @@ def render_markdown() -> str:
         lines.append("| Address | Name | Scope | Confidence | Meaning | Safety | Citations |")
         lines.append("|---|---|---|---|---|---|---|")
         for e in family_entries:
-            safety = e.safety_note or ""
-            citations = "; ".join(c.text for c in e.citations)
+            safety = _cell(e.safety_note or "")
+            citations = _cell("; ".join(c.text for c in e.citations))
             scope = ", ".join(e.scope)
             lines.append(
-                f"| {e.addr} | {e.name} | {scope} | {e.confidence.value} | "
-                f"{e.meaning} | {safety} | {citations} |"
+                f"| {_cell(e.addr)} | {_cell(e.name)} | {scope} | {e.confidence.value} | "
+                f"{_cell(e.meaning)} | {safety} | {citations} |"
             )
             for b in e.bits:
                 lines.append(
-                    f"| &nbsp;&nbsp;{b.mask} | {b.name} | | {b.confidence.value} | "
-                    f"{b.meaning} | | {'; '.join(c.text for c in b.citations)} |"
+                    f"| &nbsp;&nbsp;{b.mask} | {_cell(b.name)} | | {b.confidence.value} | "
+                    f"{_cell(b.meaning)} | | {_cell('; '.join(c.text for c in b.citations))} |"
                 )
         lines.append("")
 
@@ -1006,12 +1017,12 @@ def render_markdown() -> str:
     lines.append("| Topic | Asic | Scope | Confidence | Meaning | Safety | Citations |")
     lines.append("|---|---|---|---|---|---|---|")
     for n in BEHAVIORAL_NOTES:
-        safety = n.safety_note or ""
-        citations = "; ".join(c.text for c in n.citations)
+        safety = _cell(n.safety_note or "")
+        citations = _cell("; ".join(c.text for c in n.citations))
         scope = ", ".join(n.scope)
         lines.append(
-            f"| {n.topic} | {n.asic.value} | {scope} | {n.confidence.value} | "
-            f"{n.meaning} | {safety} | {citations} |"
+            f"| {_cell(n.topic)} | {n.asic.value} | {scope} | {n.confidence.value} | "
+            f"{_cell(n.meaning)} | {safety} | {citations} |"
         )
     lines.append("")
     return "\n".join(lines)
