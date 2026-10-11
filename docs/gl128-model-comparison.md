@@ -684,6 +684,7 @@ SE ROM through `Gl128Common` defaults.
 - AFE gain/offset search targets vs SE session-04 defaults
 - Product string / configuration descriptor from an in-tree capture (PID/`bcdDevice` are in the pcaps)
 - Hardware sign-off checklist before `scan_ready`
+- **Edge green fringe / sawtooth** (HW + Scan Lab raw TIFFs): two host-assemble fixes on the 8300i leaf only — (1) `scaled_ld_shift` **rounds** (was floor; 1440 G/B residual ~0.8/0.6); (2) host `stagger_y_for` **`(1, 0)`** at 1440/2400 for native period-2 column Y sawtooth (1800 left empty; ASIC `STAGGER` bit stays clear). 1440 image clocks/feed2/shading remain fills (no SF USB pcap on tester’s macOS). Confirm on hardware after pull.
 
 Closed by expanded captures: cold-boot = SE `INIT_REGS` (116/116); measured
 150/600/900/1800 image + shading rows; mid-ladder dummy/clock/feed2 corrected

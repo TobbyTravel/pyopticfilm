@@ -53,6 +53,24 @@ from pyopticfilm.device.tables_8300i_se import SLOPE_TABLE_FAST, SLOPE_TABLE_SLO
 # for clocks/feed2 at mid-ladder (see 900/1800 corrections). Session lookups
 # use asic_dpi_for (floors at 600), so optical 150/300 share the 600 key.
 
+# Host column Y unstagger (apply_y_stagger) for PPIs with native period-2 sawtooth
+# in Scan Lab TIFFs. Pre-mirror pattern (1, 0); mirror_x + odd/even width flips
+# post-mirror polarity so 1440 (odd W) and 2400 (even W) both match offline trials.
+# ASIC STAGGER bit stays clear (captures / Scan Lab runs). 1800 left empty (clean).
+_STAGGER_BY_DPI_8300I: dict[int, tuple[int, ...]] = {
+    150: (),
+    300: (),
+    600: (),
+    720: (),
+    900: (),
+    1200: (),
+    1440: (1, 0),
+    1800: (),
+    2400: (1, 0),
+    3600: (),
+    7200: (),
+}
+
 # V2 capture LPERIOD ladder (docs §5). Measured 8300i PPIs match byte-identically.
 _LPERIOD_BY_DPI_8300I: dict[int, int] = {
     150: 11067,  # measured (asic→600)
@@ -214,6 +232,15 @@ class Model8300iSE(Gl128Common):
             return int(table[key])
         nearest = min(table, key=lambda k: abs(int(k) - int(key)))
         return int(table[nearest])
+
+    def scaled_ld_shift(self, ld: int, asic_dpi: int) -> int:
+        """Round line-distance shifts (floor left ~0.8 G / ~0.6 B at 1440)."""
+        return int(round(int(ld) * int(asic_dpi) / int(self.motor_base_ydpi)))
+
+    def stagger_y_for(self, resolution: int) -> tuple[int, ...]:
+        """Host column unstagger; see ``_STAGGER_BY_DPI_8300I``."""
+        key = self.asic_dpi_for(resolution)
+        return tuple(_STAGGER_BY_DPI_8300I.get(key, ()))
 
     def slope_table_fast(self) -> tuple[int, ...]:
         """8300i CUSTOM fast ramp (head ``0x846A``)."""
