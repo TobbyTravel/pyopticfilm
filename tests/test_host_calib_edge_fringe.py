@@ -189,6 +189,20 @@ def test_8300i_host_stagger_at_1440_and_2400_only():
     assert g1800.num_staggered_lines == 0
 
 
+@pytest.mark.parametrize("dpi", [1440, 2400])
+def test_bringup_lincnt_keeps_y_stagger_spare(dpi: int):
+    """Ladder LINCNT override must not fold unstagger spare into geometry.lines."""
+    from pyopticfilm.scan.bringup import bringup_scan_geometry
+
+    geo, _meta = bringup_scan_geometry(MODEL_8300I_SE, dpi, profile="preview_safe")
+    assert geo.num_staggered_lines == 1
+    assert geo.stagger_y == (1, 0)
+    y_ov = geo.optical_line_count // geo.lines
+    assert y_ov >= 1
+    rows_after_reduce = geo.optical_line_count // y_ov
+    assert rows_after_reduce >= geo.lines + geo.num_staggered_lines
+
+
 def test_residual_plus_host_calib_recreates_green_edge():
     """Host calib + residual channel offset → green edge (general interaction)."""
     h, w, edge = 64, 128, 32

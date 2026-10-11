@@ -135,15 +135,22 @@ def ladder_scan_area(model: Any, dpi: int) -> tuple[Area, dict[str, Any]]:
 
 
 def apply_target_lincnt(geometry: ScanGeometry, target_lincnt: int) -> ScanGeometry:
-    """Force image ``LINCNT`` / USB line count to a capture table value."""
+    """Force image ``LINCNT`` / USB line count to a capture table value.
+
+    When host Y-unstagger needs spare travel (``num_staggered_lines``), do not
+    fold those lines into ``geometry.lines`` — ladder / SF tables often size
+    ``LINCNT`` for the crop alone (GL128 has no travel to spare).
+    """
     target = int(target_lincnt)
     per_line = max(1, int(geometry.lincnt_per_line or 1))
     halved = bool(geometry.register_lincnt and geometry.optical_line_count * 2 == geometry.register_lincnt)
+    stagger = int(geometry.num_staggered_lines or 0)
+    lines = max(1, target // per_line - stagger)
     return replace(
         geometry,
         register_lincnt=target,
         optical_line_count=target // 2 if halved else target,
-        lines=max(1, target // per_line),
+        lines=lines,
     )
 
 

@@ -141,6 +141,33 @@ def test_line_shifts_align_channels():
     assert np.all(shifted[:, :, 2] == np.array([[30, 30], [31, 31]]))
 
 
+def test_y_stagger_full_buffer():
+    geo = _geometry(pixels=4, lines=3, stagger_y=(1, 0), num_staggered_lines=1)
+    buf = np.zeros((4, 4, 3), dtype=np.uint16)
+    buf[0, :, :] = 1
+    buf[1, :, :] = 2
+    buf[2, :, :] = 3
+    buf[3, :, :] = 4
+    out = ImagePipeline().apply_y_stagger(buf, geo)
+    assert out.shape == (3, 4, 3)
+    # Odd columns shift by 1 → rows 1..3; even columns shift 0 → rows 0..2.
+    assert np.all(out[:, 0, 0] == [2, 3, 4])
+    assert np.all(out[:, 1, 0] == [1, 2, 3])
+
+
+def test_y_stagger_short_buffer_clamps():
+    """GL128 ladder LINCNT: height == lines, no spare — clamp, do not raise."""
+    geo = _geometry(pixels=4, lines=3, stagger_y=(1, 0), num_staggered_lines=1)
+    buf = np.zeros((3, 4, 3), dtype=np.uint16)
+    buf[0, :, :] = 10
+    buf[1, :, :] = 20
+    buf[2, :, :] = 30
+    out = ImagePipeline().apply_y_stagger(buf, geo)
+    assert out.shape == (2, 4, 3)
+    assert np.all(out[:, 0, 0] == [20, 30])
+    assert np.all(out[:, 1, 0] == [10, 20])
+
+
 def test_reduce_y_oversample_uses_uint32_not_float64():
     geo = _geometry(pixels=4, lines=2, optical_line_count=4)
     rgb = np.array(

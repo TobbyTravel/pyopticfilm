@@ -246,22 +246,30 @@ class ImagePipeline:
         return out
 
     def apply_y_stagger(self, rgb: np.ndarray, geometry: ScanGeometry) -> np.ndarray:
-        """Unstagger alternating columns (7200 dpi ``StaggerConfig{4,0}``)."""
+        """Unstagger alternating columns (7200 dpi ``StaggerConfig{4,0}``).
+
+        Prefer a buffer of ``lines + num_staggered_lines``. Models that size
+        ``LINCNT`` for the crop alone — GL128 OpticFilm under ladder override —
+        lose ``max(shift)`` lines off the bottom instead (same clamp as
+        :meth:`apply_line_shifts`).
+        """
         shifts = geometry.stagger_y
         if not shifts or geometry.num_staggered_lines == 0:
             return rgb[: geometry.lines]
 
         height, width, channels = rgb.shape
         assert channels == 3
-        if height < geometry.lines + geometry.num_staggered_lines:
+        max_shift = max(shifts)
+        out_h = min(geometry.lines, height - max_shift)
+        if out_h < 1:
             raise ValueError("Buffer shorter than required for Y stagger")
 
-        out = np.empty((geometry.lines, width, 3), dtype=np.uint16)
+        out = np.empty((out_h, width, 3), dtype=np.uint16)
         n = len(shifts)
         for x in range(width):
             shift = shifts[x % n]
-            out[:, x, :] = rgb[shift : shift + geometry.lines, x, :]
-        logger.debug("applied y stagger shifts=%s", shifts)
+            out[:, x, :] = rgb[shift : shift + out_h, x, :]
+        logger.debug("applied y stagger shifts=%s out_h=%d", shifts, out_h)
         return out
 
     def clamp_border_highlights(

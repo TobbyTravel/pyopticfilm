@@ -19,6 +19,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **8300i SE mid-ladder** (expanded captures): correct 900/1800 image dummy, pixel clock, feed2, and shading-strip clocks (nearest-band fills were wrong); promote measured 150/600/900/1800 rows. Cold-boot startup matches SE `INIT_REGS` (116/116).
 - **8300i SE edge artifacts** (Scan Lab raw TIFF analysis): round `ld_shift` scaling (clears ~1-line G/B residual at 1440) and host column unstagger `(1, 0)` at 1440/2400 for period-2 sawtooth. SE/V2 unchanged; ASIC `STAGGER` bit stays clear.
 
+### Fixed
+
+- **8300i SE 1440/2400 assemble crash**: ladder `LINCNT` override no longer folds host Y-unstagger spare into `geometry.lines`; `apply_y_stagger` clamps short GL128 buffers like `apply_line_shifts` instead of raising.
+
 ### Notes for integrators
 
 - GL128 log `host_stretch=` means **radiometric** host dark/white calib after ASIC DVDSET reject (not geometric downsample). Synthetic repro of the 8300i near-horizontal green edge fringe is in `tests/test_host_calib_edge_fringe.py`; see `docs/gl128-model-comparison.md` §10.8.
