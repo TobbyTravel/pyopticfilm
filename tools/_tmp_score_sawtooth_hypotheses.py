@@ -61,8 +61,8 @@ def stagger_periodic(rgb: np.ndarray, pattern: tuple[int, ...]) -> np.ndarray:
 
 
 def zoom(rgb: np.ndarray, factor: float, *, nearest: bool) -> np.ndarray:
-    nh = max(1, int(round(rgb.shape[0] * factor)))
-    nw = max(1, int(round(rgb.shape[1] * factor)))
+    nh = max(1, round(rgb.shape[0] * factor))
+    nw = max(1, round(rgb.shape[1] * factor))
     interp = cv2.INTER_NEAREST if nearest else cv2.INTER_CUBIC
     return cv2.resize(rgb, (nw, nh), interpolation=interp)
 

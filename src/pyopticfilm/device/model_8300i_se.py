@@ -235,7 +235,7 @@ class Model8300iSE(Gl128Common):
 
     def scaled_ld_shift(self, ld: int, asic_dpi: int) -> int:
         """Round line-distance shifts (floor left ~0.8 G / ~0.6 B at 1440)."""
-        return int(round(int(ld) * int(asic_dpi) / int(self.motor_base_ydpi)))
+        return round(int(ld) * int(asic_dpi) / int(self.motor_base_ydpi))
 
     def stagger_y_for(self, resolution: int) -> tuple[int, ...]:
         """Host column unstagger; see ``_STAGGER_BY_DPI_8300I``."""

@@ -28,7 +28,7 @@ def _step_edge(h: int, w: int, *, edge_row: int, lo: int = 8_000, hi: int = 48_0
 
 def _shift_channels(rgb: np.ndarray, *, dg: int, db: int) -> np.ndarray:
     """Introduce residual G/B vertical misregistration (R stays put)."""
-    h, w, _ = rgb.shape
+    h, _, _ = rgb.shape
     out = np.zeros_like(rgb)
     out[:, :, 0] = rgb[:, :, 0]
     if dg >= 0:
