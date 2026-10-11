@@ -93,6 +93,8 @@ class Gl843V1Usb:
         for _ in range(256):
             if not self.ctl_in(0x8E, 0x18, 1)[0] & 0x0C:
                 break
+        else:
+            raise UsbError("motor table upload did not complete")
         self.write_register(0x5B, ((addr >> 12) & 0xFF) & ~0x40)
 
 

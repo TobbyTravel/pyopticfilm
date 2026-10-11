@@ -35,13 +35,13 @@ Other OpticFilm models **enumerate and open**: you can read status, turn the lam
 
 ## Features 
 
-- Color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host; infrared is available only on supported hardware)
-- Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour; 8200i SE only among the hardware-tested set)
+- GL128 color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host; infrared is available only on supported hardware)
+- Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour; 8200i SE and 7600i v1 among the hardware-tested set)
 - Multi-exposure (ME) on GL128 hardware-tested models (8200i SE and 8100 V2): short + adaptive long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
 - Multi-Pass on GL128: repeat an already-validated exposure `n_passes` times (1–9) and stack the aligned repeats for an SNR gain — no new exposure/speed value is ever introduced, only repeats of the short pass (`n_passes>1`) or, combined with `multi_exposure=True`, of both the short and long ME passes (Adaptive Multi-Pass); per-slot stacking stats via `Scanner.last_multi_pass_debug`
 - Manual exposure overrides on GL128 (`single_pass_exposure` / `me_short_exposure` / `me_long_exposure`) for testing/debugging: bypass the adaptive/hardware-max clamps and write an exact `REG_EXPOSURE` value (24-bit register range)
 - Optional crop via normalized `area` (`x1, y1, x2, y2` in 0–1)
-- Dark/white shading calibration with on-disk cache (`~/.cache/pyopticfilm/calib_v2.json`)
+- GL128 dark/white shading calibration with on-disk cache (`~/.cache/pyopticfilm/calib_v2.json`)
 - GL128 ASIC shading path (AFE codes + shading blob) aligned with SilverFast capture order
 - Adaptive quiet USB drain on GL128 (line-aligned; keeps motor creep continuous at high PPI)
 - Left–right orientation corrected in `ImagePipeline.assemble()` for `mirror_x` models
@@ -111,6 +111,10 @@ with Scanner.open() as scanner:
 
     image.save_tiff("frame.tif")  # requires tifffile
 ```
+
+For the 7600i v1, explicitly use 1440, 3600 or 7200 dpi for colour; IR supports 3600 or 7200 dpi.
+The shared `scan()` default of 1800 dpi is unsupported on this model. See the
+[7600i notes](docs/opticfilm-7600i-v1.md) for calibration and acquisition limits.
 
 Infrared scan (8200i SE):
 
@@ -239,7 +243,7 @@ for info in find_devices():
 | `Scanner.open(device_id=None)` | Open preferred or specified OpticFilm |
 | `scanner.warmup(home=True, lamp=True)` | Boot ASIC, optional home + lamp |
 | `scanner.scan(...)` | Run a full scan → `ScanImage` |
-| `scanner.calibrate(...)` | Run shading; updates cache |
+| `scanner.calibrate(...)` | Run shading; updates cache (unsupported on 7600i v1) |
 | `scanner.status()` | Read scanner status flags |
 | `scanner.home()` / `scanner.park()` | Motor positioning |
 | `scanner.lamp_on()` / `scanner.lamp_off()` | Lamp control (allowed on experimental models) |
@@ -256,7 +260,7 @@ Scan modes: `"color"`, `"infrared"`. `"gray"` is not implemented.
 and 8100 V2). When ME is on, `rgb` is always SNR/IVW-merged (per-channel clip
 confidence, soft highlight roll-off from ~80–95% FS; optional
 `model.me_noise_alpha` / `me_noise_beta`). Pass `infrared=True` with
-`mode="color"` for a dust/IR plane on the same `ScanImage` (8200i SE; the 8100
+`mode="color"` for a dust/IR plane on the same `ScanImage` (8200i SE or 7600i v1; the 8100
 V2 has no IR). Inspect short/long via `scanner.last_me_debug` after the scan.
 
 Audit a saved bracket (and optional SilverFast ME TIFF)::
@@ -274,6 +278,12 @@ enable_debug_logging()
 ```
 
 ## Calibration
+
+The 7600i v1 calibrates live inside every scan, without a cache. Standalone
+`scanner.calibrate()` is unsupported. `apply_calib=False` selects captured AFE/shading values
+for comparison; widened windows and derived 7200 dpi IR still recompute final shading gains.
+
+The following cache guidance applies to GL128 models.
 
 Shading runs automatically before scan when a matching cache entry exists. Force a new calibration with `scanner.calibrate(force=True)` or `scanner.scan(..., apply_calib=False)` to skip applying cached data.
 

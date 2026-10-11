@@ -208,8 +208,10 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## OpticFilm 7600i v1 (GL843)
 
-Capture-derived: every job is replayed against strict playback of the SilverFast capture
-(`usb/fake_gl843_v1.py`). See [opticfilm-7600i-v1.md](opticfilm-7600i-v1.md).
+Capture-derived: strict playback checks the four captured profiles against their SilverFast
+sequences (`usb/fake_gl843_v1.py`). Derived 7200 dpi IR and transformed defaults have separate
+structural/simulation coverage; playback alone does not establish optical accuracy.
+See [opticfilm-7600i-v1.md](opticfilm-7600i-v1.md).
 
 ## GL128 (8200i SE and 8100 V2)
 

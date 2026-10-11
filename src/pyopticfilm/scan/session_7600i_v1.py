@@ -183,24 +183,27 @@ class Gl843V1ScanSession:
                             progress=lambda i, got, total: report(got / total) if i == main else None)
         try:
             result = run_profile(profile, asic.usb, hooks, calibrate=apply_calib)
-        except BaseException:
             asic.forget_motor_tables()
-            for cleanup in (asic.stop_motor, asic.protocol.abort_bulk_stream):  # stop, then drain bulk IN
+            if job == "infrared":
+                asic.usb.write_register(0xA8, 0x20)  # the job ends with the infrared LED on
+            check = check_cancel(cancel)
+            deadline = self.now() + RETURN_HOME_TIMEOUT_S
+            while True:  # the chip returns the carriage after the scan
+                check()
+                if asic.is_at_home():
+                    break
+                if self.now() > deadline:
+                    raise ScanError("carriage did not return home")
+                self.sleep(0.1)
+        except BaseException:
+            asic.position_known = False
+            asic.forget_motor_tables()
+            for cleanup in (asic.stop_motor, asic.protocol.abort_bulk_stream, asic.lamp_off):
                 try:
                     cleanup()
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("cleanup after failed scan: %s", exc)
             raise
-        asic.forget_motor_tables()
-        if job == "infrared":
-            asic.usb.write_register(0xA8, 0x20)  # the job ends with the infrared LED on
-        check = check_cancel(cancel)
-        deadline = self.now() + RETURN_HOME_TIMEOUT_S
-        while not asic.is_at_home():  # the chip returns the carriage after the scan
-            check()
-            if self.now() > deadline:
-                raise ScanError("carriage did not return home")
-            self.sleep(0.1)
         asic.position_known = True
         asic.lamp_on_at = (asic.lamp_on_at or self.now()) if asic.usb.shadow.get(0x03, 0) & 0x10 else None
 

@@ -286,6 +286,35 @@ def test_homing_from_mid_travel_uses_vendor_primitives():
     assert bulk and all(len(b) % 512 == 0 for b in bulk)
 
 
+@pytest.mark.parametrize("busy_polls", [3, 256])
+def test_motor_waits_for_table_upload_before_starting(busy_polls):
+    from pyopticfilm.exceptions import UsbError
+
+    class BusyUpload(SimulatedGl843V1Transport):
+        polls = 0
+
+        def control_msg(self, rt, request, value, index, data_or_length, *, timeout_ms=None):
+            if rt == 0xC0 and value == 0x8E and index == 0x18:
+                self.polls += 1
+                return bytes([0x0C if self.polls <= busy_polls else 0])
+            return super().control_msg(rt, request, value, index, data_or_length, timeout_ms=timeout_ms)
+
+    sim = BusyUpload()
+    asic = Gl843V1(GenesysUsbProtocol(sim), MODEL_7600I_V1)
+    motion = asic.motion()
+    motion.sleep = lambda _: None
+    if busy_polls == 256:
+        with pytest.raises(UsbError, match="upload did not complete"):
+            motion.move(600, reverse=False, table=motion.rec["fast"], fmovno=0x46, timeout_s=5)
+        assert motion.loaded is None
+        assert not any(t.operation == "control_write" and t.data == bytes([0x0F, 1])
+                       for t in sim.transactions)
+    else:
+        motion.move(600, reverse=False, table=motion.rec["fast"], fmovno=0x46, timeout_s=5)
+        assert sim.polls == 4
+        assert sim.feed_finished
+
+
 # --------------------------------------------------------------------------- image assembly
 
 
@@ -464,6 +493,59 @@ def test_advanced_registers_use_gl843_protocol_and_calibrate_is_refused(tmp_path
         assert any(t.operation == "control_read" and t.value == 0x84 for t in sim.transactions)
         with pytest.raises(NotImplementedError):
             scanner.calibrate(resolution=3600)
+
+
+@pytest.mark.parametrize("failure", ["replay", "cancel", "timeout", "status", "led_off"])
+def test_failed_ir_scan_cleans_up_replay_and_return_home(monkeypatch, failure):
+    import threading
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from pyopticfilm.exceptions import ScanCancelled, ScanError, UsbError
+
+    sim = SimulatedGl843V1Transport(position=0)
+    asic = create_asic(GenesysUsbProtocol(sim), MODEL_7600I_V1)
+    asic.position_known = True
+    asic.lamp_on_at = 0.0
+    asic.usb.shadow[0x03] = sim.regs[0x03] = 0x10
+    cancel = threading.Event()
+    error = ScanCancelled("cancelled") if failure == "cancel" else (
+        ScanError("carriage did not return home") if failure == "timeout" else UsbError(failure))
+    asic.is_at_home = Mock(side_effect=[True, error] if failure == "status" else [True] + [False] * 1000)
+
+    def replay(*args, **kwargs):
+        asic.usb.write_register(0xA8, 0x27)
+        if failure == "replay":
+            raise error
+        if failure == "cancel":
+            cancel.set()
+        return SimpleNamespace(main=b"", positioning_stop_ms=0)
+
+    monkeypatch.setattr("pyopticfilm.scan.session_7600i_v1.run_profile", replay)
+    if failure == "led_off":
+        write = asic.usb.write_register
+        failed = False
+
+        def fail_once(address, value):
+            nonlocal failed
+            if address == 0xA8 and value == 0x20 and not failed:
+                failed = True
+                raise error
+            write(address, value)
+
+        monkeypatch.setattr(asic.usb, "write_register", fail_once)
+    session = Gl843V1ScanSession(asic)
+    clock = Clock()
+    session.now, session.sleep = clock.now, clock.sleep
+    with pytest.raises(type(error), match=str(error)) as raised:
+        session._scan_job("infrared", 3600, lambda _: None, cancel, True, None)
+    if failure != "timeout":
+        assert raised.value is error or failure == "cancel"
+    assert sim.aborts == 1
+    assert not asic.position_known
+    assert sim.regs[0x02] == 0x08
+    assert sim.regs[0xA8] == 0x20 and not sim.regs[0x03] & 0x10
+    assert asic.lamp_on_at is None
 
 
 def test_infrared_led_is_switched_off_after_the_ir_job(monkeypatch):

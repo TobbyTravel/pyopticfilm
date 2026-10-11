@@ -4,7 +4,7 @@ This document maps every OpticFilm model in pyopticfilm to the SANE `genesys`
 backend. Scan / home / park / calibrate remain **gated** (`scan_ready=False`)
 until a model is **hardware-tested**. Protocol-validated traces (see
 [scanner-validation.md](scanner-validation.md)) do not flip that gate. The
-GL128 models (8200i SE and 8100 V2) are capture-derived and are not completed
+GL128 models (8200i SE and 8100 V2) and GL843 7600i v1 are capture-derived, not completed
 from SANE.
 
 ## Model → ASIC → SANE sources
@@ -86,7 +86,8 @@ These matter when sizing the ASIC line buffer:
 | 8100 (V2) | capture-derived (SE sibling; no IR) | ASIC shading | **True** |
 | 8200i (GL845) | setup USB golden | wired | False until HW image+park |
 | Other GL845 aliases | share 8200i session | wired | False |
-| GL843 / GL842 | tables only | wired | False |
+| 7600i v1 (GL843) | capture-derived | live ASIC calibration per scan | **True** |
+| Other GL843 / GL842 | tables only | wired | False |
 
 ## SANE register fixture workflow
 
