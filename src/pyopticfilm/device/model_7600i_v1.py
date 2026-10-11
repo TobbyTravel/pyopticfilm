@@ -59,7 +59,8 @@ class Model7600iV1:
     supports_infrared: bool = True
     mirror_x: bool = True
     #: CCD dummy lines in the main scan: "none", "fewer" or "recorded" (SilverFast's).
-    dummy_lines: str = "none"
+    #: "fewer" keeps one dummy line at 7200 dpi to avoid stalls, zero at lower resolutions.
+    dummy_lines: str = "fewer"
     #: sample the nominal resolution vertically instead of twice it (SilverFast):
     #: half the lines and scan time, without SilverFast's line-pair averaging.
     single_sample: bool = True

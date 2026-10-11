@@ -184,6 +184,21 @@ def test_dummy_lines_scale_the_motor_cruise(dpi, setting, line_sel, cruise):
     assert prepare_profile(recorded) is recorded
 
 
+@pytest.mark.parametrize(("mode", "dpi"), JOBS + [("infrared", 7200)])
+def test_default_dummy_lines_prevent_7200dpi_stalls(mode, dpi):
+    model = MODEL_7600I_V1
+    p = prepare_profile(model.replay_profile(mode, dpi), dummy_lines=model.dummy_lines,
+                        single_sample=model.single_sample)
+    validate_profile(p)
+    expected = 1 if dpi == 7200 else 0
+    assert p["scan"]["lineSel"] == expected
+    regs = dict(zip(_main_start_write(p)[::2], _main_start_write(p)[1::2], strict=True))
+    assert regs[0x1E] & 0x0F == expected
+    if dpi == 7200:
+        assert p["motorCruise"]["used"] == 14000
+    assert p["yres"] == dpi
+
+
 def test_single_sample_halves_the_lines():
     recorded = MODEL_7600I_V1.replay_profile("color", 7200)
     p = prepare_profile(recorded, dummy_lines="none", single_sample=True)
