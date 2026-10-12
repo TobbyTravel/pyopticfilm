@@ -30,7 +30,7 @@ PID_OPTICFILM_8200I_SE = 0x1825
 # OpticFilm 8100 V2 (GL128) — scan-ready in this release (no IR)
 PID_OPTICFILM_8100_V2 = 0x1824
 
-# OpticFilm 8300i SE (GL128) — enumerate / capture-decode; scan_ready=False
+# OpticFilm 8300i SE (GL128) — scan-ready in this release (IR capable)
 PID_OPTICFILM_8300I_SE = 0x181F
 
 # Other SANE genesys :complete OpticFilm PIDs (probe-only until validated)
@@ -255,9 +255,9 @@ class UsbDeviceHandle:
         if not info.is_supported:
             raise UnsupportedDeviceError(
                 f"Device {info.device_id} is not a known OpticFilm. "
-                f"This release scans OpticFilm 8200i SE (07b3:1825) and "
-                f"OpticFilm 8100 (V2) (07b3:1824); other PIDs may open for "
-                f"probe/status only."
+                f"This release scans OpticFilm 8200i SE (07b3:1825), "
+                f"OpticFilm 8100 (V2) (07b3:1824), and OpticFilm 8300i SE "
+                f"(07b3:181f); other PIDs may open for probe/status only."
             )
         self.info = info
         self._dev = None
@@ -285,8 +285,9 @@ class UsbDeviceHandle:
             if not devices:
                 raise DeviceNotFoundError(
                     "No OpticFilm found. This release scans OpticFilm 8200i SE "
-                    "(07b3:1825) and OpticFilm 8100 (V2) (07b3:1824). Check "
-                    "cabling and WinUSB binding — see docs/windows-setup.md."
+                    "(07b3:1825), OpticFilm 8100 (V2) (07b3:1824), and "
+                    "OpticFilm 8300i SE (07b3:181f). Check cabling and "
+                    "WinUSB binding — see docs/windows-setup.md."
                 )
             handle = cls(_pick_preferred_device(devices))
         handle._open()

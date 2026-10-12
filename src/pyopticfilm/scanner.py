@@ -328,9 +328,10 @@ class Scanner:
         if not model_is_scan_ready(self._model):
             raise AsicError(
                 f"{self._model.model} ({self._model.asic}) is locked out in this "
-                "release: only OpticFilm 8200i SE (07b3:1825) and OpticFilm 8100 "
-                "(V2) (07b3:1824) are validated for scanning. Open, status, lamp "
-                "and register dumps still work."
+                "release: only OpticFilm 8200i SE (07b3:1825), OpticFilm 8100 "
+                "(V2) (07b3:1824), and OpticFilm 8300i SE (07b3:181f) are "
+                "validated for scanning. Open, status, lamp and register dumps "
+                "still work."
             )
 
     def _ensure_open(self) -> None:

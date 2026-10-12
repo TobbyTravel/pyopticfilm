@@ -35,9 +35,7 @@ All divergent knobs below come from SilverFast 9 USBPcap full-frame captures
     and 3600.
 
 **scan_ready**
-    ``False`` until the hardware sign-off checklist in
-    ``docs/scanner-validation.md`` passes.  Enumerate / open / Lab capture
-    decode still work; ``Scanner.scan`` stays gated.
+    ``True`` after hardware sign-off (see ``docs/scanner-validation.md``).
 """
 
 from __future__ import annotations
@@ -183,13 +181,13 @@ _SHADING_WHITE_BY_ASIC_DPI: dict[int, tuple[int, int, int]] = {
 
 @dataclass(frozen=True)
 class Model8300iSE(Gl128Common):
-    """OpticFilm 8300i SE — GL128 sibling with IR; not yet scan_ready."""
+    """OpticFilm 8300i SE — GL128 sibling with IR; hardware-tested."""
 
     name: str = "plustek-opticfilm-8300i-se"
     model: str = "OpticFilm 8300i SE"
     usb_product_id: int = 0x181F
     supports_infrared: bool = True
-    scan_ready: bool = False
+    scan_ready: bool = True
 
     # Dpi-less fallback (7200 / ME-long). Prefer feed_to_scan_steps_for_dpi.
     feed_to_scan_steps: int = 13128

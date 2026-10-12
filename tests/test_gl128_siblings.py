@@ -68,7 +68,7 @@ def test_divergent_fields_match_capture_catalog():
     assert MODEL_8300I_SE.supports_infrared is True
     assert MODEL_8200I_SE.scan_ready is True
     assert MODEL_8100_V2.scan_ready is True
-    assert MODEL_8300I_SE.scan_ready is False
+    assert MODEL_8300I_SE.scan_ready is True
     assert MODEL_8200I_SE.feed_to_scan_steps == 13128
     assert MODEL_8100_V2.feed_to_scan_steps == 13128
     assert MODEL_8300I_SE.feed_to_scan_steps == 13128

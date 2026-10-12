@@ -118,8 +118,7 @@ def image_feed2_steps(
 class Gl128ScanSession(ScanSession):
     """GL128 scan state machine for OpticFilm 8200i SE, 8100 (V2), and 8300i SE.
 
-    The 8300i SE uses the same session path with leaf-specific tables;
-    ``scan_ready`` stays ``False`` until hardware sign-off.
+    The 8300i SE uses the same session path with leaf-specific tables.
     """
 
     def __init__(

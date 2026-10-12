@@ -5,15 +5,15 @@ without a physical device, and how that differs from hardware bring-up.
 
 Protocol tests **do not** prove that a physical scanner works. Motor timing,
 lamp/AFE analogue behaviour, firmware quirks, and real USB races are out of
-scope. `scan_ready` stays `False` for every model except the OpticFilm 8200i SE
-and OpticFilm 8100 (V2) until that model has produced a real image and a
-successful park.
+scope. `scan_ready` stays `False` for every model except the OpticFilm 8200i SE,
+OpticFilm 8100 (V2), and OpticFilm 8300i SE until that model has produced a
+real image and a successful park.
 
 ## Support levels
 
 | Level | Meaning |
 |-------|---------|
-| **Hardware tested** | Live scan + park on physical hardware. Currently the 8200i SE and 8100 (V2). |
+| **Hardware tested** | Live scan + park on physical hardware. Currently the 8200i SE, 8100 (V2), and 8300i SE. |
 | **Protocol validated** | Python USB traffic for a documented setup matches a golden trace, and optical registers match independently computed geometry. A SANE genesys register dump, when present, is an additional oracle. |
 | **Experimental** | Tables and session code exist; `scan()`, `home()`, `park()`, and `calibrate()` stay locked. |
 
@@ -23,7 +23,7 @@ SANE port). SANE is not an oracle for them. Register-program goldens for
 `tests/traces/python/8100_v2/`, and `tests/traces/python/8300i_se/`. The 8100
 V2 and 8300i SE share SE-identical tables via `Gl128Common` where captures
 match; each leaf declares capture-proven divergences. The 8100 V2 has no IR;
-the 8300i SE keeps `scan_ready=False` until hardware sign-off.
+the 8300i SE has IR and is hardware-tested (`scan_ready=True`).
 
 ## Architecture
 
@@ -215,7 +215,7 @@ Use USB captures → golden traces when converting existing PCAP/PCAPNG files.
 Do not compare the GL128 path to SANE genesys (there is no GL128 command set).
 The 8100 V2 and 8300i SE are capture-derived siblings of the 8200i SE (shared
 `Gl128Common` tables). They do not subclass the SE model class. The 8300i SE
-has IR; `scan_ready` stays `False` until hardware sign-off.
+has IR and is hardware-tested (`scan_ready=True`).
 
 CI goldens for ASIC `init()` + `Gl128ScanSession._configure()` (motors gated)
 live at:

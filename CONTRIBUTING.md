@@ -1,15 +1,18 @@
 # Contributing
 
-Hardware-tested models (today: OpticFilm 8200i SE and OpticFilm 8100 V2) share
-one GL128 driver path (`asic/gl128.py`, `scan/session_gl128.py`, geometry,
-pipeline, calibration, and `device/tables_8200i_se.py`). A change that is
-correct for one model is not automatically correct for the other.
+Hardware-tested models (today: OpticFilm 8200i SE, OpticFilm 8100 V2, and
+OpticFilm 8300i SE) share one GL128 driver path (`asic/gl128.py`,
+`scan/session_gl128.py`, geometry, pipeline, calibration). Slope ROMs are
+leaf-specific (`tables_8200i_se.py` for SE/V2; `tables_8300i_se.py` for 8300i).
+A change that is correct for one model is not automatically correct for the
+others.
 
 ## Specialize, do not retarget
 
 - Put model-specific constants and flags on **that model's** class
-  (`device/model_8200i_se.py` or `device/model_8100_v2.py`). Do not change a
-  sibling's defaults to make a fix work.
+  (`device/model_8200i_se.py`, `device/model_8100_v2.py`, or
+  `device/model_8300i_se.py`). Do not change a sibling's defaults to make a
+  fix work.
 - The 8100 V2 does **not** subclass the SE tables. Shared identical tables live
   in `device/gl128_common.py`. Capture-proven differences are listed in
   `GL128_DIVERGENT_FIELDS`. Adding a GL128 field requires updating that catalog
