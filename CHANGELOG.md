@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **OpticFilm 8300i SE** (`07b3:181f`): GL128 leaf (`Model8300iSE`) with capture-derived geometry (V2-scale `LINCNT`, PPI-dependent colour-short feed2 13040…13128), V2-matched `LPERIOD`, exposure 15000, image dummy/pixel-clock maps, shading-strip clocks (white @7200 dummy `0x26`), and CUSTOM motor slope ROM (`tables_8300i_se.py`, heads `0x32BB` / `0x846A`). IR capable. `scan_ready=False` until hardware sign-off. Setup goldens at `tests/traces/python/8300i_se/`. See `docs/gl128-model-comparison.md` §10.
+
+### Changed
+
+- **GL128 sibling catalog**: `scan_ready`, `exposure_lperiod` / `exposure_short`, and image `pixel_clock_*` / `dummy_by_dpi` are leaf-divergent fields (SE and V2 keep their previous values). Scan Lab capture decode keeps the selected GL128 leaf instead of always forcing the 8200i SE.
+- **GL128 slope uploads** read `model.slope_table_slow()` / `slope_table_fast()` instead of hard-importing the SE ROM, so the 8300i SE can use its CUSTOM tables without retargeting SE/V2.
+- **8300i SE full-frame feed2** follows the capture PPI map via `feed_to_scan_steps_for_dpi` (ME-long → 13128); SE/V2 still use a constant `feed_to_scan_steps`.
+- **Scan Lab capture ME labels** use the selected leaf’s `exposure_short` (and treat any higher non-IR exposure as ME-long), so 8300i 15000 / ~60000 brackets label correctly.
+- **8300i SE mid-ladder** (expanded captures): correct 900/1800 image dummy, pixel clock, feed2, and shading-strip clocks (nearest-band fills were wrong); promote measured 150/600/900/1800 rows. Cold-boot startup matches SE `INIT_REGS` (116/116).
+- **8300i SE edge artifacts** (Scan Lab raw TIFF analysis): round `ld_shift` scaling (clears ~1-line G/B residual at 1440) and host column unstagger `(1, 0)` at 1440/2400 for period-2 sawtooth. SE/V2 unchanged; ASIC `STAGGER` bit stays clear.
+
+### Fixed
+
+- **8300i SE 1440/2400 assemble crash**: ladder `LINCNT` override no longer folds host Y-unstagger spare into `geometry.lines`; `apply_y_stagger` clamps short GL128 buffers like `apply_line_shifts` instead of raising.
+
+### Notes for integrators
+
+- GL128 log `host_stretch=` means **radiometric** host dark/white calib after ASIC DVDSET reject (not geometric downsample). Synthetic repro of the 8300i near-horizontal green edge fringe is in `tests/test_host_calib_edge_fringe.py`; see `docs/gl128-model-comparison.md` §10.8.
+
 ## [1.3.4] - 2026-09-25
 
 ### Added
