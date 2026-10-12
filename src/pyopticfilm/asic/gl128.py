@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""GL128 driver for OpticFilm 8200i SE and 8100 (V2).
+"""GL128 driver for OpticFilm 8200i SE, 8100 (V2), and 8300i SE.
 
 SANE genesys has no GL128 command set, so none of this is ported from SANE.
 Every register write below replays what the Windows driver does in the USB
 captures under ``captures/8200i-se/``; the model tables live in
-``pyopticfilm.device.gl128_common`` (8100 V2 is a sibling leaf, not an SE subclass).
+``pyopticfilm.device.gl128_common`` (8100 V2 and 8300i SE are sibling leaves,
+not SE subclasses).
 
 Differences from :class:`~pyopticfilm.asic.gl845.Gl845` that matter here:
 
@@ -183,7 +184,7 @@ DEFAULT_IMAGE_USB_PACE_S = 0.003
 
 
 class Gl128:
-    """GL128 chip operations for OpticFilm 8200i SE and 8100 (V2)."""
+    """GL128 chip operations for OpticFilm 8200i SE, 8100 (V2), and 8300i SE."""
 
     def __init__(
         self,

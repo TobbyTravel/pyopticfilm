@@ -13,6 +13,7 @@ capture-derived, not completed from SANE.
 |-------------------|--------|------|----------------|-------------|
 | OpticFilm 8200i SE | `07b3:1825` | GL128 | *(none)* | capture / `Gl128` |
 | OpticFilm 8100 (V2) | `07b3:1824` | GL128 | *(none)* | capture / `Gl128` (no IR) |
+| OpticFilm 8300i SE | `07b3:181f` | GL128 | *(none)* | capture / `Gl128` (IR) |
 | OpticFilm 8200i | `07b3:130d` | GL845 | `CCD_PLUSTEK_OPTICFILM_8200I` | `CommandSetGl846` (`gl846.cpp`) |
 | OpticFilm 8100 | `07b3:130c` | GL845 | same sensor as 7400/8200i family | `gl846.cpp` |
 | OpticFilm 7600i v2 | `07b3:0c3b` bcd `0x0605` | GL845 | alias of 8200i tables | `gl846.cpp` |
