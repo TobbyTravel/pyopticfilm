@@ -27,11 +27,17 @@ from pyopticfilm.scan.session_gl843 import Gl843ScanSession
 
 
 def test_scan_ready_validate_set():
+    from pyopticfilm.device.model_7600i_v1 import MODEL_7600I_V1
     from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
     from pyopticfilm.device.model_8300i_se import MODEL_8300I_SE
 
     for m in KNOWN_MODELS:
-        if m is MODEL_8200I_SE or m is MODEL_8100_V2 or m is MODEL_8300I_SE:
+        if m in (
+            MODEL_8200I_SE,
+            MODEL_8100_V2,
+            MODEL_8300I_SE,
+            MODEL_7600I_V1,
+        ):
             assert model_is_scan_ready(m) is True
         else:
             assert model_is_scan_ready(m) is False, m.model

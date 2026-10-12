@@ -6,7 +6,7 @@ The library talks directly to the scanner’s Genesys ASIC (GL842, GL843, GL845,
 
 ## Supported hardware
 
-**Only the OpticFilm 8200i SE, OpticFilm 8100 (V2), and OpticFilm 8300i SE are hardware-tested for scanning in this release.**
+**Only the OpticFilm 8200i SE, OpticFilm 8100 (V2), OpticFilm 8300i SE, and OpticFilm 7600i v1 are hardware-tested for scanning in this release.**
 
 Support is one of:
 
@@ -21,7 +21,8 @@ Support is one of:
 | OpticFilm 8300i SE | `07b3:181f` | GL128 | **Hardware tested** (IR capable) |
 | OpticFilm 8200i | `07b3:130d` | GL845 | Protocol validated (setup traces; scan locked) |
 | OpticFilm 8100 | `07b3:130c` | GL845 | Experimental |
-| OpticFilm 7600i (v1 / v2) | `07b3:0c3b` | GL845 / GL843 | Experimental |
+| OpticFilm 7600i v1 | `07b3:0c3b` | GL843 | **Hardware tested** ([notes](docs/opticfilm-7600i-v1.md)) |
+| OpticFilm 7600i v2 | `07b3:0c3b` | GL845 | Experimental |
 | OpticFilm 7500i | `07b3:0c13` | GL843 | Experimental |
 | OpticFilm 7400 (v1 / v2) | `07b3:0c3a` | GL845 / GL843 | Experimental |
 | OpticFilm 7300 | `07b3:0c12` | GL843 | Experimental |
@@ -31,17 +32,17 @@ The GL845 **OpticFilm 8100** (`07b3:130c`) is a different product from the GL128
 
 Other OpticFilm models **enumerate and open**: you can read status, turn the lamp on/off (where implemented), and dump registers for bring-up. **`scan()`, `calibrate()`, `home()`, and `park()` stay gated** until a model is hardware-tested—calling them raises `AsicError` rather than risking carriage or lamp damage. Protocol validation does **not** flip that gate. See [docs/scanner-validation.md](docs/scanner-validation.md).
 
-`Scanner.open()` prefers a scan-ready device (8200i SE, 8100 V2, or 8300i SE) when several Plustek film scanners are connected.
+`Scanner.open()` prefers a scan-ready device (8200i SE, 8100 V2, 8300i SE, or 7600i v1) when several Plustek film scanners are connected.
 
 ## Features 
 
 - Color and infrared transparency scans at 150–7200 dpi (ASIC programs at ≥600 dpi; lower PPI shares the 600 dpi register set and is downsampled on the host; infrared is available only on supported hardware)
-- Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour; 8200i SE and 8300i SE among the hardware-tested set)
+- Infrared as a dust plane on `ScanImage.ir` (`mode="infrared"`, or `infrared=True` with colour; 8200i SE, 8300i SE, and 7600i v1 among the hardware-tested set)
 - Multi-exposure (ME) on GL128 hardware-tested models (8200i SE, 8100 V2, and 8300i SE): short + adaptive long colour passes with host SNR/IVW merge into `ScanImage.rgb` (`multi_exposure=True`); bracket planes via `Scanner.last_me_debug`
 - Multi-Pass on GL128: repeat an already-validated exposure `n_passes` times (1–9) and stack the aligned repeats for an SNR gain — no new exposure/speed value is ever introduced, only repeats of the short pass (`n_passes>1`) or, combined with `multi_exposure=True`, of both the short and long ME passes (Adaptive Multi-Pass); per-slot stacking stats via `Scanner.last_multi_pass_debug`
 - Manual exposure overrides on GL128 (`single_pass_exposure` / `me_short_exposure` / `me_long_exposure`) for testing/debugging: bypass the adaptive/hardware-max clamps and write an exact `REG_EXPOSURE` value (24-bit register range)
 - Optional crop via normalized `area` (`x1, y1, x2, y2` in 0–1)
-- Dark/white shading calibration with on-disk cache (`~/.cache/pyopticfilm/calib_v2.json`)
+- GL128 dark/white shading calibration with on-disk cache (`~/.cache/pyopticfilm/calib_v2.json`)
 - GL128 ASIC shading path (AFE codes + shading blob) aligned with SilverFast capture order
 - Adaptive quiet USB drain on GL128 (line-aligned; keeps motor creep continuous at high PPI)
 - Left–right orientation corrected in `ImagePipeline.assemble()` for `mirror_x` models
@@ -111,6 +112,10 @@ with Scanner.open() as scanner:
 
     image.save_tiff("frame.tif")  # requires tifffile
 ```
+
+For the 7600i v1, explicitly use 1440, 3600 or 7200 dpi for colour; IR supports 3600 or 7200 dpi.
+The shared `scan()` default of 1800 dpi is unsupported on this model. See the
+[7600i notes](docs/opticfilm-7600i-v1.md) for calibration and acquisition limits.
 
 Infrared scan (8200i SE):
 
@@ -239,7 +244,7 @@ for info in find_devices():
 | `Scanner.open(device_id=None)` | Open preferred or specified OpticFilm |
 | `scanner.warmup(home=True, lamp=True)` | Boot ASIC, optional home + lamp |
 | `scanner.scan(...)` | Run a full scan → `ScanImage` |
-| `scanner.calibrate(...)` | Run shading; updates cache |
+| `scanner.calibrate(...)` | Run shading; updates cache (unsupported on 7600i v1) |
 | `scanner.status()` | Read scanner status flags |
 | `scanner.home()` / `scanner.park()` | Motor positioning |
 | `scanner.lamp_on()` / `scanner.lamp_off()` | Lamp control (allowed on experimental models) |
@@ -256,9 +261,9 @@ Scan modes: `"color"`, `"infrared"`. `"gray"` is not implemented.
 8100 V2, and 8300i SE). When ME is on, `rgb` is always SNR/IVW-merged (per-channel
 clip confidence, soft highlight roll-off from ~80–95% FS; optional
 `model.me_noise_alpha` / `me_noise_beta`). Pass `infrared=True` with
-`mode="color"` for a dust/IR plane on the same `ScanImage` (8200i SE and 8300i SE;
-the 8100 V2 has no IR). Inspect short/long via `scanner.last_me_debug` after the
-scan.
+`mode="color"` for a dust/IR plane on the same `ScanImage` (8200i SE, 8300i SE, and
+7600i v1; the 8100 V2 has no IR). Inspect short/long via `scanner.last_me_debug`
+after the scan.
 
 Audit a saved bracket (and optional SilverFast ME TIFF)::
 
@@ -276,6 +281,12 @@ enable_debug_logging()
 
 ## Calibration
 
+The 7600i v1 calibrates live inside every scan, without a cache. Standalone
+`scanner.calibrate()` is unsupported. `apply_calib=False` selects captured AFE/shading values
+for comparison; widened windows and derived 7200 dpi IR still recompute final shading gains.
+
+The following cache guidance applies to GL128 models.
+
 Shading runs automatically before scan when a matching cache entry exists. Force a new calibration with `scanner.calibrate(force=True)` or `scanner.scan(..., apply_calib=False)` to skip applying cached data.
 
 The cache key includes resolution, crop geometry, and scan method (transparency vs infrared). GL128 colour shading uses ASIC-internal measurements at home; IR uses a white-only path suitable for stationary shading.
@@ -284,7 +295,7 @@ The cache key includes resolution, crop geometry, and scan method (transparency 
 
 Code for additional OpticFilm variants is included so enumeration, model selection, SANE-derived geometry tables, and hardwareless USB traces can be exercised without hardware. These paths are **deliberately locked** for motor moves and image acquisition:
 
-- `model.scan_ready` is `True` only for the 8200i SE, 8100 (V2), and 8300i SE; all other models stay `False`
+- `model.scan_ready` is `True` only for the 8200i SE, 8100 (V2), 8300i SE, and 7600i v1; all other models stay `False`
 - `Scanner._ensure_scan_ready()` blocks scan, calibrate, home, and park on non-scan-ready models
 - GL128 motor moves stay disabled unless the model is scan-ready
 - Protocol-validated (currently OpticFilm 8200i setup traces) is not hardware support

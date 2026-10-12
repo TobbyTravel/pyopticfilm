@@ -6,14 +6,14 @@ without a physical device, and how that differs from hardware bring-up.
 Protocol tests **do not** prove that a physical scanner works. Motor timing,
 lamp/AFE analogue behaviour, firmware quirks, and real USB races are out of
 scope. `scan_ready` stays `False` for every model except the OpticFilm 8200i SE,
-OpticFilm 8100 (V2), and OpticFilm 8300i SE until that model has produced a
-real image and a successful park.
+OpticFilm 8100 (V2), OpticFilm 8300i SE, and OpticFilm 7600i v1 until that model
+has produced a real image and a successful park.
 
 ## Support levels
 
 | Level | Meaning |
 |-------|---------|
-| **Hardware tested** | Live scan + park on physical hardware. Currently the 8200i SE, 8100 (V2), and 8300i SE. |
+| **Hardware tested** | Live scan + park on physical hardware. Currently the 8200i SE, 8100 (V2), 8300i SE, and 7600i v1. |
 | **Protocol validated** | Python USB traffic for a documented setup matches a golden trace, and optical registers match independently computed geometry. A SANE genesys register dump, when present, is an additional oracle. |
 | **Experimental** | Tables and session code exist; `scan()`, `home()`, `park()`, and `calibrate()` stay locked. |
 
@@ -208,6 +208,13 @@ model's files under `tests/model_lock/`, confirm on **that** hardware:
 - Infrared, if the model has an IR channel
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+## OpticFilm 7600i v1 (GL843)
+
+Capture-derived: strict playback checks the four captured profiles against their SilverFast
+sequences (`usb/fake_gl843_v1.py`). Derived 7200 dpi IR and transformed defaults have separate
+structural/simulation coverage; playback alone does not establish optical accuracy.
+See [opticfilm-7600i-v1.md](opticfilm-7600i-v1.md).
 
 ## GL128 (8200i SE, 8100 V2, 8300i SE)
 
