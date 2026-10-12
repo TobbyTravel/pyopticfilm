@@ -3,8 +3,8 @@
 PyQt6 bring-up GUI for exercising `pyopticfilm` without NegPy.
 
 Scan Lab is **repo-only** (not shipped on PyPI). Use it to try mock USB for any
-known OpticFilm model, or real scan-ready hardware (8200i SE or 8100 V2) when
-plugged in.
+known OpticFilm model, or real scan-ready hardware (8200i SE, 8100 V2, 8300i SE,
+or 7600i v1) when plugged in.
 
 It does **not** flip `scan_ready`. Non-scan-ready models stay scan-locked on
 real USB unless you explicitly enable **Override safety HW gate** (lab bring-up
@@ -44,18 +44,19 @@ Mock frames are **not** film. The fake USB layer fills RGB16 with a deterministi
 pattern (`R=x`, `G=y`, `B=x XOR y`) so the pipeline and UI can be checked without
 a scanner.
 
-## Quick start (real scan-ready: 8200i SE or 8100 V2)
+## Quick start (real scan-ready: 8200i SE / 8100 V2 / 8300i SE / 7600i v1)
 
 1. Bind the scanner for libusb (Windows: WinUSB via Zadig — see windows-setup).
 2. Click **Refresh devices**. A connected scan-ready unit should appear with
-   `— connected` (SE `07b3:1825` or 8100 V2 `07b3:1824`).
+   `— connected` (SE `07b3:1825`, 8100 V2 `07b3:1824`, 8300i SE `07b3:181f`, or
+   7600i v1 `07b3:0c3b` bcdDevice 4.00).
 3. Select that device.
 4. **Uncheck** **Run against MOCK**.
 5. **Prescan** at 1200 dpi (full safe window), drag a crop if you want, then
    **Scan** at the PPI you care about.
-6. With **IR pass** enabled (8200i SE only — 8100 V2 has no IR), Scan Lab runs
-   colour then infrared. The IR tab shows a grayscale plane (green CCD channel,
-   host-flattened), not a magenta RGB preview.
+6. With **IR pass** enabled (8200i SE, 8300i SE, or 7600i v1 — 8100 V2 has no
+   IR), Scan Lab runs colour then infrared. The IR tab shows a grayscale plane
+   (green CCD channel, host-flattened), not a magenta RGB preview.
 
 Real non-scan-ready OpticFilms can appear as connected, but the library will
 refuse to scan them until that model is hardware-validated (`scan_ready`) —
@@ -176,11 +177,11 @@ Passive analysis of a USBPcap recording (VueScan / SilverFast / SANE / Lab):
 2. **Open capture…** and choose a `.pcapng` / `.pcap` from USBPcap/Wireshark.
 3. The **Scan** tab shows the decoded image. Lab finds the SilverFast
    ``VALUE_BUFFER`` preamble (``wIndex=0x08``), carves that many bulk-IN bytes,
-   and for **GL128** (8200i SE / 8100 V2) decodes as 16-bit chunky RGB using
-   capture STRPIXEL/ENDPIXEL/LINCNT/DPISET (Lab PPI is ignored for decode — a
-   mismatch shears the image). Use **USB planar RGB** only if rainbow-striped.
-   Select the matching GL128 model for those captures. The **Capture** tab
-   reports preamble size and register diffs.
+   and for **GL128** (8200i SE / 8100 V2 / 8300i SE) decodes as 16-bit chunky
+   RGB using capture STRPIXEL/ENDPIXEL/LINCNT/DPISET (Lab PPI is ignored for
+   decode — a mismatch shears the image). Use **USB planar RGB** only if
+   rainbow-striped. Select the matching GL128 model for those captures. The
+   **Capture** tab reports preamble size and register diffs.
 4. The **Capture** tab lists FEEDL / LINCNT / DPISET from the capture versus what
    Lab would program at the current PPI / crop — useful for motor-grind diagnosis.
 
@@ -241,7 +242,7 @@ with `python -m tools.register_reference` after editing the catalog.
 
 ## Geometry notes
 
-### GL128 (8200i SE and 8100 V2)
+### GL128 (8200i SE, 8100 V2, and 8300i SE)
 
 - Prescan / uncropped Scan use the capture-safe **preview** window (feed2 at
   the top of the TA window), not a raw full-TA `area=None` request that can
@@ -253,7 +254,8 @@ with `python -m tools.register_reference` after editing the catalog.
   that is above 3 ms/line (no fixed pause before each USB chunk).
   Uncheck for fastest/loudest drain. **Slow image slope** is an optional acoustic
   probe (feeds stay fast).
-- 8100 V2 has no IR; leave **IR pass** off on that model.
+- 8100 V2 has no IR; leave **IR pass** off on that model. 8200i SE and 8300i SE
+  support IR.
 
 ### Unvalidated non-scan-ready (GL845 8100 / aliases, …)
 

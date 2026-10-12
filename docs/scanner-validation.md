@@ -5,9 +5,10 @@ without a physical device, and how that differs from hardware bring-up.
 
 Protocol tests **do not** prove that a physical scanner works. Motor timing,
 lamp/AFE analogue behaviour, firmware quirks, and real USB races are out of
-scope. `scan_ready` stays `False` for every model except the OpticFilm 8200i SE,
-OpticFilm 8100 (V2), OpticFilm 8300i SE, and OpticFilm 7600i v1 until that model
-has produced a real image and a successful park.
+scope. The OpticFilm 8200i SE, OpticFilm 8100 (V2), OpticFilm 8300i SE, and
+OpticFilm 7600i v1 are hardware-tested (`scan_ready=True`). Every other model
+keeps `scan_ready=False` until it has produced a real image and a successful
+park.
 
 ## Support levels
 
