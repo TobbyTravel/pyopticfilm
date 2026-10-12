@@ -4,8 +4,8 @@ This document maps every OpticFilm model in pyopticfilm to the SANE `genesys`
 backend. Scan / home / park / calibrate remain **gated** (`scan_ready=False`)
 until a model is **hardware-tested**. Protocol-validated traces (see
 [scanner-validation.md](scanner-validation.md)) do not flip that gate. The
-GL128 models (8200i SE and 8100 V2) are capture-derived and are not completed
-from SANE.
+GL128 models (8200i SE, 8100 V2, and 8300i SE) and GL843 7600i v1 are
+capture-derived, not completed from SANE.
 
 ## Model → ASIC → SANE sources
 
@@ -18,7 +18,7 @@ from SANE.
 | OpticFilm 7600i v2 | `07b3:0c3b` bcd `0x0605` | GL845 | alias of 8200i tables | `gl846.cpp` |
 | OpticFilm 7400 v2 | `07b3:0c3a` bcd `0x0605` | GL845 | `CCD_PLUSTEK_OPTICFILM_7400` | `gl846.cpp` |
 | OpticFilm 7500i | `07b3:0c13` | GL843 | `CCD_PLUSTEK_OPTICFILM_7500I` | `gl843.cpp` |
-| OpticFilm 7600i v1 | `07b3:0c3b` bcd `0x0400` | GL843 | same as 7500i | `gl843.cpp` |
+| OpticFilm 7600i v1 | `07b3:0c3b` bcd `0x0400` | GL843 | *(none)* | capture / `Gl843V1` |
 | OpticFilm 7300 | `07b3:0c12` | GL843 | `CCD_PLUSTEK_OPTICFILM_7300` | `gl843.cpp` |
 | OpticFilm 7400 v1 | `07b3:0c3a` bcd `0x0400` | GL843 | 7300 tables | `gl843.cpp` |
 | OpticFilm 7200i | `07b3:0c04` | GL843 | `CCD_PLUSTEK_OPTICFILM_7200I` | `gl843.cpp` |
@@ -87,7 +87,8 @@ These matter when sizing the ASIC line buffer:
 | 8300i SE | capture-derived (SE sibling; IR) | ASIC shading | **True** |
 | 8200i (GL845) | setup USB golden | wired | False until HW image+park |
 | Other GL845 aliases | share 8200i session | wired | False |
-| GL843 / GL842 | tables only | wired | False |
+| 7600i v1 (GL843) | capture-derived | live ASIC calibration per scan | **True** |
+| Other GL843 / GL842 | tables only | wired | False |
 
 ## SANE register fixture workflow
 
