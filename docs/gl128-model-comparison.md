@@ -11,7 +11,7 @@ Most tables below still use the original three columns (8100 V2 / 8200i SE /
 135i). **OpticFilm 8300i SE** (`07b3:181f`) is documented in
 [§10](#10-opticfilm-8300i-se-07b3181f--capture-synthesis) from a dedicated
 SilverFast full-frame capture set; that section is the source of truth for
-the in-tree `Model8300iSE` leaf (`scan_ready=False` until hardware sign-off;
+the in-tree `Model8300iSE` leaf (`scan_ready=True` after hardware sign-off;
 not an alias of the 8200i SE).
 
 ## How to read this
@@ -39,10 +39,10 @@ it is not automatically a SilverFast equivalent.
 |-------|-----|----------|--------------------|
 | 8100 V2 | `07b3:1824` | `pyopticfilm_captures/8100-v2` (SilverFast 9, USBPcap, 2026-09-05) | Session `02_cold_boot_open`, `04_color_7200`, `06_ppi_ladder` via `tools/capture_ledger.py`; leaf class `model_8100_v2.py`; `docs/register-reference.md` |
 | 8200i SE | `07b3:1825` | `pyopticfilm_captures/8200i-se` (SilverFast 9, USBPcap, 2026-07/08) | `decoded/gl128_tables.json`, `decoded/ppi_lincnt_feed.json`, `13_ppi_ladder/decoded_ppi_ladder.json`; `model_8200i_se.py` / `gl128_common.py` |
-| 8300i SE | `07b3:181f` (`bcdDevice=0x0702`, proven in the pcaps) | Local `8300i_captures/` set (SilverFast 9, USBPcap; full-frame 150/300/600/900/1200/1800/2400/3600/7200 + IR siblings + ME @1200/3600 + cold-boot startup) | §10 synthesis; leaf `model_8300i_se.py` (`scan_ready=False`) |
+| 8300i SE | `07b3:181f` (`bcdDevice=0x0702`, proven in the pcaps) | Local `8300i_captures/` set (SilverFast 9, USBPcap; full-frame 150/300/600/900/1200/1800/2400/3600/7200 + IR siblings + ME @1200/3600 + cold-boot startup) | §10 synthesis; leaf `model_8300i_se.py` (`scan_ready=True`) |
 | 135i | `07b3:1436` | `plustek 135i captures` (VueScan, usbmon linktype 220, 2026-08-31) | `135i_protocol_analysis.md` (Scan Lab’s USBPcap importer does not read usbmon) |
 
-In-tree shared vs divergent knobs for the two hardware-tested models:
+In-tree shared vs divergent knobs for the hardware-tested GL128 models:
 `GL128_SHARED_FIELDS` / `GL128_DIVERGENT_FIELDS` in
 `src/pyopticfilm/device/gl128_common.py`.
 
@@ -680,15 +680,14 @@ SE ROM through `Gl128Common` defaults.
 
 - Full PPI ladder still missing **720** and **1440** (image clocks / feed2 / shading still nearest-band fills — known-unreliable after 900/1800 corrections)
 - Complete 7200 IR image capture (current with-IR file has no second image preamble)
-- Hardware confirmation that CUSTOM slope ROM is accepted (park + feeds/scans; wrong slopes have caused hard motor stops on GL128)
 - AFE gain/offset search targets vs SE session-04 defaults
 - Product string / configuration descriptor from an in-tree capture (PID/`bcdDevice` are in the pcaps)
-- Hardware sign-off checklist before `scan_ready`
-- **Edge green fringe / sawtooth** (HW + Scan Lab raw TIFFs): two host-assemble fixes on the 8300i leaf only — (1) `scaled_ld_shift` **rounds** (was floor; 1440 G/B residual ~0.8/0.6); (2) host `stagger_y_for` **`(1, 0)`** at 1440/2400 for native period-2 column Y sawtooth (1800 left empty; ASIC `STAGGER` bit stays clear). 1440 image clocks/feed2/shading remain fills (no SF USB pcap on tester’s macOS). Confirm on hardware after pull.
 
-Closed by expanded captures: cold-boot = SE `INIT_REGS` (116/116); measured
-150/600/900/1800 image + shading rows; mid-ladder dummy/clock/feed2 corrected
-at 900/1800.
+Closed by hardware sign-off / expanded captures: cold-boot = SE `INIT_REGS`
+(116/116); measured 150/600/900/1800 image + shading rows; mid-ladder
+dummy/clock/feed2 corrected at 900/1800; CUSTOM slope ROM accepted on HW;
+edge green fringe / period-2 sawtooth fixed on HW at 1440/2400 (rounded
+`ld_shift` + host unstagger `(1, 0)`); `scan_ready=True`.
 
 ## Open capture gaps
 
@@ -721,5 +720,5 @@ See [§10.8](#108-open-gaps-8300i-se).
 - Whether the real vendor driver polls `wIndex=0x21` (pyopticfilm does)
 
 This document does not implement a 135i driver and does not change SE/V2
-constants. The 8300i SE leaf is in-tree with `scan_ready=False` pending
-hardware sign-off; §10 is the capture synthesis behind that leaf.
+constants. The 8300i SE leaf is in-tree with `scan_ready=True`; §10 is the
+capture synthesis behind that leaf.

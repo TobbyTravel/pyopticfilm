@@ -2,7 +2,7 @@
 
 pyopticfilm uses PyUSB and libusb to talk to the scanner directly. On Windows, the Plustek vendor driver (installed with SilverFast, VueScan, or Plustek utilities) normally owns the device. You must bind **WinUSB** (or libusbK) on the scanner’s USB interface so libusb can open and claim it.
 
-This guide applies to all supported OpticFilm models (`07b3:…`). **Scanning is validated on the OpticFilm 8200i SE** (`07b3:1825`) **and OpticFilm 8100 (V2)** (`07b3:1824`); other models may open for status and register probes only.
+This guide applies to all supported OpticFilm models (`07b3:…`). **Scanning is validated on the OpticFilm 8200i SE** (`07b3:1825`), **OpticFilm 8100 (V2)** (`07b3:1824`), **and OpticFilm 8300i SE** (`07b3:181f`); other models may open for status and register probes only.
 
 ## Prerequisites
 
@@ -28,6 +28,7 @@ This guide applies to all supported OpticFilm models (`07b3:…`). **Scanning is
    |---------|--------|--------|
    | OpticFilm 8200i SE | `07B3 1825` | GL128 — scan-ready |
    | OpticFilm 8100 (V2) | `07B3 1824` | GL128 — scan-ready (no IR) |
+   | OpticFilm 8300i SE | `07B3 181F` | GL128 — scan-ready (IR capable) |
    | OpticFilm 8200i | `07B3 130D` | GL845 — probe only |
    | Other OpticFilm | `07B3 0Cxx` / `07B3 130C` | See README hardware table |
 
@@ -76,7 +77,7 @@ Close SilverFast, VueScan, and Plustek utilities before binding or opening the d
 
 - Check USB cable and power; wait for the scanner to finish booting.
 - Confirm the device appears in Zadig with `07B3` vendor ID.
-- For scanning, you need an **8200i SE** (`07b3:1825`) or **8100 (V2)** (`07b3:1824`). Other OpticFilm PIDs are listed but not scan-validated.
+- For scanning, you need an **8200i SE** (`07b3:1825`), **8100 (V2)** (`07b3:1824`), or **8300i SE** (`07b3:181f`). Other OpticFilm PIDs are listed but not scan-validated.
 - Run `find_devices()` as above to see what libusb enumerates.
 
 ### `NoBackendError` / no USB backend

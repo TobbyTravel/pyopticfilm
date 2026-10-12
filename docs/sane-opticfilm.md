@@ -76,7 +76,7 @@ These matter when sizing the ASIC line buffer:
 2. Hardwareless protocol traces may be added per [scanner-validation.md](scanner-validation.md); they change the documented support level, not `scan_ready`.
 3. Lab sequence for GL845 8200i: `tools/bringup_gl845_8200i.py` (open → status → lamp → home → tiny scan → park → host calib → IR). Requires `--allow-unvalidated`; does **not** flip the gate.
 4. Flip **that** model’s `scan_ready` only after a successful image + park on real hardware.
-5. Sibling order after the GL128 pair (8200i SE, 8100 V2): GL845 aliases (8100, 7400 v2, 7600i v2) → GL843 (incl. `swap_16bit_data` decode for 7200i) → GL842.
+5. Sibling order after the GL128 trio (8200i SE, 8100 V2, 8300i SE): GL845 aliases (8100, 7400 v2, 7600i v2) → GL843 (incl. `swap_16bit_data` decode for 7200i) → GL842.
 
 ## Experimental models (honest status)
 
@@ -84,6 +84,7 @@ These matter when sizing the ASIC line buffer:
 |-------|-----------------|-----------------|--------------|
 | 8200i SE | capture-derived | ASIC shading | **True** |
 | 8100 (V2) | capture-derived (SE sibling; no IR) | ASIC shading | **True** |
+| 8300i SE | capture-derived (SE sibling; IR) | ASIC shading | **True** |
 | 8200i (GL845) | setup USB golden | wired | False until HW image+park |
 | Other GL845 aliases | share 8200i session | wired | False |
 | GL843 / GL842 | tables only | wired | False |

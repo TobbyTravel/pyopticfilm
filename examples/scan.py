@@ -100,7 +100,8 @@ def main() -> int:
     if not model_is_scan_ready(model):
         print(
             f"{model.model} is not scan-ready in this release; "
-            "only the OpticFilm 8200i SE and OpticFilm 8100 (V2) can scan.",
+            "only the OpticFilm 8200i SE, OpticFilm 8100 (V2), and "
+            "OpticFilm 8300i SE can scan.",
             file=sys.stderr,
         )
         return 1

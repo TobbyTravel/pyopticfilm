@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **OpticFilm 8300i SE** (`07b3:181f`): GL128 leaf (`Model8300iSE`) with capture-derived geometry (V2-scale `LINCNT`, PPI-dependent colour-short feed2 13040…13128), V2-matched `LPERIOD`, exposure 15000, image dummy/pixel-clock maps, shading-strip clocks (white @7200 dummy `0x26`), and CUSTOM motor slope ROM (`tables_8300i_se.py`, heads `0x32BB` / `0x846A`). IR capable. `scan_ready=False` until hardware sign-off. Setup goldens at `tests/traces/python/8300i_se/`. See `docs/gl128-model-comparison.md` §10.
+- **OpticFilm 8300i SE** (`07b3:181f`): GL128 leaf (`Model8300iSE`) with capture-derived geometry (V2-scale `LINCNT`, PPI-dependent colour-short feed2 13040…13128), V2-matched `LPERIOD`, exposure 15000, image dummy/pixel-clock maps, shading-strip clocks (white @7200 dummy `0x26`), and CUSTOM motor slope ROM (`tables_8300i_se.py`, heads `0x32BB` / `0x846A`). IR capable. Hardware-tested (`scan_ready=True`); lock oracles at `tests/model_lock/opticfilm_8300i_se/`. Setup goldens at `tests/traces/python/8300i_se/`. See `docs/gl128-model-comparison.md` §10.
 
 ### Changed
 
@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Scan Lab capture ME labels** use the selected leaf’s `exposure_short` (and treat any higher non-IR exposure as ME-long), so 8300i 15000 / ~60000 brackets label correctly.
 - **8300i SE mid-ladder** (expanded captures): correct 900/1800 image dummy, pixel clock, feed2, and shading-strip clocks (nearest-band fills were wrong); promote measured 150/600/900/1800 rows. Cold-boot startup matches SE `INIT_REGS` (116/116).
 - **8300i SE edge artifacts** (Scan Lab raw TIFF analysis): round `ld_shift` scaling (clears ~1-line G/B residual at 1440) and host column unstagger `(1, 0)` at 1440/2400 for period-2 sawtooth. SE/V2 unchanged; ASIC `STAGGER` bit stays clear.
+- **Scan validation set** is now **8200i SE + 8100 (V2) + 8300i SE**; `Model8300iSE.scan_ready` is `True`.
 
 ### Fixed
 

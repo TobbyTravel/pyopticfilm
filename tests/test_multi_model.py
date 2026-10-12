@@ -94,11 +94,16 @@ def test_create_asic_routing():
 def test_scan_ready_validate_set():
     from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
     from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
+    from pyopticfilm.device.model_8300i_se import MODEL_8300I_SE
 
     scan_ready_models = {id(m) for m in KNOWN_MODELS if m.scan_ready}
-    assert scan_ready_models == {id(MODEL_8200I_SE), id(MODEL_8100_V2)}
+    assert scan_ready_models == {
+        id(MODEL_8200I_SE),
+        id(MODEL_8100_V2),
+        id(MODEL_8300I_SE),
+    }
     for m in KNOWN_MODELS:
-        if m is MODEL_8200I_SE or m is MODEL_8100_V2:
+        if m is MODEL_8200I_SE or m is MODEL_8100_V2 or m is MODEL_8300I_SE:
             assert m.scan_ready is True
             continue
         assert m.scan_ready is False, f"{m.model} must stay locked out"

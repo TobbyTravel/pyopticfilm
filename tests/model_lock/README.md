@@ -8,6 +8,7 @@ Current lock folders:
 
 - [`opticfilm_8200i_se/`](opticfilm_8200i_se/) — OpticFilm 8200i SE (`07b3:1825`)
 - [`opticfilm_8100_v2/`](opticfilm_8100_v2/) — OpticFilm 8100 (V2) (`07b3:1824`)
+- [`opticfilm_8300i_se/`](opticfilm_8300i_se/) — OpticFilm 8300i SE (`07b3:181f`)
 
 - Add a sibling folder only when that model is hardware-validated and the
   maintainer asks for a lock.
@@ -16,7 +17,7 @@ Current lock folders:
 - Updating oracles for a model requires an explicit request from someone working
   on **that** model (see `.cursor/rules/model-lock.mdc` and
   [CONTRIBUTING.md](../../CONTRIBUTING.md)).
-- Shared GL128 files serve **both** locked models. A change there must keep
+- Shared GL128 files serve **all** locked models. A change there must keep
   every folder in this tree green.
 
 Run only this tree:
