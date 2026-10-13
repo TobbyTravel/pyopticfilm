@@ -103,7 +103,8 @@ def _scaled_ld_shift(ld: int, asic_dpi: int, model: FilmModel) -> int:
     """Scale base-ydpi line-distance shift to ``asic_dpi``.
 
     Default is truncating ``//`` (SANE/Genesys). Leaves may supply
-    ``scaled_ld_shift(ld, asic_dpi)`` — 8300i rounds to cut mid-ladder residual.
+    ``scaled_ld_shift(ld, asic_dpi)`` — 8200i SE / 8300i SE round to cut
+    mid-ladder residual.
     """
     scale_fn = getattr(model, "scaled_ld_shift", None)
     if callable(scale_fn):

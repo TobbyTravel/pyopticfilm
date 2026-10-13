@@ -121,6 +121,35 @@ def test_apply_cached_blob_skips_strip_acquire(tmp_path: Path):
     assert asic.asic_shading_ready is True
 
 
+def test_ensure_reuploads_when_dpi_or_width_changes(tmp_path: Path):
+    """Stale narrower DVDSET tables (1200→1440/2400) black out END-side columns."""
+    asic = _asic(shading_ready=False)
+    cal = Calibrator(asic, cache_path=tmp_path / "calib.json", model=MODEL_8200I_SE)
+    geo_1200 = _geometry(1200)
+    geo_2400 = _geometry(2400)
+    entry_1200 = _blob_entry(geo_1200, blob=b"DPI1200")
+    entry_2400 = _blob_entry(geo_2400, blob=b"DPI2400")
+    cal.cache.upsert(entry_1200)
+    cal.cache.upsert(entry_2400)
+    cal.cache.save()
+
+    cal.ensure_colour_asic_shading(geo_1200)
+    assert asic.upload_shading_table.call_args_list[-1].args == (b"DPI1200",)
+    assert asic.asic_shading_ready is True
+
+    # Same window again: skip re-upload.
+    asic.upload_shading_table.reset_mock()
+    cal.ensure_colour_asic_shading(geo_1200)
+    asic.upload_shading_table.assert_not_called()
+
+    # Wider/different DPI must replace the table even though ready stays True.
+    cal.ensure_colour_asic_shading(geo_2400)
+    asic.upload_shading_table.assert_called_once_with(b"DPI2400")
+    assert cal._active is not None
+    assert cal._active.resolution == 2400
+    assert cal._active.pixels == geo_2400.pixels
+
+
 def test_cache_roundtrip_blob(tmp_path: Path):
     path = tmp_path / "calib.json"
     geometry = _geometry()

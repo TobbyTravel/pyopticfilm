@@ -18,7 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **8300i SE full-frame feed2** follows the capture PPI map via `feed_to_scan_steps_for_dpi` (ME-long → 13128); SE/V2 still use a constant `feed_to_scan_steps`.
 - **Scan Lab capture ME labels** use the selected leaf’s `exposure_short` (and treat any higher non-IR exposure as ME-long), so 8300i 15000 / ~60000 brackets label correctly.
 - **8300i SE mid-ladder** (expanded captures): correct 900/1800 image dummy, pixel clock, feed2, and shading-strip clocks (nearest-band fills were wrong); promote measured 150/600/900/1800 rows. Cold-boot startup matches SE `INIT_REGS` (116/116).
-- **8300i SE edge artifacts** (Scan Lab raw TIFF analysis): round `ld_shift` scaling (clears ~1-line G/B residual at 1440) and host column unstagger `(1, 0)` at 1440/2400 for period-2 sawtooth. SE/V2 unchanged; ASIC `STAGGER` bit stays clear.
+- **8300i SE edge artifacts** (Scan Lab raw TIFF analysis): round `ld_shift` scaling (clears ~1-line G/B residual at 1440) and host column unstagger `(1, 0)` at 1440/2400 for period-2 sawtooth. ASIC `STAGGER` bit stays clear.
+- **8200i SE edge artifacts** (Scan Lab raw TIFF analysis): same host assemble fixes as 8300i — round `ld_shift` and column unstagger `(1, 0)` at 1440/2400. V2 unchanged; no 8300i register-table port. ASIC `STAGGER` bit stays clear.
 - **Scan validation set** is now **8200i SE + 8100 (V2) + 8300i SE + 7600i v1**.
 - OpticFilm 7600i v1: the main scan, colour and infrared, by default is sampled once vertically, with one CCD dummy line at 7200 dpi to avoid scanner stalls (zero at lower resolutions), a two-line buffer threshold and no backtracking.
 - OpticFilm 7600i v1: shading gains are computed from each scan's white frame; the recorded gains left ~1 % unevenness across the width.
@@ -27,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **GL128 stale ASIC shading across DPI**: `ensure_colour_asic_shading` no longer skips blob upload when `asic_shading_ready` is set from a prior narrower window (e.g. 1200 → 1440/2400). That left DVDSET coefficients short of the image width and painted END-side columns (displayed left after `mirror_x`) solid black.
 - **8300i SE 1440/2400 assemble crash**: ladder `LINCNT` override no longer folds host Y-unstagger spare into `geometry.lines`; `apply_y_stagger` clamps short GL128 buffers like `apply_line_shifts` instead of raising.
 - `default_frame_crop_norm` (called by NegPy for every scan-ready model) no longer fails on the OpticFilm 7600i v1 with "no attribute 'feed_to_scan_top_steps'": models other than the GL128 ones get the whole window.
 - USB open no longer sets the configuration of an already configured device. On the OpticFilm 7600i v1 this reset only the host's bulk data toggles, so every second session lost its first packet and timed out.

@@ -12,6 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyopticfilm.device.model_8100_v2 import MODEL_8100_V2
+from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
 from pyopticfilm.device.model_8300i_se import MODEL_8300I_SE
 from pyopticfilm.scan.calibrate import CalibEntry, Calibrator
 from pyopticfilm.scan.geometry import compute_geometry
@@ -141,7 +143,7 @@ def test_expose_base_does_not_create_fringe_on_aligned_edge():
 def test_gl128_line_shift_scales_with_asic_dpi(dpi: int):
     geo = compute_geometry(dpi, model=MODEL_8300I_SE, area=None)
     assert geo.shift_r == 0
-    # 8300i rounds; SE/V2 still floor via geometry default.
+    # 8300i / 8200i SE round; V2 still floors via geometry default.
     assert geo.shift_g == MODEL_8300I_SE.scaled_ld_shift(
         MODEL_8300I_SE.ld_shift_g, geo.asic_dpi
     )
@@ -169,18 +171,29 @@ def test_8300i_ld_shift_round_clears_1440_residual():
     assert abs(ideal_b - geo.shift_b) < 0.6
 
 
-def test_se_still_floors_ld_shift_at_1440():
-    from pyopticfilm.device.model_8200i_se import MODEL_8200I_SE
-
+def test_se_rounds_ld_shift_at_1440():
     geo = compute_geometry(1440, model=MODEL_8200I_SE, area=None)
-    assert geo.shift_g == MODEL_8200I_SE.ld_shift_g * 1440 // MODEL_8200I_SE.motor_base_ydpi
-    assert geo.shift_b == MODEL_8200I_SE.ld_shift_b * 1440 // MODEL_8200I_SE.motor_base_ydpi
+    assert geo.shift_g == MODEL_8200I_SE.scaled_ld_shift(
+        MODEL_8200I_SE.ld_shift_g, 1440
+    )
+    assert geo.shift_b == MODEL_8200I_SE.scaled_ld_shift(
+        MODEL_8200I_SE.ld_shift_b, 1440
+    )
+    assert geo.shift_g == 5
+    assert geo.shift_b == 10
 
 
-def test_8300i_host_stagger_at_1440_and_2400_only():
-    g1440 = compute_geometry(1440, model=MODEL_8300I_SE, area=None)
-    g1800 = compute_geometry(1800, model=MODEL_8300I_SE, area=None)
-    g2400 = compute_geometry(2400, model=MODEL_8300I_SE, area=None)
+def test_v2_still_floors_ld_shift_at_1440():
+    geo = compute_geometry(1440, model=MODEL_8100_V2, area=None)
+    assert geo.shift_g == MODEL_8100_V2.ld_shift_g * 1440 // MODEL_8100_V2.motor_base_ydpi
+    assert geo.shift_b == MODEL_8100_V2.ld_shift_b * 1440 // MODEL_8100_V2.motor_base_ydpi
+
+
+@pytest.mark.parametrize("model", [MODEL_8300I_SE, MODEL_8200I_SE])
+def test_host_stagger_at_1440_and_2400_only(model):
+    g1440 = compute_geometry(1440, model=model, area=None)
+    g1800 = compute_geometry(1800, model=model, area=None)
+    g2400 = compute_geometry(2400, model=model, area=None)
     assert g1440.stagger_y == (1, 0)
     assert g1440.num_staggered_lines == 1
     assert g2400.stagger_y == (1, 0)
@@ -190,11 +203,12 @@ def test_8300i_host_stagger_at_1440_and_2400_only():
 
 
 @pytest.mark.parametrize("dpi", [1440, 2400])
-def test_bringup_lincnt_keeps_y_stagger_spare(dpi: int):
+@pytest.mark.parametrize("model", [MODEL_8300I_SE, MODEL_8200I_SE])
+def test_bringup_lincnt_keeps_y_stagger_spare(dpi: int, model):
     """Ladder LINCNT override must not fold unstagger spare into geometry.lines."""
     from pyopticfilm.scan.bringup import bringup_scan_geometry
 
-    geo, _meta = bringup_scan_geometry(MODEL_8300I_SE, dpi, profile="preview_safe")
+    geo, _meta = bringup_scan_geometry(model, dpi, profile="preview_safe")
     assert geo.num_staggered_lines == 1
     assert geo.stagger_y == (1, 0)
     y_ov = geo.optical_line_count // geo.lines
