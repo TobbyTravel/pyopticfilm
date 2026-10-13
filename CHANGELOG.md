@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-10-13
+
 ### Added
 
 - **OpticFilm 8300i SE** (`07b3:181f`): GL128 leaf (`Model8300iSE`) with capture-derived geometry (V2-scale `LINCNT`, PPI-dependent colour-short feed2 13040…13128), V2-matched `LPERIOD`, exposure 15000, image dummy/pixel-clock maps, shading-strip clocks (white @7200 dummy `0x26`), and CUSTOM motor slope ROM (`tables_8300i_se.py`, heads `0x32BB` / `0x846A`). IR capable. Hardware-tested (`scan_ready=True`); lock oracles at `tests/model_lock/opticfilm_8300i_se/`. Setup goldens at `tests/traces/python/8300i_se/`. See `docs/gl128-model-comparison.md` §10.
