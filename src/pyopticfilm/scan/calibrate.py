@@ -241,6 +241,9 @@ class Calibrator:
         self.cache.load()
         self.pipeline = ImagePipeline(model)
         self._active: CalibEntry | None = None
+        #: Entry whose AHB blob is currently loaded in ASIC DVDSET RAM (may lag
+        #: ``_active`` when :meth:`find_for_scan` points at a different window).
+        self._loaded_asic_shading: CalibEntry | None = None
         #: GL128: after ASIC shading upload, skip host dark/white stretch on scan.
         self.prefer_asic_shading = False
 
@@ -263,6 +266,7 @@ class Calibrator:
     def clear(self) -> None:
         self.cache.clear()
         self._active = None
+        self._loaded_asic_shading = None
 
     def find_for_scan(
         self,
@@ -334,6 +338,7 @@ class Calibrator:
             self.asic.asic_shading_ready = True  # type: ignore[attr-defined]
         self.prefer_asic_shading = True
         self._active = entry
+        self._loaded_asic_shading = entry
         logger.info(
             "GL128 applied cached ASIC shading dpi=%d blob=%d bytes",
             entry.resolution,
@@ -403,6 +408,7 @@ class Calibrator:
                 self.cache.upsert(entry)
                 self.cache.save()
                 self._active = entry
+                self._loaded_asic_shading = entry
                 self.prefer_asic_shading = True
                 logger.info(
                     "GL128 ASIC shading measured dpi=%d blob=%d bytes",
@@ -444,6 +450,7 @@ class Calibrator:
                 self.cache.upsert(entry)
                 self.cache.save()
                 self._active = entry
+                self._loaded_asic_shading = None
                 self.prefer_asic_shading = False
                 logger.info(
                     "GL128 host dark/white calib dpi=%d pixels=%d (ASIC DVDSET off)",
@@ -469,15 +476,31 @@ class Calibrator:
 
         raise CalibrationError(colour_shading_failure_message(last_reason))
 
+    def _asic_shading_matches(self, entry: CalibEntry) -> bool:
+        """True when DVDSET RAM already holds this entry's table (same window)."""
+        if not getattr(self.asic, "asic_shading_ready", False):
+            return False
+        loaded = self._loaded_asic_shading
+        if loaded is None or not loaded.has_asic_blob:
+            return False
+        # Narrower stale tables (e.g. 1200→2400) leave END-side columns black
+        # under DVDSET; never treat a different resolution/width as ready.
+        return (
+            loaded.resolution == entry.resolution
+            and loaded.startx == entry.startx
+            and loaded.pixels == entry.pixels
+            and loaded.shading_blob == entry.shading_blob
+        )
+
     def ensure_colour_asic_shading(self, geometry: ScanGeometry) -> CalibEntry:
         """Apply cached blob if present; otherwise measure at home (SF order)."""
         hit = self.find_for_scan(method="transparency", geometry=geometry)
         if hit is not None and hit.has_asic_blob:
-            if not getattr(self.asic, "asic_shading_ready", False):
-                self.apply_colour_asic_shading(hit)
-            else:
+            if self._asic_shading_matches(hit):
                 self.prefer_asic_shading = True
                 self._active = hit
+            else:
+                self.apply_colour_asic_shading(hit)
             return hit
         if (
             hit is not None
@@ -498,6 +521,7 @@ class Calibrator:
                 self.asic.asic_shading_ready = False  # type: ignore[attr-defined]
             self.prefer_asic_shading = False
             self._active = hit
+            self._loaded_asic_shading = None
             logger.info(
                 "GL128 using cached host dark/white calib dpi=%d",
                 geometry.resolution,

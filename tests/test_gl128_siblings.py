@@ -127,8 +127,14 @@ def test_divergent_fields_match_capture_catalog():
     assert MODEL_8300I_SE.stagger_y_for(1440) == (1, 0)
     assert MODEL_8300I_SE.stagger_y_for(2400) == (1, 0)
     assert MODEL_8300I_SE.stagger_y_for(1800) == ()
-    assert not callable(getattr(MODEL_8200I_SE, "scaled_ld_shift", None))
-    assert not callable(getattr(MODEL_8200I_SE, "stagger_y_for", None))
+    assert MODEL_8200I_SE.scaled_ld_shift(24, 1440) == 5
+    assert MODEL_8200I_SE.scaled_ld_shift(48, 1440) == 10
+    assert MODEL_8200I_SE.stagger_y_for(1440) == (1, 0)
+    assert MODEL_8200I_SE.stagger_y_for(2400) == (1, 0)
+    assert MODEL_8200I_SE.stagger_y_for(1800) == ()
+    # V2 stays on floor ld_shift / empty host stagger until separate TIFF evidence.
+    assert not callable(getattr(MODEL_8100_V2, "scaled_ld_shift", None))
+    assert not callable(getattr(MODEL_8100_V2, "stagger_y_for", None))
     assert dict(MODEL_8200I_SE.max_image_lincnt_by_feed2) == {
         13128: 4836,
         13560: 27476,

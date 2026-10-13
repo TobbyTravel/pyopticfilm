@@ -31,7 +31,8 @@ Two properties of this map are worth knowing before reading the code:
 SilverFast 9 PPI ladder (session ``13_ppi_ladder``): 150, 300, 600, 720, 900,
 1200, 1440, 1800, 2400, 3600, 7200. Below 600 dpi the ASIC is programmed like
 600 (``DPISET`` floors at 100); the host downsamples. ``STAGGER`` was clear at
-every PPI including 7200.
+every PPI including 7200. Host assemble still rounds mid-ladder ``ld_shift`` and
+unstaggers columns at 1440/2400 (Scan Lab TIFF-validated; ASIC bit stays clear).
 
 Shared GL128 tables and helpers live in :mod:`pyopticfilm.device.gl128_common`.
 This class only declares SE identity and the capture-proven divergences from
@@ -51,6 +52,23 @@ from pyopticfilm.device.gl128_common import (
     PIXEL_CLOCK_LONG_BY_DPI,
     Gl128Common,
 )
+
+# Host column Y unstagger (apply_y_stagger) for PPIs with native period-2 sawtooth
+# in Scan Lab TIFFs (2026-10-13). Pre-mirror pattern (1, 0); ASIC STAGGER bit stays
+# clear (session 13 / Scan Lab). Same host technique as the 8300i SE leaf.
+_STAGGER_BY_DPI_8200I_SE: dict[int, tuple[int, ...]] = {
+    150: (),
+    300: (),
+    600: (),
+    720: (),
+    900: (),
+    1200: (),
+    1440: (1, 0),
+    1800: (),
+    2400: (1, 0),
+    3600: (),
+    7200: (),
+}
 
 
 @dataclass(frozen=True)
@@ -106,6 +124,15 @@ class Model8200iSE(Gl128Common):
         default_factory=lambda: dict(PIXEL_CLOCK_LONG_BY_DPI)
     )
     dummy_by_dpi: Mapping[int, int] = field(default_factory=lambda: dict(DUMMY_BY_DPI))
+
+    def scaled_ld_shift(self, ld: int, asic_dpi: int) -> int:
+        """Round line-distance shifts (floor left ~0.8 G / ~0.6 B at 1440)."""
+        return round(int(ld) * int(asic_dpi) / int(self.motor_base_ydpi))
+
+    def stagger_y_for(self, resolution: int) -> tuple[int, ...]:
+        """Host column unstagger; see ``_STAGGER_BY_DPI_8200I_SE``."""
+        key = self.asic_dpi_for(resolution)
+        return tuple(_STAGGER_BY_DPI_8200I_SE.get(key, ()))
 
 
 MODEL_8200I_SE = Model8200iSE()
