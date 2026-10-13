@@ -56,7 +56,7 @@ independently proven on V2.
 |---|---------|---------|----------|
 | 1 | USB product ID | `0x1824` | `0x1825` |
 | 2 | Infrared / iSRD | no | yes |
-| 3 | Full-frame feed 2 | 13128 | 13704 |
+| 3 | Full-frame feed 2 | 13128 | 13128 (TA top; session 03 / #67) |
 | 4 | PPI-ladder feed 2 | 13128 | 13560 |
 | 5 | `LPERIOD` at every captured PPI | V2 higher (see timing table) | SE session 13 table |
 | 6 | White shading dummy `0x2B` @ 7200 | `0x10` | `0x17` |
@@ -244,9 +244,9 @@ is reported as matching 135i in that analysis (84/116).
 | FEEDL (steps) | 8100 V2 | 8200i SE | 135i | Verdict |
 |---------------|---------|----------|------|---------|
 | 28292 | feed 1 reference (sessions 04, 06) | feed 1 reference | not observed | different |
-| 13704 | not used as full-frame feed 2 | feed 2 full-frame default | not observed | different |
-| 13128 | feed 2 all scan types (TA top) | feed 2 top-of-window / preview | not observed | different |
-| 13560 | not observed | PPI ladder crop origin | not observed | inconclusive |
+| 13704 | not used as full-frame feed 2 | historical session 04 “full-ish” crop (not TA top; see #67) | not observed | different |
+| 13128 | feed 2 all scan types (TA top) | feed 2 full-frame / preview top (session 03) | not observed | same |
+| 13560 | not observed | PPI ladder crop origin (session 13; PPI-independent) | not observed | different |
 | 20232 | not observed | lower-half crop (session 09b) | not observed | inconclusive |
 | 27636 | scan-window end (model table) | scan-window end | unknown | inconclusive |
 | 17631 | — | — | 7200 scan positioning | different |
@@ -262,17 +262,19 @@ is reported as matching 135i in that analysis (84/116).
 |-----------|---------|----------|------|---------|
 | `feed_steps_per_inch` | 14400 | 14400 | unknown | inconclusive |
 | `feed_to_reference_steps` | 28292 | 28292 | unknown | inconclusive |
-| `feed_to_scan_steps` | 13128 | 13704 | 17631 (7200 scan) | different |
+| `feed_to_scan_steps` | 13128 | 13128 | 17631 (7200 scan) | same (SE/V2) |
 | `feed_to_scan_top_steps` | 13128 | 13128 | unknown | inconclusive |
 | `feed_to_scan_bottom_steps` | 20232 | 20232 | unknown | inconclusive |
 | `ladder_feed2_steps` | 13128 | 13560 | unknown | different |
 | `scan_window_end_steps` | 27636 | 27636 | unknown | inconclusive |
 | `max_feed_steps` | 28292 | 28292 | unknown (insert uses 71490) | different |
 
-SE and V2 share the 28292 reference feed and the same slope-table AHB
-windows; they disagree on where feed 2 puts the full frame (13704 vs
-13128) and on the ladder crop origin (13560 vs 13128). 135i never shows
-those SE/V2 distances. Its 7200 analogue is 17631, and the loader adds
+SE and V2 share the 28292 reference feed, the same slope-table AHB
+windows, and full-frame feed 2 at the TA top (**13128**). They disagree on
+the ladder crop origin (SE **13560** vs V2 **13128**). Session 04’s **13704**
+was a “full-ish” crop only and is kept as a `max_image_lincnt_by_feed2`
+fixture, not the model default (#67). 135i never shows those SE/V2
+distances. Its 7200 analogue is 17631, and the loader adds
 insert/eject/preview/panorama FEEDL values that do not exist on the
 manual feeders. Slope **payload** identity on V2 and 135i is still
 `unknown` at the byte level in this document (V2 is treated as the SE ROM
@@ -644,8 +646,8 @@ and 16040 depending on PPI.
 | 13040 / 13096 / 13112 / 13122 / 13124 / 13126 / 13128 | feed 2 full-frame origin (PPI-dependent; see §10.2) |
 | 1 | image-pass placeholder |
 
-SE ladder origin 13560 and historical SE full-frame 13704 do **not** appear
-as settled feed2 values. `Model8300iSE.feed_to_scan_steps_for_dpi` programs
+SE ladder origin 13560 and session-04’s historical 13704 crop do **not** appear
+as settled feed2 values on 8300i. `Model8300iSE.feed_to_scan_steps_for_dpi` programs
 the PPI-dependent colour-short map (ME-long → 13128); `feed_to_scan_steps`
 remains 13128 only as a dpi-less fallback.
 
