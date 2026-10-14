@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-10-14
+
 ### Fixed
 
 - **GL128 intermittent positioning stall** (high-pitched motor whine at scan start; the scan came back almost black, with a white band at the top that fades into the black): the second positioning feed was armed, and its slope tables uploaded, while the first feed's motor was still decelerating (vendor probe `0x21=0x04` arrives with `MOTORENB` still set). The driver now follows SilverFast's handoff: drop `MTRPWR` (`0x02=0x08`), `FEEDL=1`, then poll `0x101` until `MOTORENB` clears before any feed or image-pass `START`. A motor that stays enabled for 2 s raises `MotorTimeoutError` instead of starting the next move. Shared by all GL128 leaves; hardware-verified on the 8200i SE.
