@@ -807,6 +807,8 @@ class Gl128ScanSession(ScanSession):
         r = self.se_regs
         proto = self.asic.protocol
 
+        if start_motor:
+            self.asic.wait_motor_idle("before the image pass START")
         proto.write_register(r.REG_CLRCNT, r.CLRCNT_ALL)
         reg01 = proto.read_register(r.REG_0x01) | r.SCAN
         proto.write_register(r.REG_0x01, reg01)

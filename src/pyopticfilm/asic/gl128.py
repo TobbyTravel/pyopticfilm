@@ -117,6 +117,11 @@ _FEED_PROBE_DONE = 0x04
 #: taken at face value. The probe and ``FEEDFSH`` both survive the previous
 #: feed, so a completion seen inside this window is the *old* move's.
 _FEED_START_TIMEOUT_S = 2.0
+#: The vendor probe reads ``0x04`` while ``MOTORENB`` is still set. SilverFast drops
+#: ``MTRPWR`` and polls ``0x101`` until ``MOTORENB`` clears before it writes ``0x02``,
+#: the feed registers or the slope RAM again. A ramp loaded into a moving motor stalls it.
+_MOTOR_IDLE_TIMEOUT_S = 2.0
+_MOTOR_IDLE_POLL_S = 0.015
 
 #: Register block written immediately before every captured fast feed
 #: (session 03 t≈8.98). Values are constants in the captures, not DPI-dependent.
@@ -1484,6 +1489,7 @@ class Gl128:
             raise AsicError(f"Refusing FEEDL={steps}: larger than any captured feed ({max_steps}). See captures/8200i-se/MOTOR.md.")
 
         r = self.registers
+        self.wait_motor_idle(f"before arming a {steps}-step feed")
         setup = dict(_FEED_SETUP_REGS)
         self._write_many(setup)
         self.protocol.write_u24(r.REG_FEEDL, steps)
@@ -1496,33 +1502,49 @@ class Gl128:
         before = self.read_status_reliable()
         # Capture: start feed with 0x0f only — no 0x0d counter clear here.
         self._write(r.REG_START, r.START_GO)
-
-        # Sanity-check: require motion to last at least a fraction of the
-        # reference feed time. This caps the minimum to keep tests responsive.
-        min_motion_s: float | None = None
-        if require_motion:
-            ref_steps = max(1, int(self.model.feed_to_reference_steps))
-            # Session 03 shows ~1s for 28292 steps; we keep this conservative.
-            expected_s = 1.0 * (steps / ref_steps) * 0.9
-            min_motion_s = min(0.25, max(0.05, expected_s))
+        started = time.monotonic()
 
         self._wait_feed_probe_done(
             steps=steps,
             timeout_s=timeout_s,
             stale_done=stale_done,
             require_motion=require_motion,
-            min_motion_s=min_motion_s,
         )
+        done_s = time.monotonic() - started
         self._write(r.REG_0x02, r.FASTFED)  # 0x08 after move
         self.protocol.write_u24(r.REG_FEEDL, 1)
-        after = self.read_status_reliable()
+        after = self.wait_motor_idle(f"after a {steps}-step feed")
         logger.info(
-            "GL128 feed of %d steps complete (status 0x%02x -> 0x%02x, home %s -> %s)",
+            "GL128 feed of %d steps complete in %.2fs, idle at %.2fs (status 0x%02x -> 0x%02x, home %s -> %s)",
             steps,
+            done_s,
+            time.monotonic() - started,
             before.raw,
             after.raw,
             before.is_at_home,
             after.is_at_home,
+        )
+
+    def wait_motor_idle(self, context: str) -> ScannerStatus:
+        """Poll ``0x101`` until ``MOTORENB`` clears; raise if the motor stays enabled.
+
+        Every write of ``0x02``, a feed's registers, the slope RAM or ``START`` waits here first.
+        """
+        deadline = time.monotonic() + _MOTOR_IDLE_TIMEOUT_S
+        while True:
+            status = self.read_status_reliable()
+            if not status.is_motor_enabled:
+                return status
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(_MOTOR_IDLE_POLL_S)
+        try:
+            self._update_bits(self.registers.REG_0x02, clear_bits=self.registers.MTRPWR)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("GL128 motor idle timeout motor clear: %s", exc)
+        raise MotorTimeoutError(
+            f"GL128 motor stayed enabled for {_MOTOR_IDLE_TIMEOUT_S:.0f}s {context} "
+            f"(status=0x{int(status.raw) & 0xFF:02x}). Check that the film holder moves freely."
         )
 
     def _read_feed_probe(self) -> int:
@@ -1545,18 +1567,16 @@ class Gl128:
         timeout_s: float,
         stale_done: bool = False,
         require_motion: bool = True,
-        min_motion_s: float | None = None,
     ) -> None:
-        """Wait for a feed to finish.
+        """Wait for a feed's step count to run out (probe ``0x21=0x04`` or ``FEEDFSH``).
 
-        When ``require_motion`` is true (positioning feeds), the wait is
-        capture-faithful: it refuses to accept a stale ``0x21=0x04``
-        completion. Instead, it requires observing motor motion on the
-        `0x101` status register at least once before accepting completion.
+        The motor is still decelerating at this point; :meth:`wait_motor_idle` marks
+        the end of the move. With ``require_motion`` (positioning feeds) a completion
+        counts only after ``0x101`` has shown ``MOTORENB``, so a stale ``0x04`` from
+        the previous feed is never taken.
         """
         deadline = time.monotonic() + timeout_s
         motion_seen = False
-        motion_start_t: float | None = None
         while time.monotonic() < deadline:
             probe = self._read_feed_probe()
             status = self.read_status_reliable()
@@ -1567,17 +1587,10 @@ class Gl128:
                     return
             else:
                 if not motion_seen:
-                    # Phase 1: observe motion (use 0x101's MOTORENB bit).
-                    if status.is_motor_enabled:
-                        motion_seen = True
-                        motion_start_t = time.monotonic()
+                    # The probe in this iteration was read before the status that
+                    # shows motion, so only a later iteration's probe is current.
+                    motion_seen = status.is_motor_enabled
                 else:
-                    # Phase 2: observe completion, but optionally wait a minimum
-                    # motion duration so we do not accept a stale completion
-                    # too early.
-                    if min_motion_s is not None and motion_start_t is not None and (time.monotonic() - motion_start_t) < min_motion_s:
-                        time.sleep(HOME_POLL_S)
-                        continue
                     if probe == _FEED_PROBE_DONE:
                         return
                     if status.is_feeding_finished and not status.is_motor_enabled:
