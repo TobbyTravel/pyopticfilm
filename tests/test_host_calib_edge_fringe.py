@@ -183,10 +183,27 @@ def test_se_rounds_ld_shift_at_1440():
     assert geo.shift_b == 10
 
 
-def test_v2_still_floors_ld_shift_at_1440():
+def test_v2_rounds_ld_shift_at_1440():
+    """8100 V2 TIFFs (2026-10-16) showed the same floor residual (G +0.8 / B +0.6 rows)."""
     geo = compute_geometry(1440, model=MODEL_8100_V2, area=None)
-    assert geo.shift_g == MODEL_8100_V2.ld_shift_g * 1440 // MODEL_8100_V2.motor_base_ydpi
-    assert geo.shift_b == MODEL_8100_V2.ld_shift_b * 1440 // MODEL_8100_V2.motor_base_ydpi
+    assert geo.shift_g == 5
+    assert geo.shift_b == 10
+
+
+def test_v2_host_stagger_table():
+    """8100 V2 unstagger: (4, 0) @7200, (1, 0) @1440/2400, nothing elsewhere (TIFF-measured)."""
+    g7200 = compute_geometry(7200, model=MODEL_8100_V2, area=None)
+    g2400 = compute_geometry(2400, model=MODEL_8100_V2, area=None)
+    g1800 = compute_geometry(1800, model=MODEL_8100_V2, area=None)
+    g1440 = compute_geometry(1440, model=MODEL_8100_V2, area=None)
+    assert g7200.stagger_y == (4, 0)
+    assert g7200.num_staggered_lines == 4
+    assert g2400.stagger_y == (1, 0)
+    assert g2400.num_staggered_lines == 1
+    assert g1440.stagger_y == (1, 0)
+    assert g1440.num_staggered_lines == 1
+    assert g1800.stagger_y == ()
+    assert g1800.num_staggered_lines == 0
 
 
 @pytest.mark.parametrize("model", [MODEL_8300I_SE, MODEL_8200I_SE])

@@ -110,6 +110,29 @@ _LADDER_LINCNT_BY_DPI_V2: dict[int, int] = {
 }
 assert set(_LADDER_LINCNT_BY_DPI_V2) == set(LADDER_LINCNT_BY_DPI)
 
+# Host column Y unstagger (apply_y_stagger), pre-mirror patterns. Scan Lab TIFF
+# evidence (8100 V2, 35 mm frame, 2026-10-16), measured on the mount edge as the
+# row offset between even and odd output columns (period 2 in x, lag-2 autocorr
+# dominant), then confirmed by rescanning with the pattern applied:
+#   7200: 4.04 rows -> (4, 0) brings it to 0.05 (same CCD stagger the GL845
+#         leaves correct at 7200).
+#   1440: 0.79 rows and 2400: 1.35 rows -> (1, 0) as on the SE / 8300i leaves;
+#         the mirrored (0, 1) was tried first and doubled the comb instead.
+# 1200 / 3600 measured flat. Other PPIs left empty; ASIC STAGGER bit stays clear.
+_STAGGER_BY_DPI_8100_V2: dict[int, tuple[int, ...]] = {
+    150: (),
+    300: (),
+    600: (),
+    720: (),
+    900: (),
+    1200: (),
+    1440: (1, 0),
+    1800: (),
+    2400: (1, 0),
+    3600: (),
+    7200: (4, 0),
+}
+
 
 @dataclass(frozen=True)
 class Model8100V2(Gl128Common):
@@ -169,6 +192,15 @@ class Model8100V2(Gl128Common):
         if dvdset and self.asic_dpi_for(resolution) == 7200:
             return 0x10, 0x01, 0x01
         return super().shading_strip_clocks(resolution, dvdset=dvdset)
+
+    def scaled_ld_shift(self, ld: int, asic_dpi: int) -> int:
+        """Round line-distance shifts (floor left G +0.8 / B +0.6 rows at 1440)."""
+        return round(int(ld) * int(asic_dpi) / int(self.motor_base_ydpi))
+
+    def stagger_y_for(self, resolution: int) -> tuple[int, ...]:
+        """Host column unstagger; see ``_STAGGER_BY_DPI_8100_V2``."""
+        key = self.asic_dpi_for(resolution)
+        return tuple(_STAGGER_BY_DPI_8100_V2.get(key, ()))
 
 
 MODEL_8100_V2 = Model8100V2()

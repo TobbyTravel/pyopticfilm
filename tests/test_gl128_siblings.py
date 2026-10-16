@@ -132,9 +132,16 @@ def test_divergent_fields_match_capture_catalog():
     assert MODEL_8200I_SE.stagger_y_for(1440) == (1, 0)
     assert MODEL_8200I_SE.stagger_y_for(2400) == (1, 0)
     assert MODEL_8200I_SE.stagger_y_for(1800) == ()
-    # V2 stays on floor ld_shift / empty host stagger until separate TIFF evidence.
-    assert not callable(getattr(MODEL_8100_V2, "scaled_ld_shift", None))
-    assert not callable(getattr(MODEL_8100_V2, "stagger_y_for", None))
+    # V2 (Scan Lab TIFF evidence 2026-10-16, see model_8100_v2._STAGGER_BY_DPI_8100_V2):
+    # rounded ld_shift like the SE leaves; host unstagger (4, 0) at 7200, (1, 0) at 1440/2400.
+    assert MODEL_8100_V2.scaled_ld_shift(24, 1440) == 5
+    assert MODEL_8100_V2.scaled_ld_shift(48, 1440) == 10
+    assert MODEL_8100_V2.scaled_ld_shift(24, 7200) == 24
+    assert MODEL_8100_V2.stagger_y_for(7200) == (4, 0)
+    assert MODEL_8100_V2.stagger_y_for(1440) == (1, 0)
+    assert MODEL_8100_V2.stagger_y_for(2400) == (1, 0)
+    assert MODEL_8100_V2.stagger_y_for(3600) == ()
+    assert MODEL_8100_V2.stagger_y_for(1800) == ()
     assert dict(MODEL_8200I_SE.max_image_lincnt_by_feed2) == {
         13128: 4836,
         13560: 27476,

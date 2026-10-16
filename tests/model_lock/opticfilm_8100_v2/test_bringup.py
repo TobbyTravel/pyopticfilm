@@ -86,4 +86,5 @@ def test_effective_scan_area_narrows_x_when_aligned():
     assert effective[0] == pytest.approx(0.1)
     assert effective[1] == pytest.approx(0.2)
     assert effective[2] <= requested[2] + 1e-9
-    assert effective[3] <= requested[3] + 1e-9
+    # Host Y-unstagger spare at 2400 can nudge y2 a fraction above the request.
+    assert effective[3] == pytest.approx(requested[3], abs=1e-3)

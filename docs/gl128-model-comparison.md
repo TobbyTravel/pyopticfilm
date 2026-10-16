@@ -717,6 +717,12 @@ See [§10.8](#108-open-gaps-8300i-se).
 - Whether non-7200 `LPERIOD` deltas should become model-table overrides
   (captures say they differ; pyopticfilm currently inherits SE except 7200)
 
+Closed by hardware measurement (Scan Lab TIFFs, 2026-10-16): the 7200 dpi
+"jaggies" are a period-2 column stagger of 4 rows (same CCD stagger the GL845
+leaves correct); 1440/2400 show 0.8/1.35 rows. Fixed by host unstagger
+(`(4, 0)` @7200, `(1, 0)` @1440/2400, pre-mirror) plus rounded `ld_shift` as
+on the SE leaves; 1200/3600 flat. Full-frame 7200 loses 4 output rows.
+
 ### 8200i SE
 
 - Whether the real vendor driver polls `wIndex=0x21` (pyopticfilm does)
